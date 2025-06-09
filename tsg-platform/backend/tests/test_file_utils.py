@@ -1,4 +1,11 @@
+import sys
+from pathlib import Path
 import pytest
+
+# Ensure the backend directory is on the Python path when running tests from the
+# repository root. This allows importing the `app` package.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from app.utils.file_utils import validate_file_type
 
 
