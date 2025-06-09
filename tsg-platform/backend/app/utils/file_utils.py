@@ -4,7 +4,11 @@ File handling utilities
 import os
 import shutil
 import uuid
-import magic
+import mimetypes
+try:
+    import magic  # type: ignore
+except ImportError:  # pragma: no cover - optional dependency may be missing
+    magic = None
 from pathlib import Path
 from typing import Optional, List, Tuple
 from fastapi import UploadFile, HTTPException
@@ -68,13 +72,17 @@ def delete_file(file_path: str) -> bool:
 def get_file_mime_type(file_path: str) -> str:
     """
     Get the MIME type of a file.
-    
+
     Args:
         file_path: Path to the file
-        
+
     Returns:
         str: MIME type
     """
+    if magic is None:
+        guess, _ = mimetypes.guess_type(str(file_path))
+        return guess or ""
+
     mime = magic.Magic(mime=True)
     return mime.from_file(str(file_path))
 
@@ -154,8 +162,12 @@ async def validate_upload_file(
         raise HTTPException(status_code=400, detail="Empty file")
     
     # Check MIME type
-    mime = magic.Magic(mime=True)
-    mime_type = mime.from_buffer(chunk)
+    if magic is not None:
+        mime = magic.Magic(mime=True)
+        mime_type = mime.from_buffer(chunk)
+    else:
+        guess, _ = mimetypes.guess_type(file.filename)
+        mime_type = guess or ""
     
     # Reset file pointer
     await file.seek(0)

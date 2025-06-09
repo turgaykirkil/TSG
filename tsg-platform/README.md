@@ -73,6 +73,7 @@ Uygulama çalıştıktan sonra aşağıdaki adreslerden API dokümantasyonuna ul
 Testleri çalıştırmak için:
 
 ```bash
+cd backend
 pytest
 ```
 

@@ -98,7 +98,7 @@ Loglamaİlkeleri:
     - "Sunucu tarafında her yükleme girişimi, yüklenen dosyanın adı ve başarı/başarısızlık durumu loglanmalıdır (info seviyesinde)."
     - "Hata durumlarında (örneğin PDF içeriği okunamazsa) istisna bilgileri ve yığın izleri loglanmalı ancak hassas bilgiler (dosya yolu, kullanıcı IP vs.) loglanmamalıdır."
     - "Geliştirme aşamasında debug logları ile `extract_fields_from_pdf` fonksiyonunun çıkardığı veriler izlenebilir; üretimde debug logları kapatılarak sadece uyarı ve hata logları tutulmalıdır."
-Erişilebilirlikİlkeleri:
+Erişilebilirlik İlkeleri:
     - "Önyüzde dosya yükleme formu ve butonları klavye ile erişilebilir olmalıdır. `<label>` elementleri kullanılarak dosya seçme input’u etiketlenmeli ve ARIA özellikleriyle desteklenmelidir."
     - "PDF önizlemesi sağlanıyorsa, görme engelli kullanıcılar için PDF içeriğinin önemli kısımları metin olarak sunulmalı (örn. PDF içindeki metin çıkarılıp gösterilebilir)."
     - "Renk ve tasarım seçimlerinde **WCAG** standartlarına uygun kontrast oranları sağlanmalı; örneğin buton ve arka plan renkleri yeterli kontrasta sahip olmalıdır."
