@@ -19,9 +19,9 @@ Bu proje, TSG Araştırma Platformu'nun arka uç uygulamasını içerir.
 
 2. Gerekli ortam değişkenlerini ayarlayın:
    ```bash
-   cp .env.example .env
+   cp backend/.env.example backend/.env
    ```
-   Ardından `.env` dosyasını düzenleyerek gerekli ayarları yapın.
+   Ardından `backend/.env` dosyasını düzenleyerek gerekli ayarları yapın.
 
 3. Docker konteynerlerini başlatın:
    ```bash

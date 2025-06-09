@@ -174,7 +174,7 @@ def run_cleanup_jobs(
         }
     finally:
         # Only close the session if we created it
-        if db and not context.get("db"):
+        if db and created_db:
             db.close()
 
 # This allows the task to be run directly for testing

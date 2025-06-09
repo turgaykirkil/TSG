@@ -136,5 +136,5 @@ class CRUDGazetteEntry(CRUDBase[GazetteEntry, GazetteEntryCreate, GazetteEntryUp
         
         return self.update(db, db_obj=db_obj, obj_in=GazetteEntryUpdate(**update_data))
 
-# GazetteEntry CRUD işlemleri için singleton örneki
+# GazetteEntry CRUD işlemleri için singleton örneği
 gazette_entry = CRUDGazetteEntry(GazetteEntry)

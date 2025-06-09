@@ -142,5 +142,5 @@ class CRUDFileUpload(CRUDBase[FileUpload, FileUploadCreate, FileUploadUpdate]):
             error_message=error_message
         )
 
-# FileUpload CRUD işlemleri için singleton örneki
+# FileUpload CRUD işlemleri için singleton örneği
 file_upload = CRUDFileUpload(FileUpload)
