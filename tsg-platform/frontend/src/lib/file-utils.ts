@@ -42,10 +42,11 @@ export async function processExcelFile(file: File): Promise<ExcelProcessResult> 
       const jsonData = XLSX.utils.sheet_to_json<any>(worksheet, { header: 1, defval: '' });
       if (!jsonData?.length) continue;
 
-      // 5. Başlık satırını belirle (Ankara ise 2. satır, diğerleri 1. satır)
+      // 5. Başlık satırını belirle (İlk sheet ve Ankara ise 2. satır, diğerleri 1. satır)
+      const isFirstSheet = sheetName === workbook.SheetNames[0];
       const isAnkara = file.name.toLowerCase().includes('ankara');
-      const headerRowIndex = isAnkara ? 1 : 0;
-      const dataStartIndex = isAnkara ? 2 : 1;
+      const headerRowIndex = (isFirstSheet && isAnkara) ? 1 : 0;
+      const dataStartIndex = (isFirstSheet && isAnkara) ? 2 : 1;
 
       // 6. Başlıkları al ve temizle
       const headers = (jsonData[headerRowIndex] || [])
