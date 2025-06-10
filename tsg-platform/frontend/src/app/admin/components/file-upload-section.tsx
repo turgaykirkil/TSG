@@ -263,7 +263,7 @@ const FileUploadSection: FC = () => {
             {files.map(file => (
               <div 
                 key={file.id} 
-                className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                className="border rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
@@ -344,7 +344,7 @@ const FileUploadSection: FC = () => {
                         removeFile(file.id);
                       }}
                       disabled={file.status === 'processing'}
-                      className="text-red-600 hover:bg-red-50"
+                      className="text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
                     >
                       Kaldır
                     </Button>
@@ -385,19 +385,19 @@ const FileUploadSection: FC = () => {
             <div className="space-y-6">
               {file.previewData.sheets.map((sheet, sheetIndex) => (
                 <div key={sheetIndex} className="border rounded-md overflow-hidden">
-                  <div className="bg-gray-50 px-4 py-2 border-b">
-                    <h4 className="text-md font-medium">
-                      Sayfa: {sheet.sheetName || 'Bilinmeyen'} (Toplam {sheet.rows?.length ?? 0} satır, {sheet.headers?.length ?? 0} sütun)
+                  <div className="bg-gray-50 dark:bg-gray-800 px-4 py-2 border-b dark:border-gray-700">
+                    <h4 className="text-md font-medium text-gray-900 dark:text-gray-100">
+                      Sayfa: <span className="font-semibold">{sheet.sheetName || 'Bilinmeyen'}</span> (Toplam {sheet.rows?.length ?? 0} satır, {sheet.headers?.length ?? 0} sütun)
                     </h4>
                   </div>
-                  <div className="overflow-auto max-h-96">
+                  <div className="overflow-auto max-h-96 bg-white dark:bg-gray-900/30 rounded-b-md">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="bg-gray-100">
+                        <tr className="bg-gray-100 dark:bg-gray-800">
                           {sheet.headers.map((header, index) => (
                             <th 
                               key={index} 
-                              className="px-4 py-2 text-left font-medium text-gray-700 whitespace-nowrap"
+                              className="px-4 py-2 text-left font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap"
                             >
                               {header || `Sütun ${index + 1}`}
                             </th>
@@ -406,9 +406,9 @@ const FileUploadSection: FC = () => {
                       </thead>
                       <tbody>
                         {sheet.rows.slice(0, 5).map((row, rowIndex) => (
-                          <tr key={rowIndex} className="border-t">
+                          <tr key={rowIndex} className="border-t dark:border-gray-700">
                             {sheet.headers.map((header, colIndex) => (
-                              <td key={colIndex} className="px-4 py-2 text-sm">
+                              <td key={colIndex} className="px-4 py-2 text-sm dark:text-gray-200">
                                 {row[header] !== undefined && row[header] !== null ? 
                                   String(row[header]).slice(0, 100) : 
                                   ''
