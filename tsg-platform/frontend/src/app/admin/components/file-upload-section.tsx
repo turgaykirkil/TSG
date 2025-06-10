@@ -1,11 +1,21 @@
 'use client';
 
-import { type FC, useState, useCallback } from 'react';
+import { type FC, useState, useCallback, useRef } from 'react';
 import { useDropzone, type FileRejection } from 'react-dropzone';
 import { toast } from 'sonner';
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 import { MUDURLUKLER } from "@/lib/constants/mudurlukler";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { processExcelFile, type ExcelProcessResult } from '@/lib/file-utils';
 import type { CustomFile } from '@/lib/types/file.types';
 import {
@@ -25,9 +35,96 @@ function formatFileSize(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
+type HeaderSelection = {
+  sheetName: string;
+  columnName: string;
+  columnType: 'sicil_no' | 'firma_unvani' | 'none';
+};
+
 const FileUploadSection: FC = () => {
   const [files, setFiles] = useState<CustomFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedHeader, setSelectedHeader] = useState<{sheetName: string; columnName: string} | null>(null);
+  const [headerSelections, setHeaderSelections] = useState<Record<string, HeaderSelection[]>>({});
+  const dialogCloseRef = useRef<HTMLButtonElement>(null);
+
+  // Başlık seçim modalı
+  const renderHeaderSelectionModal = () => (
+    <Dialog>
+      <DialogTrigger asChild>
+        <button ref={dialogCloseRef} className="hidden" />
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Sütun Türünü Seçin</DialogTitle>
+        </DialogHeader>
+        <div className="py-4">
+          <p className="mb-4">
+            <span className="font-medium">{selectedHeader?.columnName}</span> sütununu seçin:
+          </p>
+          <RadioGroup 
+            onValueChange={(value: 'sicil_no' | 'firma_unvani' | 'none') => {
+              if (!selectedHeader) return;
+              
+              const { sheetName, columnName } = selectedHeader;
+              setHeaderSelections(prev => {
+                const sheetSelections = [...(prev[sheetName] || [])];
+                const existingIndex = sheetSelections.findIndex(s => s.columnName === columnName);
+                
+                if (existingIndex >= 0) {
+                  sheetSelections[existingIndex].columnType = value;
+                } else {
+                  sheetSelections.push({ sheetName, columnName, columnType: value });
+                }
+                
+                return {
+                  ...prev,
+                  [sheetName]: sheetSelections
+                };
+              });
+              
+              setSelectedHeader(null);
+              if (dialogCloseRef.current) {
+                dialogCloseRef.current.click();
+              }
+            }}
+            defaultValue="none"
+            className="space-y-2"
+          >
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="sicil_no" id="sicil_no" />
+              <Label htmlFor="sicil_no">Sicil No</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="firma_unvani" id="firma_unvani" />
+              <Label htmlFor="firma_unvani">Firma Ünvanı</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="none" id="none" />
+              <Label htmlFor="none">Seçme</Label>
+            </div>
+          </RadioGroup>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
+  // Seçili sütun türünü al ve logla
+  const getColumnType = (sheetName: string, columnName: string) => {
+    const selection = headerSelections[sheetName]?.find(s => s.columnName === columnName);
+    const columnType = selection?.columnType || 'none';
+    console.log(`Sütun türü - Sayfa: ${sheetName}, Sütun: ${columnName}, Tür: ${columnType}`);
+    return columnType;
+  };
+
+  // Seçili sütun bilgilerini al
+  const getSelectedColumns = (sheetName: string) => {
+    const selections = headerSelections[sheetName] || [];
+    return {
+      sicilNo: selections.find(s => s.columnType === 'sicil_no'),
+      firmaUnvani: selections.find(s => s.columnType === 'firma_unvani')
+    };
+  };
 
   // Dosya durumunu güncelle
   const updateFileStatus = useCallback((
@@ -223,6 +320,7 @@ const FileUploadSection: FC = () => {
 
   return (
     <div className="space-y-6">
+      {renderHeaderSelectionModal()}
       <div 
         {...getRootProps()} 
         className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
@@ -394,14 +492,54 @@ const FileUploadSection: FC = () => {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="bg-gray-100 dark:bg-gray-800">
-                          {sheet.headers.map((header, index) => (
-                            <th 
+                          {sheet.headers.map((header, index) => {
+                            const isSelected = headerSelections[sheet.sheetName]?.some(
+                              sel => sel.columnName === header && sel.columnType !== 'none'
+                            );
+                            const selection = headerSelections[sheet.sheetName]?.find(
+                              sel => sel.columnName === header
+                            );
+                            
+                            return (
+                              <th 
                               key={index} 
-                              className="px-4 py-2 text-left font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap"
+                              className={`px-4 py-2 text-left font-medium whitespace-nowrap ${
+                                isSelected 
+                                  ? 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-100' 
+                                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                              }`}
+                              onClick={() => {
+                                console.log('Başlık tıklandı:', { 
+                                  sheet: sheet.sheetName, 
+                                  header,
+                                  currentSelection: selection
+                                });
+                                setSelectedHeader({ sheetName: sheet.sheetName, columnName: header });
+                                // Modal'ı tetikle
+                                setTimeout(() => {
+                                  if (dialogCloseRef.current) {
+                                    dialogCloseRef.current.click();
+                                  }
+                                }, 0);
+                              }}
+                              style={{ cursor: 'pointer' }}
                             >
-                              {header || `Sütun ${index + 1}`}
-                            </th>
-                          ))}
+                              <div className="flex items-center justify-between">
+                                <span>{header || `Sütun ${index + 1}`}</span>
+                                {getColumnType(sheet.sheetName, header) === 'sicil_no' && (
+                                  <Badge variant="secondary" className="ml-2 bg-green-600 hover:bg-green-700">
+                                    Sicil No
+                                  </Badge>
+                                )}
+                                {getColumnType(sheet.sheetName, header) === 'firma_unvani' && (
+                                  <Badge variant="secondary" className="ml-2 bg-purple-600 hover:bg-purple-700">
+                                    Firma Ünvanı
+                                  </Badge>
+                                )}
+                              </div>
+                              </th>
+                            );
+                          })}
                         </tr>
                       </thead>
                       <tbody>

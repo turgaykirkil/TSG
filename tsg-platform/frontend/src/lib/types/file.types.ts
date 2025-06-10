@@ -1,3 +1,6 @@
+// Sütun türleri
+export type ColumnType = 'sicil_no' | 'firma_unvani' | 'none';
+
 // Tablo başlık tipi
 export interface TableHeader {
   key: string;
@@ -42,6 +45,17 @@ export interface PdfProcessResult {
     error?: boolean;
     [key: string]: any;
   };
+}
+
+// Başlık seçim durumu
+export interface HeaderSelection {
+  columnName: string;
+  columnType: ColumnType;
+}
+
+// Sayfa başlık seçimleri
+export interface SheetHeaderSelections {
+  [sheetName: string]: HeaderSelection[];
 }
 
 // Özel dosya tipi
