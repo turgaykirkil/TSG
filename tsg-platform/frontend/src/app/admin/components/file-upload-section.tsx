@@ -1,19 +1,10 @@
 'use client';
 
-import { type FC, useState, useCallback, useRef } from 'react';
+import { type FC, useState, useCallback } from 'react';
 import { useDropzone, type FileRejection } from 'react-dropzone';
 import { toast } from 'sonner';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { MUDURLUKLER } from "@/lib/constants/mudurlukler";
 import { processExcelFile, type ExcelProcessResult, type ExcelSheetResult } from '@/lib/file-utils';
 import type { CustomFile } from '@/lib/types/file.types';
@@ -24,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ColumnTypeModal } from './column-type-modal';
 
 // Dosya boyutunu formatlayan yardımcı fonksiyon
 function formatFileSize(bytes: number): string {
@@ -45,7 +37,6 @@ const FileUploadSection: FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedHeader, setSelectedHeader] = useState<{sheetName: string; columnName: string} | null>(null);
   const [headerSelections, setHeaderSelections] = useState<Record<string, HeaderSelection[]>>({});
-  const dialogCloseRef = useRef<HTMLButtonElement>(null);
 
   // Seçili sütun türünü döndür
   const getColumnType = (sheetName: string, columnName: string): string => {
@@ -53,6 +44,53 @@ const FileUploadSection: FC = () => {
       sel => sel.columnName === columnName
     );
     return selection?.columnType || 'none';
+  };
+
+  // Başlık tıklandığında çalışır
+  const handleHeaderClick = (sheetName: string, columnName: string) => {
+    console.log('Seçilen başlık:', { sheetName, columnName });
+    
+    // Mevcut seçimi kontrol et
+    const currentType = getColumnType(sheetName, columnName);
+    console.log('Mevcut seçim:', currentType);
+    
+    // Modal'ı aç ve seçimi yap
+    setSelectedHeader({ sheetName, columnName });
+  };
+
+  // Başlık tipi seçildiğinde çalışır
+  const handleHeaderTypeSelect = (type: 'sicil_no' | 'firma_unvani' | 'none') => {
+    if (!selectedHeader) return;
+    
+    const { sheetName, columnName } = selectedHeader;
+    console.log('Seçilen tip:', { sheetName, columnName, type });
+    
+    setHeaderSelections(prev => {
+      const sheetSelections = [...(prev[sheetName] || [])];
+      const existingIndex = sheetSelections.findIndex(s => s.columnName === columnName);
+      
+      if (type === 'none') {
+        // Seçimi kaldır
+        if (existingIndex >= 0) {
+          sheetSelections.splice(existingIndex, 1);
+        }
+      } else {
+        // Yeni seçim ekle veya güncelle
+        const newSelection = { sheetName, columnName, columnType: type };
+        if (existingIndex >= 0) {
+          sheetSelections[existingIndex] = newSelection;
+        } else {
+          sheetSelections.push(newSelection);
+        }
+      }
+      
+      return {
+        ...prev,
+        [sheetName]: sheetSelections
+      };
+    });
+    
+    setSelectedHeader(null);
   };
 
   // Tüm sayfaları birleştir
@@ -341,71 +379,20 @@ const FileUploadSection: FC = () => {
 
   return (
     <div className="space-y-6">
-      <Dialog>
-        <DialogTrigger asChild>
-          <button ref={dialogCloseRef} className="hidden" />
-        </DialogTrigger>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Sütun Türünü Seçin</DialogTitle>
-          </DialogHeader>
-          <div className="py-4">
-            {selectedHeader && (
-              <>
-                <p className="mb-4">
-                  <span className="font-medium">{selectedHeader.columnName}</span> sütununu seçin:
-                </p>
-                <RadioGroup 
-                  onValueChange={(value: 'sicil_no' | 'firma_unvani' | 'none') => {
-                    if (!selectedHeader) return;
-                    
-                    const { sheetName, columnName } = selectedHeader;
-                    setHeaderSelections(prev => {
-                      const sheetSelections = [...(prev[sheetName] || [])];
-                      const existingIndex = sheetSelections.findIndex(s => s.columnName === columnName);
-                      
-                      if (existingIndex >= 0) {
-                        sheetSelections[existingIndex].columnType = value;
-                      } else {
-                        sheetSelections.push({ sheetName, columnName, columnType: value });
-                      }
-                      
-                      return {
-                        ...prev,
-                        [sheetName]: sheetSelections
-                      };
-                    });
-                    
-                    setSelectedHeader(null);
-                    if (dialogCloseRef.current) {
-                      dialogCloseRef.current.click();
-                    }
-                  }}
-                  value={selectedHeader ? getColumnType(selectedHeader.sheetName, selectedHeader.columnName) : 'none'}
-                  className="space-y-2"
-                >
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="sicil_no" id="sicil_no" />
-                    <Label htmlFor="sicil_no">Sicil No</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="firma_unvani" id="firma_unvani" />
-                    <Label htmlFor="firma_unvani">Firma Ünvanı</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="none" id="none" />
-                    <Label htmlFor="none">Seçme</Label>
-                  </div>
-                </RadioGroup>
-              </>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Sütun Tipi Seçim Modalı */}
+      {selectedHeader && (
+        <ColumnTypeModal
+          isOpen={!!selectedHeader}
+          onClose={() => setSelectedHeader(null)}
+          columnName={selectedHeader.columnName}
+          onSelectType={handleHeaderTypeSelect}
+        />
+      )}
+      
       <div 
         {...getRootProps()} 
-        className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-          isDragActive ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
+        className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
+          isDragActive ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-gray-300 dark:border-gray-700 hover:border-blue-400 dark:hover:border-blue-600'
         }`}
       >
         <input {...getInputProps()} />
@@ -574,11 +561,9 @@ const FileUploadSection: FC = () => {
                         {combinedSheet.headers?.map((header, headerIndex) => (
                           <th 
                             key={`${file.id}-${headerIndex}`} 
-                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-50"
-                            onClick={() => setSelectedHeader({
-                              sheetName: combinedSheet.sheetName,
-                              columnName: header
-                            })}
+                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200"
+                            onClick={() => handleHeaderClick(combinedSheet.sheetName, header)}
+                            title="Sütun türünü seçmek için tıklayın"
                           >
                             <div className="flex items-center space-x-2">
                               <span>{header}</span>
