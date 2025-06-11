@@ -60,6 +60,41 @@ const FileUploadSection: FC = () => {
     return `${baseClasses} text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700`;
   };
 
+  // Seçilen başlıklardaki değerleri konsola yazdır
+  const logSelectedColumnsData = () => {
+    if (!files.length) return;
+    
+    files.forEach(file => {
+      const sheets = file.previewData?.sheets || [];
+      const combinedSheet = sheets.length > 1 ? combineAllSheets(sheets) : sheets[0];
+      
+      if (!combinedSheet || !combinedSheet.rows?.length) return;
+      
+      // Seçili başlıkları bul
+      const selectedColumns = headerSelections[combinedSheet.sheetName] || [];
+      if (selectedColumns.length === 0) return;
+      
+      // Her satır için seçili sütunları topla
+      const result = combinedSheet.rows.map(row => {
+        const rowData: Record<string, any> = {};
+        
+        selectedColumns.forEach(col => {
+          if (col.columnName in row) {
+            rowData[`${col.columnName} (${col.columnType})`] = row[col.columnName];
+          }
+        });
+        
+        return rowData;
+      });
+      
+      // Sonuçları konsola yazdır
+      console.log(`\n=== ${file.name} - ${combinedSheet.sheetName} ===`);
+      console.log('Seçili Sütunlar:', selectedColumns.map(c => `${c.columnName} (${c.columnType})`));
+      console.log('Veriler:', result);
+      console.log('Toplam Kayıt:', result.length);
+    });
+  };
+
   // Başlık tıklandığında çalışır
   const handleHeaderClick = (sheetName: string, columnName: string) => {
     console.log('Seçilen başlık:', { sheetName, columnName });
@@ -97,6 +132,11 @@ const FileUploadSection: FC = () => {
           sheetSelections.push(newSelection);
         }
       }
+      
+      // Seçim yapıldıktan sonra verileri konsola yazdır
+      setTimeout(() => {
+        logSelectedColumnsData();
+      }, 100);
       
       return {
         ...prev,
