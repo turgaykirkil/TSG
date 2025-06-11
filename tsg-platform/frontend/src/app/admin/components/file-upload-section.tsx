@@ -46,6 +46,20 @@ const FileUploadSection: FC = () => {
     return selection?.columnType || 'none';
   };
 
+  // Başlık için stil sınıfını döndür
+  const getHeaderClassName = (sheetName: string, columnName: string): string => {
+    const type = getColumnType(sheetName, columnName);
+    const baseClasses = 'px-4 py-2 text-left text-xs font-medium uppercase tracking-wider cursor-pointer transition-colors duration-200';
+    
+    if (type === 'sicil_no') {
+      return `${baseClasses} bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50`;
+    } else if (type === 'firma_unvani') {
+      return `${baseClasses} bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-300 dark:hover:bg-green-900/50`;
+    }
+    
+    return `${baseClasses} text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700`;
+  };
+
   // Başlık tıklandığında çalışır
   const handleHeaderClick = (sheetName: string, columnName: string) => {
     console.log('Seçilen başlık:', { sheetName, columnName });
@@ -561,17 +575,22 @@ const FileUploadSection: FC = () => {
                         {combinedSheet.headers?.map((header, headerIndex) => (
                           <th 
                             key={`${file.id}-${headerIndex}`} 
-                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200"
+                            className={getHeaderClassName(combinedSheet.sheetName, header)}
                             onClick={() => handleHeaderClick(combinedSheet.sheetName, header)}
                             title="Sütun türünü seçmek için tıklayın"
                           >
                             <div className="flex items-center space-x-2">
-                              <span>{header}</span>
+                              <span className="font-semibold">{header}</span>
                               {getColumnType(combinedSheet.sheetName, header) !== 'none' && (
-                                <Badge variant="secondary">
-                                  {getColumnType(combinedSheet.sheetName, header) === 'sicil_no' 
-                                    ? 'Sicil No' 
-                                    : 'Firma Ünvanı'}
+                                <Badge 
+                                  variant="default"
+                                  className={`text-xs px-1.5 py-0.5 ${
+                                    getColumnType(combinedSheet.sheetName, header) === 'sicil_no' 
+                                      ? 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-700 dark:text-white dark:hover:bg-blue-600' 
+                                      : 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-700 dark:text-white dark:hover:bg-green-600'
+                                  }`}
+                                >
+                                  {getColumnType(combinedSheet.sheetName, header) === 'sicil_no' ? 'Sicil No' : 'Firma Ünvanı'}
                                 </Badge>
                               )}
                             </div>
