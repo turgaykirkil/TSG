@@ -99,3 +99,5 @@ docker-compose down
 docker-compose down -v
 
 lsof -ti :3002 | xargs kill -9
+
+dycruj-Xedcok-3vagva

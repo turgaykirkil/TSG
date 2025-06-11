@@ -2,13 +2,15 @@
 
 import { type FC, useState, useCallback } from 'react';
 import { useDropzone, type FileRejection } from 'react-dropzone';
-import { batchCreateCompanies } from '@/lib/api/companyScrape';
 import { toast } from 'sonner';
+import { Loader2 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { MUDURLUKLER } from "@/lib/constants/mudurlukler";
 import { processExcelFile, type ExcelProcessResult, type ExcelSheetResult } from '@/lib/file-utils';
 import type { CustomFile } from '@/lib/types/file.types';
+import { batchAddCompanies } from '@/lib/supabase';
 import {
   Select,
   SelectContent,
@@ -30,21 +32,31 @@ function formatFileSize(bytes: number): string {
 type HeaderSelection = {
   sheetName: string;
   columnName: string;
-  columnType: 'sicil_no' | 'firma_unvani' | 'none';
+  columnType: 'sicil_no' | 'firma_unvani' | 'sicil_mudurluk' | 'none';
 };
 
 const FileUploadSection: FC = () => {
   const [files, setFiles] = useState<CustomFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [selectedHeader, setSelectedHeader] = useState<{sheetName: string; columnName: string} | null>(null);
   const [headerSelections, setHeaderSelections] = useState<Record<string, HeaderSelection[]>>({});
+  const [selectedSicilMudurluk, setSelectedSicilMudurluk] = useState<string>(''); // Yeni state eklendi
 
   // Seçili sütun türünü döndür
   const getColumnType = (sheetName: string, columnName: string): string => {
-    const selection = headerSelections[sheetName]?.find(
-      sel => sel.columnName === columnName
-    );
-    return selection?.columnType || 'none';
+    // Tüm dosyaları kontrol et
+    for (const file of files) {
+      const fileSelections = headerSelections[file.id] || [];
+      const selection = fileSelections.find(
+        sel => sel.sheetName === sheetName && sel.columnName === columnName
+      );
+      if (selection) {
+        return selection.columnType;
+      }
+    }
+    return 'none';
   };
 
   // Başlık için stil sınıfını döndür
@@ -62,74 +74,151 @@ const FileUploadSection: FC = () => {
   };
 
   // Seçilen başlıklardaki değerleri işle ve veritabanına kaydet
-  const processAndSaveSelectedColumns = async () => {
-    if (!files.length || isProcessing) return;
+  const processAndSaveSelectedColumns = async (onProgress?: (progress: number) => void) => {
+    console.log('processAndSaveSelectedColumns başladı');
+    if (!files.length) {
+      console.log('İşlenecek dosya yok');
+      return 0;
+    }
+    if (isProcessing) {
+      console.log('Zaten işlem yapılıyor');
+      return 0;
+    }
     
     let totalSaved = 0;
+    let processedFiles = 0;
     
     try {
+      console.log('İşlem başlatılıyor...');
       setIsProcessing(true);
       
       for (const file of files) {
-        const sheets = file.previewData?.sheets || [];
+        console.log('Dosya nesnesi:', file);
+        console.log('Dosya işleniyor - ID:', file.id, 'Name:', file.name);
+        
+        if (!file.previewData) {
+          console.error('Dosyada previewData yok:', file);
+          continue;
+        }
+        
+        const sheets = file.previewData.sheets || [];
+        console.log('Sayfa sayısı:', sheets.length, 'Sayfalar:', sheets.map(s => s.sheetName || 'isimsiz'));
+        
+        if (sheets.length === 0) {
+          console.error('Dosyada sayfa yok:', file.name);
+          continue;
+        }
+        
         const combinedSheet = sheets.length > 1 ? combineAllSheets(sheets) : sheets[0];
+        console.log('Birleştirilmiş sayfa:', combinedSheet ? 'Mevcut' : 'Yok');
         
-        if (!combinedSheet || !combinedSheet.rows?.length) continue;
+        if (!combinedSheet?.rows?.length) {
+          console.log('İşlenecek satır yok veya sayfa boş');
+          continue;
+        }
         
-        // Seçili başlıkları bul
-        const selectedColumns = headerSelections[combinedSheet.sheetName] || [];
-        if (selectedColumns.length === 0) continue;
+        // Seçili sütunları al
+        console.log('Dosya ID:', file.id);
+        console.log('Mevcut headerSelections:', headerSelections);
+        const selections = headerSelections[file.id] || [];
+        console.log('Bu dosya için seçimler:', selections);
         
-        // Sicil No ve Firma Ünvanı sütunlarını ayırt et
-        const sicilNoColumn = selectedColumns.find(col => col.columnType === 'sicil_no');
-        const firmaUnvaniColumn = selectedColumns.find(col => col.columnType === 'firma_unvani');
+        const sicilNoColumn = selections.find(s => s.columnType === 'sicil_no')?.columnName;
+        const firmaUnvaniColumn = selections.find(s => s.columnType === 'firma_unvani')?.columnName;
+
+        console.log('Seçili sütunlar:', { sicilNoColumn, firmaUnvaniColumn });
         
-        if (!sicilNoColumn) {
-          console.warn('Sicil No sütunu seçili değil');
+        // Eğer hiç sütun seçilmemişse devam et
+        if (!sicilNoColumn && !firmaUnvaniColumn) {
+          console.log('Hiç sütun seçilmemiş, atlanıyor...');
+          continue;
+        }
+        
+        // Seçilen sütunların sayfada var olduğundan emin ol
+        const headers = combinedSheet.headers || [];
+        if ((sicilNoColumn && !headers.includes(sicilNoColumn)) || 
+            (firmaUnvaniColumn && !headers.includes(firmaUnvaniColumn))) {
+          console.error('Seçilen sütunlar sayfada bulunamadı');
+          toast.error('Seçilen sütunlar sayfada bulunamadı. Lütfen sütun seçimlerinizi kontrol edin.');
           continue;
         }
         
         // Verileri hazırla
-        const companiesToSave = [];
-        
-        for (const row of combinedSheet.rows) {
-          const sicilNo = row[sicilNoColumn.columnName]?.toString().trim();
-          
-          if (!sicilNo) continue; // Boş sicil numaralarını atla
-          
-          const companyData = {
-            sicil_no: sicilNo,
-            firma_unvani: firmaUnvaniColumn ? row[firmaUnvaniColumn.columnName]?.toString().trim() : null,
-            is_scraped: false,
-            last_scraped_at: null
+        type CompanyData = {
+          sicil_no: string;
+          firma_unvani: string;
+          sicil_mudurluk: string;  // Yeni eklenen alan
+          is_scraped: boolean;
+          last_scraped_at: null;
+          metadata: {
+            source: string;
+            import_date: string;
+            [key: string]: any;
           };
+        };
+
+        // Önce tüm satırları işle, sonra null olmayanları filtrele
+        const allRows = combinedSheet.rows.map(row => {
+          const sicilNo = sicilNoColumn ? String(row[sicilNoColumn] || '').trim() : '';
+          const firmaUnvani = firmaUnvaniColumn ? String(row[firmaUnvaniColumn] || '').trim() : '';
+          if (!sicilNo && !firmaUnvani) return null;
           
-          companiesToSave.push(companyData);
+          return {
+            sicil_no: sicilNo,
+            firma_unvani: firmaUnvani,
+            sicil_mudurluk: selectedSicilMudurluk,  // Seçilen sicil müdürlüğünü kullanıyoruz
+            is_scraped: false,
+            last_scraped_at: null,
+            metadata: {
+              source: 'excel_import',
+              import_date: new Date().toISOString()
+            }
+          };
+        });
+        
+        // Null değerleri filtrele ve tip dönüşümü yap
+        const companies: CompanyData[] = allRows.filter((row): row is CompanyData => row !== null);
+        
+        if (!companies.length) continue;
+        
+        // API'ye gönder
+        try {
+          // Supabase'e kaydet
+          const result = await batchAddCompanies(companies);
+          totalSaved += result?.length || 0;
+          
+          // Dosya durumunu güncelle
+          updateFileStatus(
+            file.id, 
+            'success',
+            file.previewData
+          );
+        } catch (error) {
+          console.error(`${file.name} kaydedilirken hata oluştu:`, error);
+          updateFileStatus(
+            file.id,
+            'error',
+            file.previewData,
+            'Kayıt sırasında hata oluştu'
+          );
+          continue;
         }
         
-        // Veritabanına kaydet
-        if (companiesToSave.length > 0) {
-          try {
-            await batchCreateCompanies(companiesToSave);
-            totalSaved += companiesToSave.length;
-            console.log(`${companiesToSave.length} adet şirket kaydedildi`);
-          } catch (error) {
-            console.error('Toplu kayıt sırasında hata oluştu:', error);
-            throw error;
-          }
+        // İlerleme durumunu güncelle
+        processedFiles++;
+        if (onProgress) {
+          const progress = Math.round((processedFiles / files.length) * 100);
+          onProgress(progress);
         }
       }
       
-      // Kullanıcıya başarılı kayıt sayısını göster
-      if (totalSaved > 0) {
-        toast.success(`Toplam ${totalSaved} adet şirket başarıyla kaydedildi`);
-      } else {
-        toast.info('Kaydedilecek yeni veri bulunamadı');
-      }
+      // Başarı mesajını artık burada göstermiyoruz, handleUploadClick'te gösteriyoruz
+      return totalSaved;
       
     } catch (error) {
       console.error('Veri kaydedilirken hata oluştu:', error);
       toast.error('Veri kaydedilirken bir hata oluştu. Lütfen tekrar deneyin.');
+      throw error;
     } finally {
       setIsProcessing(false);
     }
@@ -147,44 +236,89 @@ const FileUploadSection: FC = () => {
     setSelectedHeader({ sheetName, columnName });
   };
 
-  // Başlık tipi seçildiğinde çalışır
-  const handleHeaderTypeSelect = (type: 'sicil_no' | 'firma_unvani' | 'none') => {
+  // Seçim yapıldığında sadece başlık rengini günceller, otomatik kayıt yapmaz
+  const handleHeaderTypeSelect = (type: 'sicil_no' | 'firma_unvani' | 'sicil_mudurluk' | 'none') => {
     if (!selectedHeader) return;
     
     const { sheetName, columnName } = selectedHeader;
     console.log('Seçilen tip:', { sheetName, columnName, type });
     
+    // Aktif dosyayı bul
+    const activeFile = files.find(f => f.previewData?.sheets?.some(s => s.sheetName === sheetName));
+    if (!activeFile) {
+      console.error('Aktif dosya bulunamadı');
+      return;
+    }
+    
     setHeaderSelections(prev => {
-      const sheetSelections = [...(prev[sheetName] || [])];
-      const existingIndex = sheetSelections.findIndex(s => s.columnName === columnName);
+      const fileSelections = [...(prev[activeFile.id] || [])];
+      const existingIndex = fileSelections.findIndex(s => 
+        s.sheetName === sheetName && s.columnName === columnName
+      );
       
       if (type === 'none') {
         // Seçimi kaldır
         if (existingIndex >= 0) {
-          sheetSelections.splice(existingIndex, 1);
+          fileSelections.splice(existingIndex, 1);
         }
       } else {
         // Yeni seçim ekle veya güncelle
         const newSelection = { sheetName, columnName, columnType: type };
         if (existingIndex >= 0) {
-          sheetSelections[existingIndex] = newSelection;
+          fileSelections[existingIndex] = newSelection;
         } else {
-          sheetSelections.push(newSelection);
+          fileSelections.push(newSelection);
         }
       }
       
-      // Seçim yapıldıktan sonra verileri işle
-      setTimeout(() => {
-        processAndSaveSelectedColumns();
-      }, 100);
-      
       return {
         ...prev,
-        [sheetName]: sheetSelections
+        [activeFile.id]: fileSelections
       };
     });
     
     setSelectedHeader(null);
+  };
+
+  // Yükleme butonuna tıklandığında çalışır
+  const handleUploadClick = async () => {
+    console.log('handleUploadClick çalıştı');
+    if (isUploading) {
+      console.log('Zaten yükleme yapılıyor');
+      return;
+    }
+    
+    try {
+      console.log('Yükleme başlatılıyor...');
+      setIsUploading(true);
+      setUploadProgress(0);
+      
+      // Progress güncelleme fonksiyonu
+      const updateProgress = (progress: number) => {
+        console.log(`İlerleme: %${progress}`);
+        setUploadProgress(progress);
+      };
+      
+      // İşlemi başlat ve işlenen firma sayısını al
+      console.log('processAndSaveSelectedColumns çağrılıyor...');
+      const processedCount = await processAndSaveSelectedColumns(updateProgress);
+      console.log(`İşlem tamamlandı. İşlenen kayıt: ${processedCount}`);
+      
+      // Başarı mesajını göster
+      toast.success(`${processedCount} adet firma verisi işlenmiştir`);
+      
+      // İşlem tamamlandıktan sonra progress bar'ı sıfırla
+      setTimeout(() => {
+        setUploadProgress(0);
+      }, 2000);
+      
+    } catch (error) {
+      console.error('Yükleme sırasında hata oluştu:', error);
+      toast.error('Yükleme sırasında bir hata oluştu. Lütfen tekrar deneyin.');
+    } finally {
+      console.log('Yükleme işlemi tamamlandı');
+      setIsUploading(false);
+    }
   };
 
   // Tüm sayfaları birleştir
@@ -296,54 +430,6 @@ const FileUploadSection: FC = () => {
       )
     );
   }, []);
-
-  // Dosya yükleme işlemi
-  const handleUpload = useCallback(async () => {
-    if (files.length === 0) {
-      toast.warning('Yüklenecek dosya bulunamadı');
-      return;
-    }
-
-    setIsProcessing(true);
-    
-    try {
-      // Başarılı durumdaki dosyaları filtrele
-      const filesToUpload = files.filter(file => file.status === 'success');
-      
-      if (filesToUpload.length === 0) {
-        toast.warning('Yüklenecek geçerli dosya bulunamadı');
-        return;
-      }
-      
-      // Her dosya için yükleme işlemi
-      for (const file of filesToUpload) {
-        try {
-          // Burada API çağrısı yapılacak
-          // Örnek: await api.uploadFile(file, file.müdürlük);
-          
-          // Simüle edilmiş yükleme
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          toast.success(`${file.name} başarıyla yüklendi`);
-          
-          // Yükleme tamamlandıktan sonra dosyayı listeden kaldır
-          setFiles(prev => prev.filter(f => f.id !== file.id));
-          
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Bilinmeyen bir hata oluştu';
-          toast.error(`${file.name} yüklenirken hata: ${errorMessage}`);
-        }
-      }
-      
-      toast.success('Tüm dosyalar başarıyla yüklendi');
-      
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Bilinmeyen bir hata oluştu';
-      toast.error(`Dosya yüklenirken hata: ${errorMessage}`);
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [files]);
 
   // Dosya işleme fonksiyonu
   const processFiles = useCallback(async (acceptedFiles: File[]) => {
@@ -563,12 +649,8 @@ const FileUploadSection: FC = () => {
                     {/* Müdürlük seçimi */}
                     <div className="w-full sm:w-64">
                       <Select 
-                        value={file.müdürlük} 
-                        onValueChange={(value) => {
-                          setFiles(prev => prev.map(f => 
-                            f.id === file.id ? { ...f, müdürlük: value } : f
-                          ));
-                        }}
+                        value={selectedSicilMudurluk}
+                        onValueChange={setSelectedSicilMudurluk}
                         disabled={file.status === 'processing'}
                       >
                         <SelectTrigger>
@@ -602,25 +684,49 @@ const FileUploadSection: FC = () => {
             ))}
           </div>
           
-          <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-3 pt-4">
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                toast.success('Tüm dosyalar temizlendi');
-                setFiles([]);
-              }}
-              disabled={isProcessing}
-              className="w-full sm:w-auto"
-            >
-              Tümünü Temizle
-            </Button>
-            <Button 
-              onClick={handleUpload}
-              disabled={isProcessing || files.length === 0}
-              className="w-full sm:w-auto"
-            >
-              {isProcessing ? 'Yükleniyor...' : 'Yükle'}
-            </Button>
+          <div className="space-y-4 pt-4">
+            {/* Yükleme Çubuğu */}
+            {uploadProgress > 0 && uploadProgress < 100 && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm text-muted-foreground">
+                  <span>Yükleniyor...</span>
+                  <span>{Math.round(uploadProgress)}%</span>
+                </div>
+                <Progress value={uploadProgress} className="h-2" />
+              </div>
+            )}
+
+            
+            <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-3 pt-4">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  toast.success('Tüm dosyalar temizlendi');
+                  setFiles([]);
+                }}
+                disabled={isProcessing || isUploading}
+                className="w-full sm:w-auto"
+              >
+                Tümünü Temizle
+              </Button>
+              <Button 
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleUploadClick();
+                }}
+                disabled={isProcessing || isUploading || files.length === 0 || !selectedSicilMudurluk}
+                className="w-full sm:w-auto"
+              >
+                {isUploading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    İşleniyor...
+                  </>
+                ) : (
+                  'Kaydet ve İşle'
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       )}

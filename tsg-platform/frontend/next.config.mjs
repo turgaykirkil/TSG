@@ -8,6 +8,11 @@ const nextConfig = {
   experimental: {
     esmExternals: false,
   },
+  // Environment değişkenlerini istemci tarafında kullanılabilir yap
+  env: {
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  },
   // PWA desteği için
   pwa: {
     dest: 'public',
