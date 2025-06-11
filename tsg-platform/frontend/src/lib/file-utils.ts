@@ -4,6 +4,8 @@ export interface ExcelSheetResult {
   sheetName: string;
   headers: string[];
   rows: Record<string, any>[];
+  isCombined?: boolean;
+  totalRows?: number;
 }
 
 export interface ExcelProcessResult {
