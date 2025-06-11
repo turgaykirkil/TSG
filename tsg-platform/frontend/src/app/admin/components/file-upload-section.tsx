@@ -2,6 +2,7 @@
 
 import { type FC, useState, useCallback } from 'react';
 import { useDropzone, type FileRejection } from 'react-dropzone';
+import { batchCreateCompanies } from '@/lib/api/companyScrape';
 import { toast } from 'sonner';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -60,39 +61,78 @@ const FileUploadSection: FC = () => {
     return `${baseClasses} text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700`;
   };
 
-  // Seçilen başlıklardaki değerleri konsola yazdır
-  const logSelectedColumnsData = () => {
-    if (!files.length) return;
+  // Seçilen başlıklardaki değerleri işle ve veritabanına kaydet
+  const processAndSaveSelectedColumns = async () => {
+    if (!files.length || isProcessing) return;
     
-    files.forEach(file => {
-      const sheets = file.previewData?.sheets || [];
-      const combinedSheet = sheets.length > 1 ? combineAllSheets(sheets) : sheets[0];
+    let totalSaved = 0;
+    
+    try {
+      setIsProcessing(true);
       
-      if (!combinedSheet || !combinedSheet.rows?.length) return;
-      
-      // Seçili başlıkları bul
-      const selectedColumns = headerSelections[combinedSheet.sheetName] || [];
-      if (selectedColumns.length === 0) return;
-      
-      // Her satır için seçili sütunları topla
-      const result = combinedSheet.rows.map(row => {
-        const rowData: Record<string, any> = {};
+      for (const file of files) {
+        const sheets = file.previewData?.sheets || [];
+        const combinedSheet = sheets.length > 1 ? combineAllSheets(sheets) : sheets[0];
         
-        selectedColumns.forEach(col => {
-          if (col.columnName in row) {
-            rowData[`${col.columnName} (${col.columnType})`] = row[col.columnName];
+        if (!combinedSheet || !combinedSheet.rows?.length) continue;
+        
+        // Seçili başlıkları bul
+        const selectedColumns = headerSelections[combinedSheet.sheetName] || [];
+        if (selectedColumns.length === 0) continue;
+        
+        // Sicil No ve Firma Ünvanı sütunlarını ayırt et
+        const sicilNoColumn = selectedColumns.find(col => col.columnType === 'sicil_no');
+        const firmaUnvaniColumn = selectedColumns.find(col => col.columnType === 'firma_unvani');
+        
+        if (!sicilNoColumn) {
+          console.warn('Sicil No sütunu seçili değil');
+          continue;
+        }
+        
+        // Verileri hazırla
+        const companiesToSave = [];
+        
+        for (const row of combinedSheet.rows) {
+          const sicilNo = row[sicilNoColumn.columnName]?.toString().trim();
+          
+          if (!sicilNo) continue; // Boş sicil numaralarını atla
+          
+          const companyData = {
+            sicil_no: sicilNo,
+            firma_unvani: firmaUnvaniColumn ? row[firmaUnvaniColumn.columnName]?.toString().trim() : null,
+            is_scraped: false,
+            last_scraped_at: null
+          };
+          
+          companiesToSave.push(companyData);
+        }
+        
+        // Veritabanına kaydet
+        if (companiesToSave.length > 0) {
+          try {
+            await batchCreateCompanies(companiesToSave);
+            totalSaved += companiesToSave.length;
+            console.log(`${companiesToSave.length} adet şirket kaydedildi`);
+          } catch (error) {
+            console.error('Toplu kayıt sırasında hata oluştu:', error);
+            throw error;
           }
-        });
-        
-        return rowData;
-      });
+        }
+      }
       
-      // Sonuçları konsola yazdır
-      console.log(`\n=== ${file.name} - ${combinedSheet.sheetName} ===`);
-      console.log('Seçili Sütunlar:', selectedColumns.map(c => `${c.columnName} (${c.columnType})`));
-      console.log('Veriler:', result);
-      console.log('Toplam Kayıt:', result.length);
-    });
+      // Kullanıcıya başarılı kayıt sayısını göster
+      if (totalSaved > 0) {
+        toast.success(`Toplam ${totalSaved} adet şirket başarıyla kaydedildi`);
+      } else {
+        toast.info('Kaydedilecek yeni veri bulunamadı');
+      }
+      
+    } catch (error) {
+      console.error('Veri kaydedilirken hata oluştu:', error);
+      toast.error('Veri kaydedilirken bir hata oluştu. Lütfen tekrar deneyin.');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   // Başlık tıklandığında çalışır
@@ -133,9 +173,9 @@ const FileUploadSection: FC = () => {
         }
       }
       
-      // Seçim yapıldıktan sonra verileri konsola yazdır
+      // Seçim yapıldıktan sonra verileri işle
       setTimeout(() => {
-        logSelectedColumnsData();
+        processAndSaveSelectedColumns();
       }, 100);
       
       return {

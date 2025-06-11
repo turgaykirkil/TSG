@@ -13,6 +13,7 @@ from app.api.api_v1.endpoints import (
     jobs,
     utils
 )
+from app.api.v1.endpoints import company_scrape
 
 api_router = APIRouter()
 
@@ -33,6 +34,9 @@ api_router.include_router(persons.router, prefix="/persons", tags=["Persons"])
 
 # File upload endpoints
 api_router.include_router(file_uploads.router, prefix="/file-uploads", tags=["File Uploads"])
+
+# Company scrape endpoints
+api_router.include_router(company_scrape.router, prefix="/company-scrapes", tags=["Company Scrapes"])
 
 # Job endpoints
 api_router.include_router(jobs.router, prefix="/jobs", tags=["Jobs"])

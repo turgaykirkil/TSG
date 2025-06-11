@@ -14,6 +14,10 @@ from .person import Person, PersonCreate, PersonUpdate, PersonInDB
 from .relation import CompanyPersonRelation, CompanyPersonRelationCreate, CompanyPersonRelationUpdate, CompanyPersonRelationInDB
 from .file_upload import FileUpload, FileUploadCreate, FileUploadUpdate, FileUploadInDB
 from .job_history import JobHistory, JobHistoryCreate, JobHistoryUpdate, JobHistoryInDB
+from .company_scrape import (
+    CompanyScrape, CompanyScrapeCreate, CompanyScrapeUpdate, CompanyScrapeInDB,
+)
+
 from .job_history_process import (
     JobResultSummary,
     JobProgressUpdate,
@@ -35,6 +39,7 @@ __all__ = [
     'CompanyPersonRelation', 'CompanyPersonRelationCreate', 'CompanyPersonRelationUpdate', 'CompanyPersonRelationInDB',
     'FileUpload', 'FileUploadCreate', 'FileUploadUpdate', 'FileUploadInDB',
     'JobHistory', 'JobHistoryCreate', 'JobHistoryUpdate', 'JobHistoryInDB',
+    'CompanyScrape', 'CompanyScrapeCreate', 'CompanyScrapeUpdate', 'CompanyScrapeInDB',
     'JobResultSummary', 'JobProgressUpdate', 'JobStartRequest', 'JobUpdateRequest',
     'JobFilter', 'JobStats', 'JobStatusResponse',
     'Msg',
