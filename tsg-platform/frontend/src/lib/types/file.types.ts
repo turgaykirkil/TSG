@@ -47,11 +47,16 @@ export interface PdfProcessResult {
 // Özel dosya tipi
 export interface CustomFile extends File {
   id: string;
-  status: 'waiting' | 'processing' | 'success' | 'error';
+  status: 'waiting' | 'processing' | 'success' | 'error' | 'partial';
   error?: string;
+  info?: string; // Bilgi mesajları için
   progress: number;
   previewData?: ExcelProcessResult;
+  formattedSize?: string;
+  previewUrl?: string;
+  fileType?: string;
+  uploadedAt?: Date;
+  insertedCount?: number; // Başarıyla eklenen kayıt sayısı
+  meta?: Record<string, any>;
   müdürlük: string;
-  uploadedAt: Date;
-  formattedSize: string;
 }

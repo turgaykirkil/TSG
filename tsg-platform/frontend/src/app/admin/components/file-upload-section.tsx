@@ -185,21 +185,33 @@ const FileUploadSection: FC = () => {
         try {
           // Supabase'e kaydet
           const result = await batchAddCompanies(companies);
-          totalSaved += result?.length || 0;
+          totalSaved += result.inserted || 0;
           
-          // Dosya durumunu güncelle
-          updateFileStatus(
-            file.id, 
-            'success',
-            file.previewData
-          );
+          // Hata durumlarını kontrol et
+          if (result.failedBatches && result.failedBatches > 0) {
+            console.warn(`${file.name} dosyasında ${result.failedBatches} partide hata oluştu`);
+            updateFileStatus(
+              file.id,
+              'partial',
+              file.previewData,
+              `${result.inserted} kayıt başarılı, ${result.failedBatches} partide hata`
+            );
+          } else {
+            // Başarılı durum
+            updateFileStatus(
+              file.id, 
+              'success',
+              file.previewData,
+              `${result.inserted} kayıt başarıyla eklendi`
+            );
+          }
         } catch (error) {
           console.error(`${file.name} kaydedilirken hata oluştu:`, error);
           updateFileStatus(
             file.id,
             'error',
             file.previewData,
-            'Kayıt sırasında hata oluştu'
+            error instanceof Error ? error.message : 'Kayıt sırasında hata oluştu'
           );
           continue;
         }
