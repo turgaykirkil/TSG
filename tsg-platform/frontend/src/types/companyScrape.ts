@@ -5,6 +5,7 @@ export type CompanyScrapeStatus = 'pending' | 'in_progress' | 'completed' | 'fai
 export interface CompanyScrape extends BaseModel {
   sicil_no: string;
   firma_unvani: string | null;
+  adres?: string | null;  // Yeni eklenen adres alanı
   is_scraped: boolean;
   last_scraped_at: string | null;
   status: CompanyScrapeStatus;
@@ -16,6 +17,7 @@ export interface CompanyScrape extends BaseModel {
 export interface CompanyScrapeCreate {
   sicil_no: string;
   firma_unvani?: string | null;
+  adres?: string | null;  // Yeni eklenen adres alanı
   is_scraped?: boolean;
   last_scraped_at?: string | null;
 }

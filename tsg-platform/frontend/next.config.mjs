@@ -1,32 +1,65 @@
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Get __dirname equivalent in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  swcMinify: true,
   poweredByHeader: false,
-  productionBrowserSourceMaps: true,
-  // Tarayıcı uzantılarından kaynaklanan hataları önlemek için
-  experimental: {
-    esmExternals: false,
+  productionBrowserSourceMaps: process.env.NODE_ENV === 'development',
+  
+  // Security headers
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+          {
+            key: 'X-Frame-Options',
+            value: 'DENY',
+          },
+          {
+            key: 'X-XSS-Protection',
+            value: '1; mode=block',
+          },
+        ],
+      },
+    ];
   },
-  // Environment değişkenlerini istemci tarafında kullanılabilir yap
+
+  // Environment variables
   env: {
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    NEXTAUTH_URL: process.env.NEXTAUTH_URL || 'http://localhost:3000',
+    NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET,
   },
-  // PWA desteği için
-  pwa: {
-    dest: 'public',
-    disable: process.env.NODE_ENV === 'development',
+
+  // Webpack configuration
+  webpack: (config) => {
+    // Add path aliases
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@': path.resolve(__dirname, 'src'),
+    };
+
+    return config;
   },
-  // Görseller için domain ayarları
+
+  // Image domains
   images: {
     domains: ['localhost'],
   },
-  // Webpack yapılandırması
-  webpack: (config, { isServer }) => {
-    // Eğer gerekirse, buraya özel webpack kuralları ekleyebilirsiniz
-    return config;
-  },
+
+  // External packages that should be bundled with server components
+  serverExternalPackages: ['@prisma/client', 'bcryptjs'],
 };
 
 export default nextConfig;

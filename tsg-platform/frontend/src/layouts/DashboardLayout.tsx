@@ -1,8 +1,9 @@
 import { type ReactNode, useState, useEffect } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
 import { UserNav } from '@/components/user-nav';
@@ -20,7 +21,7 @@ type NavItem = {
   disabled?: boolean;
 };
 
-const sidebarNavItems: NavItem[] = [
+const baseSidebarNavItems: NavItem[] = [
   {
     title: 'Genel Bakış',
     href: '/dashboard',
@@ -44,24 +45,33 @@ const sidebarNavItems: NavItem[] = [
 ];
 
 export function DashboardLayout({ children, className }: DashboardLayoutProps) {
+
+  const { isAuthenticated, isLoading: isAuthLoading, user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const { theme, setTheme } = useTheme();
-  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
-  const location = useLocation();
-  const navigate = useNavigate();
+  const pathname = usePathname();
+  const router = useRouter();
+
+  const sidebarNavItems: NavItem[] = isAdmin
+    ? [...baseSidebarNavItems, { title: 'Dosya İşlemleri', href: '/admin', icon: 'upload' } as NavItem]
+    : baseSidebarNavItems;
+
+  
+  
 
   // Kullanıcı giriş yapmamışsa giriş sayfasına yönlendir
   useEffect(() => {
     if (!isAuthLoading) {
       if (!isAuthenticated) {
         toast.error('Bu sayfayı görüntülemek için giriş yapmalısınız');
-        navigate('/auth/login', { replace: true, state: { from: location } });
+        router.push('/auth/login');
       } else {
         setIsLoading(false);
       }
     }
-  }, [isAuthenticated, isAuthLoading, navigate, location]);
+  }, [isAuthenticated, isAuthLoading, router]);
 
   const toggleTheme = () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark';
@@ -116,7 +126,7 @@ export function DashboardLayout({ children, className }: DashboardLayoutProps) {
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex h-16 items-center justify-between border-b border-border px-6">
-            <Link to="/dashboard" className="flex items-center space-x-2">
+            <Link href="/dashboard" className="flex items-center space-x-2">
               <Icons.logo className="h-8 w-8" />
               <span className="text-xl font-bold">TSG Platform</span>
             </Link>
@@ -133,12 +143,12 @@ export function DashboardLayout({ children, className }: DashboardLayoutProps) {
           <nav className="space-y-1 p-4">
             {sidebarNavItems.map((item) => {
               const Icon = Icons[item.icon];
-              const isActive = location.pathname === item.href;
+              const isActive = pathname === item.href;
               
               return (
                 <Link
                   key={item.href}
-                  to={item.href}
+                  href={item.href}
                   className={cn(
                     'flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors',
                     isActive
@@ -160,7 +170,7 @@ export function DashboardLayout({ children, className }: DashboardLayoutProps) {
       {/* Desktop sidebar */}
       <div className="hidden lg:fixed lg:inset-y-0 lg:flex lg:w-64 lg:flex-col lg:border-r lg:border-border">
         <div className="flex h-16 flex-shrink-0 items-center border-b border-border px-6">
-          <Link to="/dashboard" className="flex items-center space-x-2">
+          <Link href="/dashboard" className="flex items-center space-x-2">
             <Icons.logo className="h-8 w-8" />
             <span className="text-xl font-bold">TSG Platform</span>
           </Link>
@@ -169,12 +179,12 @@ export function DashboardLayout({ children, className }: DashboardLayoutProps) {
           <nav className="flex-1 space-y-1 px-2 py-4">
             {sidebarNavItems.map((item) => {
               const Icon = Icons[item.icon];
-              const isActive = location.pathname === item.href;
+              const isActive = pathname === item.href;
               
               return (
                 <Link
                   key={item.href}
-                  to={item.href}
+                  href={item.href}
                   className={cn(
                     'group flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors',
                     isActive
@@ -229,7 +239,7 @@ export function DashboardLayout({ children, className }: DashboardLayoutProps) {
               <span className="sr-only">Menüyü aç</span>
             </Button>
             <h1 className="ml-2 text-lg font-semibold">
-              {sidebarNavItems.find((item) => item.href === location.pathname)?.title || 'Panel'}
+              {sidebarNavItems.find((item) => item.href === pathname)?.title || 'Panel'}
             </h1>
           </div>
           <div className="flex items-center space-x-4">

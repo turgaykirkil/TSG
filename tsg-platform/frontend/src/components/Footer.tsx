@@ -1,4 +1,6 @@
-import { Link } from 'react-router-dom';
+'use client';
+
+import Link from 'next/link';
 import { Icons } from '@/components/icons';
 import { cn } from '@/lib/utils';
 
@@ -72,7 +74,7 @@ export function Footer({ className }: FooterProps) {
               {footerLinks.map((link) => (
                 <li key={link.name}>
                   <Link
-                    to={link.href}
+                    href={link.href}
                     className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                   >
                     {link.name}
@@ -144,11 +146,11 @@ export function Footer({ className }: FooterProps) {
         <div className="mt-12 pt-8 border-t text-center text-sm text-muted-foreground">
           <p>&copy; {currentYear} TSG Platform. Tüm hakları saklıdır.</p>
           <div className="mt-2 flex justify-center space-x-4 text-xs">
-            <Link to="/privacy" className="hover:underline">Gizlilik Politikası</Link>
+            <Link href="/privacy" className="hover:underline">Gizlilik Politikası</Link>
             <span>•</span>
-            <Link to="/terms" className="hover:underline">Kullanım Koşulları</Link>
+            <Link href="/terms" className="hover:underline">Kullanım Koşulları</Link>
             <span>•</span>
-            <Link to="/cookies" className="hover:underline">Çerez Politikası</Link>
+            <Link href="/cookies" className="hover:underline">Çerez Politikası</Link>
           </div>
         </div>
       </div>

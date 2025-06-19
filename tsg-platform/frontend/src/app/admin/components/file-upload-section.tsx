@@ -3,6 +3,9 @@
 import { type FC, useState, useCallback } from 'react';
 import { useDropzone, type FileRejection } from 'react-dropzone';
 import { toast } from 'sonner';
+import { z } from 'zod';
+import { useMutation } from '@tanstack/react-query';
+import type { CompanyData } from '@/lib/types/company.types';
 import { Loader2 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,10 +35,20 @@ function formatFileSize(bytes: number): string {
 type HeaderSelection = {
   sheetName: string;
   columnName: string;
-  columnType: 'sicil_no' | 'firma_unvani' | 'sicil_mudurluk' | 'none';
+  columnType: 'sicil_no' | 'firma_unvani' | 'sicil_mudurluk' | 'adres' | 'none';
 };
 
 const FileUploadSection: FC = () => {
+  // Zod şeması – satır doğrulaması
+  const CompanyDataSchema = z.object({
+    sicil_no: z.string().min(1),
+    firma_unvani: z.string().nullable().optional(),
+    sicil_mudurluk: z.string().min(1),
+    adres: z.string().nullable().optional(),
+    is_scraped: z.boolean(),
+    last_scraped_at: z.any().nullable(),
+    metadata: z.any(),
+  });
   const [files, setFiles] = useState<CustomFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -44,8 +57,13 @@ const FileUploadSection: FC = () => {
   const [headerSelections, setHeaderSelections] = useState<Record<string, HeaderSelection[]>>({});
   const [selectedSicilMudurluk, setSelectedSicilMudurluk] = useState<string>(''); // Yeni state eklendi
 
+  // react-query mutation
+  const { mutateAsync: addCompaniesAsync } = useMutation({
+    mutationFn: (companies: CompanyData[]) => batchAddCompanies(companies),
+  });
+
   // Seçili sütun türünü döndür
-  const getColumnType = (sheetName: string, columnName: string): string => {
+  const getColumnType = (sheetName: string, columnName: string): HeaderSelection['columnType'] => {
     // Tüm dosyaları kontrol et
     for (const file of files) {
       const fileSelections = headerSelections[file.id] || [];
@@ -59,18 +77,23 @@ const FileUploadSection: FC = () => {
     return 'none';
   };
 
-  // Başlık için stil sınıfını döndür
+  // Sütun türüne göre başlık stilini döndür
   const getHeaderClassName = (sheetName: string, columnName: string): string => {
     const type = getColumnType(sheetName, columnName);
     const baseClasses = 'px-4 py-2 text-left text-xs font-medium uppercase tracking-wider cursor-pointer transition-colors duration-200';
     
-    if (type === 'sicil_no') {
-      return `${baseClasses} bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50`;
-    } else if (type === 'firma_unvani') {
-      return `${baseClasses} bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-300 dark:hover:bg-green-900/50`;
+    switch (type) {
+      case 'sicil_no':
+        return `${baseClasses} bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50`;
+      case 'firma_unvani':
+        return `${baseClasses} bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-300 dark:hover:bg-green-900/50`;
+      case 'adres':
+        return `${baseClasses} bg-purple-50 text-purple-700 hover:bg-purple-100 dark:bg-purple-900/30 dark:text-purple-300 dark:hover:bg-purple-900/50`;
+      case 'sicil_mudurluk':
+        return `${baseClasses} bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-300 dark:hover:bg-amber-900/50`;
+      default:
+        return `${baseClasses} text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700`;
     }
-    
-    return `${baseClasses} text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700`;
   };
 
   // Seçilen başlıklardaki değerleri işle ve veritabanına kaydet
@@ -125,29 +148,43 @@ const FileUploadSection: FC = () => {
         
         const sicilNoColumn = selections.find(s => s.columnType === 'sicil_no')?.columnName;
         const firmaUnvaniColumn = selections.find(s => s.columnType === 'firma_unvani')?.columnName;
+        const adresColumn = selections.find(s => s.columnType === 'adres')?.columnName;
+        const sicilMudurlukColumn = selections.find(s => s.columnType === 'sicil_mudurluk')?.columnName;
 
-        console.log('Seçili sütunlar:', { sicilNoColumn, firmaUnvaniColumn });
+        console.log('Seçili sütunlar:', { 
+          sicilNoColumn, 
+          firmaUnvaniColumn, 
+          adresColumn,
+          sicilMudurlukColumn
+        });
         
         // Eğer hiç sütun seçilmemişse devam et
-        if (!sicilNoColumn && !firmaUnvaniColumn) {
+        if (!sicilNoColumn && !firmaUnvaniColumn && !adresColumn && !sicilMudurlukColumn) {
           console.log('Hiç sütun seçilmemiş, atlanıyor...');
           continue;
         }
         
-        // Seçilen sütunların sayfada var olduğundan emin ol
+        // Zod doğrulaması & Seçilen sütunların sayfada var olduğundan emin ol
         const headers = combinedSheet.headers || [];
-        if ((sicilNoColumn && !headers.includes(sicilNoColumn)) || 
-            (firmaUnvaniColumn && !headers.includes(firmaUnvaniColumn))) {
-          console.error('Seçilen sütunlar sayfada bulunamadı');
-          toast.error('Seçilen sütunlar sayfada bulunamadı. Lütfen sütun seçimlerinizi kontrol edin.');
+        const missingColumns: string[] = [];
+        
+        if (sicilNoColumn && !headers.includes(sicilNoColumn)) missingColumns.push('Sicil No');
+        if (firmaUnvaniColumn && !headers.includes(firmaUnvaniColumn)) missingColumns.push('Firma Ünvanı');
+        if (adresColumn && !headers.includes(adresColumn)) missingColumns.push('Adres');
+        if (sicilMudurlukColumn && !headers.includes(sicilMudurlukColumn)) missingColumns.push('Sicil Müdürlüğü');
+        
+        if (missingColumns.length > 0) {
+          console.error('Seçilen sütunlar sayfada bulunamadı:', missingColumns);
+          toast.error(`Aşağıdaki sütunlar sayfada bulunamadı: ${missingColumns.join(', ')}`);
           continue;
         }
         
         // Verileri hazırla
         type CompanyData = {
           sicil_no: string;
-          firma_unvani: string;
-          sicil_mudurluk: string;  // Yeni eklenen alan
+          firma_unvani: string | null;
+          sicil_mudurluk: string;
+          adres?: string | null;
           is_scraped: boolean;
           last_scraped_at: null;
           metadata: {
@@ -160,20 +197,36 @@ const FileUploadSection: FC = () => {
         // Önce tüm satırları işle, sonra null olmayanları filtrele
         const allRows = combinedSheet.rows.map(row => {
           const sicilNo = sicilNoColumn ? String(row[sicilNoColumn] || '').trim() : '';
-          const firmaUnvani = firmaUnvaniColumn ? String(row[firmaUnvaniColumn] || '').trim() : '';
-          if (!sicilNo && !firmaUnvani) return null;
+          const firmaUnvani = firmaUnvaniColumn ? String(row[firmaUnvaniColumn] || '').trim() : null;
+          const adres = adresColumn ? String(row[adresColumn] || '').trim() : undefined;
+          const sicilMudurluk = sicilMudurlukColumn 
+            ? String(row[sicilMudurlukColumn] || '').trim() 
+            : selectedSicilMudurluk;
           
-          return {
+          // Eğer hiçbir zorunlu alan yoksa bu satırı atla
+          if (!sicilNo && !firmaUnvani && !adres) return null;
+          
+          const companyData: Omit<CompanyData, 'metadata'> & { metadata: any } = {
             sicil_no: sicilNo,
             firma_unvani: firmaUnvani,
-            sicil_mudurluk: selectedSicilMudurluk,  // Seçilen sicil müdürlüğünü kullanıyoruz
+            sicil_mudurluk: sicilMudurluk,
             is_scraped: false,
             last_scraped_at: null,
             metadata: {
               source: 'excel_import',
-              import_date: new Date().toISOString()
+              import_date: new Date().toISOString(),
+              original_data: {
+                ...(firmaUnvaniColumn && { firma_unvani: firmaUnvani }),
+                ...(adresColumn && { adres }),
+                ...(sicilMudurlukColumn && { sicil_mudurluk: sicilMudurluk })
+              }
             }
           };
+          
+          // Sadece tanımlı değerleri ekle
+          if (adres) companyData.adres = adres;
+          
+          return companyData as CompanyData;
         });
         
         // Null değerleri filtrele ve tip dönüşümü yap
@@ -184,7 +237,7 @@ const FileUploadSection: FC = () => {
         // API'ye gönder
         try {
           // Supabase'e kaydet
-          const result = await batchAddCompanies(companies);
+          const result = await addCompaniesAsync(companies);
           totalSaved += result.inserted || 0;
           
           // Hata durumlarını kontrol et
@@ -249,33 +302,68 @@ const FileUploadSection: FC = () => {
   };
 
   // Seçim yapıldığında sadece başlık rengini günceller, otomatik kayıt yapmaz
-  const handleHeaderTypeSelect = (type: 'sicil_no' | 'firma_unvani' | 'sicil_mudurluk' | 'none') => {
+  const handleHeaderTypeSelect = (type: 'sicil_no' | 'firma_unvani' | 'sicil_mudurluk' | 'adres' | 'none') => {
     if (!selectedHeader) return;
     
     const { sheetName, columnName } = selectedHeader;
     console.log('Seçilen tip:', { sheetName, columnName, type });
     
-    // Aktif dosyayı bul
-    const activeFile = files.find(f => f.previewData?.sheets?.some(s => s.sheetName === sheetName));
+    // Tüm dosyaları ve sayfalarını kontrol et
+    console.log('Mevcut dosyalar ve sayfaları:', files.map(f => ({
+      id: f.id,
+      name: f.name,
+      sheets: f.previewData?.sheets?.map(s => s.sheetName)
+    })));
+
+    // Aktif dosyayı bul (sheetName ile eşleşen ilk dosyayı bul)
+    const activeFile = files.find(f => {
+      const hasMatchingSheet = f.previewData?.sheets?.some(s => {
+        // Normalize sheet names for comparison (trim whitespace, ignore case)
+        const normalizedSheetName = s.sheetName?.trim() || '';
+        const normalizedTargetSheet = sheetName?.trim() || '';
+        return normalizedSheetName === normalizedTargetSheet;
+      });
+      return hasMatchingSheet;
+    });
+    
     if (!activeFile) {
-      console.error('Aktif dosya bulunamadı');
+      console.error('Aktif dosya bulunamadı. Arama kriterleri:', { 
+        sheetName,
+        columnName,
+        type,
+        availableFiles: files.map(f => ({
+          id: f.id,
+          name: f.name,
+          hasPreview: !!f.previewData,
+          sheetCount: f.previewData?.sheets?.length || 0,
+          sheetNames: f.previewData?.sheets?.map(s => s.sheetName)
+        }))
+      });
+      toast.error('Dosya bulunamadı. Lütfen sayfa adlarını kontrol edip tekrar deneyin.');
       return;
     }
     
+    const selectedFileId = activeFile.id;
+    console.log('Seçilen dosya ID:', selectedFileId, 'Dosya adı:', activeFile.name);
+    
     setHeaderSelections(prev => {
-      const fileSelections = [...(prev[activeFile.id] || [])];
-      const existingIndex = fileSelections.findIndex(s => 
-        s.sheetName === sheetName && s.columnName === columnName
+      const fileSelections = [...(prev[selectedFileId] || [])];
+      const existingIndex = fileSelections.findIndex(
+        s => s.sheetName === selectedHeader.sheetName && 
+             s.columnName === selectedHeader.columnName
       );
       
+      const newSelection: HeaderSelection = {
+        sheetName: selectedHeader.sheetName,
+        columnName: selectedHeader.columnName,
+        columnType: type
+      };
+      
       if (type === 'none') {
-        // Seçimi kaldır
         if (existingIndex >= 0) {
           fileSelections.splice(existingIndex, 1);
         }
       } else {
-        // Yeni seçim ekle veya güncelle
-        const newSelection = { sheetName, columnName, columnType: type };
         if (existingIndex >= 0) {
           fileSelections[existingIndex] = newSelection;
         } else {
@@ -285,7 +373,7 @@ const FileUploadSection: FC = () => {
       
       return {
         ...prev,
-        [activeFile.id]: fileSelections
+        [selectedFileId]: fileSelections
       };
     });
     
@@ -404,6 +492,21 @@ const FileUploadSection: FC = () => {
     }
   };
 
+  // Excel dosyasını Web Worker ile işleme
+  const parseExcelViaWorker = (file: File, fileId: string): Promise<ExcelProcessResult> => {
+    return new Promise((resolve) => {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore – worker path relative to this file
+      const worker = new Worker(new URL('../../../workers/excelParser.worker.ts', import.meta.url));
+      worker.postMessage({ fileId, file });
+      worker.onmessage = (event: MessageEvent<{ fileId: string; result: ExcelProcessResult }>) => {
+        const { result } = event.data;
+        worker.terminate();
+        resolve(result);
+      };
+    });
+  };
+
   // Dosya durumunu güncelle
   const updateFileStatus = useCallback((
     fileId: string, 
@@ -436,65 +539,132 @@ const FileUploadSection: FC = () => {
 
   // Önizleme verisini güncelle
   const updateFilePreview = useCallback((fileId: string, previewData: ExcelProcessResult) => {
-    setFiles(prevFiles => 
-      prevFiles.map(file => 
-        file.id === fileId ? { ...file, previewData } : file
-      )
-    );
+    console.log(`Güncellenen dosya önizlemesi - ID: ${fileId}`, {
+      fileName: previewData.fileName,
+      sheetCount: previewData.sheets?.length || 0,
+      sheetNames: previewData.sheets?.map(s => s.sheetName),
+      success: previewData.success
+    });
+    
+    setFiles(prevFiles => {
+      const fileExists = prevFiles.some(f => f.id === fileId);
+      if (!fileExists) {
+        console.error(`Dosya bulunamadı (ID: ${fileId}). Mevcut dosyalar:`, 
+          prevFiles.map(f => ({ id: f.id, name: f.name }))
+        );
+        return prevFiles;
+      }
+      
+      // Eğer 'Tüm Sayfalar' adında bir sayfa yoksa ve birden fazla sayfa varsa,
+      // tüm sayfaları birleştirerek yeni bir 'Tüm Sayfalar' sayfası oluştur
+      const hasAllSheetsTab = previewData.sheets?.some(s => 
+        s.sheetName?.trim() === 'Tüm Sayfalar' || s.sheetName?.trim() === 'All Sheets'
+      );
+      
+      let finalPreviewData = { ...previewData };
+      
+      if (!hasAllSheetsTab && previewData.sheets && previewData.sheets.length > 1) {
+        console.log('Birden fazla sayfa bulundu, tüm sayfalar birleştiriliyor...');
+        const combinedSheet = combineAllSheets(previewData.sheets);
+        if (combinedSheet) {
+          finalPreviewData = {
+            ...previewData,
+            sheets: [
+              { ...combinedSheet, sheetName: 'Tüm Sayfalar' },
+              ...previewData.sheets
+            ]
+          };
+          console.log('Tüm sayfalar birleştirildi:', {
+            combinedSheetName: 'Tüm Sayfalar',
+            rowCount: combinedSheet.rows?.length || 0,
+            columnCount: combinedSheet.headers?.length || 0
+          });
+        }
+      }
+      
+      return prevFiles.map(file => {
+        if (file.id === fileId) {
+          console.log(`Dosya önizlemesi güncellendi: ${file.name}`, {
+            previousSheets: file.previewData?.sheets?.map(s => s.sheetName),
+            newSheets: finalPreviewData.sheets?.map(s => s.sheetName)
+          });
+          return { ...file, previewData: finalPreviewData };
+        }
+        return file;
+      });
+    });
   }, []);
 
   // Dosya işleme fonksiyonu
   const processFiles = useCallback(async (acceptedFiles: File[]) => {
     setIsProcessing(true);
+    console.log('Dosya işleme başlatılıyor. Toplam dosya sayısı:', acceptedFiles.length);
     
-    // Yeni dosyaları oluştur ve CustomFile tipine dönüştür
-    const newFiles: CustomFile[] = acceptedFiles.map(file => {
-      const customFile = Object.assign(file, {
-        id: crypto.randomUUID(),
-        status: 'waiting' as const,
-        progress: 0,
-        müdürlük: MUDURLUKLER[0]?.value || 'GENEL_MUDURLUK',
-        uploadedAt: new Date(),
-        formattedSize: formatFileSize(file.size),
-        previewData: undefined
-      }) as CustomFile;
-      return customFile;
-    });
+    try {
+      // Yeni dosyaları oluştur ve CustomFile tipine dönüştür
+      const newFiles: CustomFile[] = acceptedFiles.map(file => {
+        const fileId = crypto.randomUUID();
+        console.log(`Yeni dosya oluşturuldu - ID: ${fileId}, Ad: ${file.name}`);
+        
+        const customFile = Object.assign(file, {
+          id: fileId,
+          status: 'waiting' as const,
+          progress: 0,
+          müdürlük: MUDURLUKLER[0]?.value || 'GENEL_MUDURLUK',
+          uploadedAt: new Date(),
+          formattedSize: formatFileSize(file.size),
+          previewData: undefined
+        }) as CustomFile;
+        
+        return customFile;
+      });
 
-    setFiles(prevFiles => [...prevFiles, ...newFiles]);
+      // Önce tüm dosyaları state'e ekle
+      setFiles(prevFiles => {
+        const updatedFiles = [...prevFiles, ...newFiles];
+        console.log('Güncellenmiş dosya listesi:', updatedFiles.map(f => ({ id: f.id, name: f.name })));
+        return updatedFiles;
+      });
 
-    // Her dosyayı sırayla işle
-    for (const file of newFiles) {
-      // Excel dosyasını işle
-      const handleExcelProcessing = async (file: File): Promise<ExcelProcessResult> => {
+      // Her dosyayı sırayla işle
+      for (const file of newFiles) {
         try {
-          return await processExcelFile(file);
+          console.log(`Dosya işleniyor: ${file.name} (ID: ${file.id})`);
+          updateFileStatus(file.id, 'processing');
+          
+          // Excel dosyasını işle
+          const result = await parseExcelViaWorker(file, file.id);
+          console.log(`Dosya işlendi: ${file.name}`, result);
+          
+          if (result.success) {
+            // Önce dosya durumunu güncelle
+            updateFileStatus(file.id, 'success', result);
+            
+            // Önizleme verilerini güncelle
+            updateFilePreview(file.id, result);
+            
+            console.log(`Dosya başarıyla işlendi: ${file.name}`, {
+              sheets: result.sheets?.map(s => s.sheetName),
+              headers: result.sheets?.[0]?.headers
+            });
+            
+            toast.success(`${file.name} başarıyla işlendi`);
+          } else {
+            throw new Error(result.error || 'Dosya işlenirken bir hata oluştu');
+          }
         } catch (error) {
-          console.error('Excel işleme hatası:', error);
-          throw error;
+          const errorMessage = error instanceof Error ? error.message : 'Bilinmeyen bir hata oluştu';
+          console.error(`Dosya işleme hatası (${file.name}):`, error);
+          updateFileStatus(file.id, 'error', undefined, errorMessage);
+          toast.error(`${file.name} işlenirken hata: ${errorMessage}`);
         }
-      };
-
-      try {
-        updateFileStatus(file.id, 'processing');
-        
-        const result = await handleExcelProcessing(file);
-        
-        if (result.success) {
-          updateFileStatus(file.id, 'success', result);
-          updateFilePreview(file.id, result);
-          toast.success(`${file.name} başarıyla işlendi`);
-        } else {
-          throw new Error(result.error || 'Dosya işlenirken bir hata oluştu');
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Bilinmeyen bir hata oluştu';
-        updateFileStatus(file.id, 'error', undefined, errorMessage);
-        toast.error(`${file.name} işlenirken hata: ${errorMessage}`);
       }
+    } catch (error) {
+      console.error('Dosya işleme sırasında beklenmeyen hata:', error);
+      toast.error('Dosyalar işlenirken bir hata oluştu. Lütfen tekrar deneyin.');
+    } finally {
+      setIsProcessing(false);
     }
-    
-    setIsProcessing(false);
   }, [updateFileStatus, updateFilePreview]);
 
   // Dropzone ayarları
@@ -788,7 +958,16 @@ const FileUploadSection: FC = () => {
                                       : 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-700 dark:text-white dark:hover:bg-green-600'
                                   }`}
                                 >
-                                  {getColumnType(combinedSheet.sheetName, header) === 'sicil_no' ? 'Sicil No' : 'Firma Ünvanı'}
+                                  {(() => {
+                                    const type = getColumnType(combinedSheet.sheetName, header);
+                                    switch(type) {
+                                      case 'sicil_no': return 'Sicil No';
+                                      case 'firma_unvani': return 'Firma Ünvanı';
+                                      case 'adres': return 'Adres';
+                                      case 'sicil_mudurluk': return 'Sicil Müdürlüğü';
+                                      default: return '';
+                                    }
+                                  })()}
                                 </Badge>
                               )}
                             </div>

@@ -1,54 +1,96 @@
-# React + TypeScript + Vite
+# TSG Platform Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Modern, performant, and accessible frontend for the TSG Platform, built with Next.js, TypeScript, and Tailwind CSS.
 
-Currently, two official plugins are available:
+## 🚀 Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- ⚡ Next.js 13+ with App Router
+- 🎨 Tailwind CSS with dark mode support
+- 🔒 Built-in authentication with NextAuth.js
+- 🛣️ File-based routing
+- 🎯 TypeScript for type safety
+- 🎨 Radix UI components for accessible UI
+- 🔄 TanStack Query for data fetching and caching
+- 📱 Fully responsive design
 
-## Expanding the ESLint configuration
+## 📦 Prerequisites
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- Node.js 18.0.0 or later
+- Yarn 1.22.0 or later
 
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+## 🛠️ Installation
+
+1. Clone the repository
+
+   ```bash
+   git clone https://github.com/yourusername/tsg-platform.git
+   cd tsg-platform/frontend
+   ```
+
+2. Install dependencies:
+
+   ```bash
+   yarn install
+   ```
+
+3. Create a `.env.local` file in the root directory and add the required environment variables (see `.env.example` for reference)
+
+## 🚀 Getting Started
+
+### Development
+
+To start the development server:
+
+```bash
+yarn dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### Building for Production
 
-export default tseslint.config({
-  plugins: {
-    // Add the react-x and react-dom plugins
-    'react-x': reactX,
-    'react-dom': reactDom,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended typescript rules
-    ...reactX.configs['recommended-typescript'].rules,
-    ...reactDom.configs.recommended.rules,
-  },
-})
+To create a production build:
+
+```bash
+yarn build
 ```
+
+To start the production server:
+
+```bash
+yarn start
+```
+
+## 🧭 Project Structure
+
+```
+frontend/
+├── app/                    # App Router pages and layouts
+│   ├── (app)/              # Authenticated routes
+│   │   └── dashboard/      # Dashboard pages
+│   ├── (public)/           # Public routes
+│   │   ├── login/          # Login page
+│   │   └── register/       # Register page
+│   └── api/                # API routes
+├── components/             # Reusable UI components
+│   ├── ui/                 # Shadcn/ui components
+│   └── layout/             # Layout components
+├── lib/                    # Utility functions and configurations
+├── public/                 # Static assets
+├── styles/                 # Global styles and Tailwind configuration
+└── types/                  # TypeScript type definitions
+```
+
+## 🛠️ Technologies Used
+
+- [Next.js](https://nextjs.org/) - React framework
+- [TypeScript](https://www.typescriptlang.org/) - Type checking
+- [Tailwind CSS](https://tailwindcss.com/) - Styling
+- [NextAuth.js](https://next-auth.js.org/) - Authentication
+- [TanStack Query](https://tanstack.com/query) - Data fetching and caching
+- [Radix UI](https://www.radix-ui.com/) - Accessible UI primitives
+- [Lucide Icons](https://lucide.dev/) - Icons
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
