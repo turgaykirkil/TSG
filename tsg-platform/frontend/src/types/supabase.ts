@@ -62,7 +62,7 @@ export type User = {
   }
   app_metadata?: {
     provider?: string
-    [key: string]: any
+    [key: string]: unknown
   }
   created_at?: string
   updated_at?: string | null

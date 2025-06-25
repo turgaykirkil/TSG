@@ -8,14 +8,22 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Hash, Building2, MapPin, X } from 'lucide-react';
+import { Hash, Building2, MapPin, Library, X } from 'lucide-react';
+import type { ColumnType } from '@/hooks/useColumnMapper';
 
 interface ColumnTypeModalProps {
   isOpen: boolean;
   onClose: () => void;
   columnName: string;
-  onSelectType: (type: 'sicil_no' | 'firma_unvani' | 'adres' | 'none') => void;
+  onSelectType: (type: ColumnType) => void;
 }
+
+const typeOptions: { value: ColumnType; label: string; icon: React.ElementType }[] = [
+    { value: 'sicil_no', label: 'Sicil No', icon: Hash },
+    { value: 'firma_unvani', label: 'Firma Ünvanı', icon: Building2 },
+    { value: 'adres', label: 'Adres', icon: MapPin },
+    { value: 'sicil_mudurluk', label: 'Sicil Müdürlüğü', icon: Library },
+];
 
 export function ColumnTypeModal({ 
   isOpen, 
@@ -23,7 +31,7 @@ export function ColumnTypeModal({
   columnName, 
   onSelectType 
 }: ColumnTypeModalProps) {
-  const handleSelect = (type: 'sicil_no' | 'firma_unvani' | 'adres' | 'none') => {
+  const handleSelect = (type: ColumnType) => {
     onSelectType(type);
     onClose();
   };
@@ -36,40 +44,27 @@ export function ColumnTypeModal({
         </DialogHeader>
         <div className="space-y-4 py-4">
           <DialogDescription className="text-sm text-gray-600">
-            <span className="font-medium">{columnName}</span> sütununu seçin:
+            <span className="font-medium">{`"${columnName}"`}</span> sütununu aşağıdaki veri tiplerinden biriyle eşleştirin:
           </DialogDescription>
           <div className="space-y-2">
-            <Button 
-              variant="outline" 
-              className="w-full justify-start gap-2"
-              onClick={() => handleSelect('sicil_no')}
-            >
-              <Hash className="h-4 w-4 text-blue-500" />
-              <span>Sicil No</span>
-            </Button>
-            <Button 
-              variant="outline" 
-              className="w-full justify-start gap-2"
-              onClick={() => handleSelect('firma_unvani')}
-            >
-              <Building2 className="h-4 w-4 text-green-500" />
-              <span>Firma Ünvanı</span>
-            </Button>
-            <Button 
-              variant="outline" 
-              className="w-full justify-start gap-2"
-              onClick={() => handleSelect('adres')}
-            >
-              <MapPin className="h-4 w-4 text-purple-500" />
-              <span>Adres</span>
-            </Button>
+            {typeOptions.map(({ value, label, icon: Icon }) => (
+                 <Button
+                    key={value}
+                    variant="outline"
+                    className="w-full justify-start gap-2"
+                    onClick={() => handleSelect(value)}
+                >
+                    <Icon className="h-4 w-4" />
+                    <span>{label}</span>
+                </Button>
+            ))}
             <Button 
               variant="ghost" 
               className="w-full justify-start gap-2 text-gray-500 hover:text-red-500"
               onClick={() => handleSelect('none')}
             >
               <X className="h-4 w-4" />
-              <span>Seçimi Kaldır</span>
+              <span>Eşleştirmeyi Kaldır</span>
             </Button>
           </div>
         </div>

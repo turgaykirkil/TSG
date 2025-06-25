@@ -4,10 +4,7 @@ import type { LucideProps } from 'lucide-react';
 import React from 'react';
 
 // Base icon component
-type IconProps = {
-  className?: string;
-  [key: string]: any;
-};
+type IconProps = React.SVGProps<SVGSVGElement>;
 
 export type Icon = React.FC<IconProps>;
 
@@ -22,12 +19,11 @@ export const Logo: Icon = ({ className, ...props }) => {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={cn('h-6 w-6', className)}
+      className={cn('h-8 w-8', className)} // Boyut artırıldı
       {...props}
     >
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      <path d="M12 8v4" />
-      <path d="M12 16h.01" />
+      <path d="M15.6 12.8c-1.2 1.2-2.8 2-4.6 2s-3.4-.8-4.6-2c-1.2-1.2-2-2.8-2-4.6s.8-3.4 2-4.6c1.2-1.2 2.8-2 4.6-2s3.4.8 4.6 2" />
+      <path d="M8.4 11.2c1.2-1.2 2.8-2 4.6-2s3.4.8 4.6 2c1.2 1.2 2 2.8 2 4.6s-.8 3.4-2 4.6c-1.2 1.2-2.8 2-4.6 2s-3.4-.8-4.6-2" />
     </svg>
   );
 }
@@ -144,13 +140,14 @@ export const Icons = {
   toggleRight: createIcon(LucideIcons.ToggleRight),
   
   // Other
+  hash: createIcon(LucideIcons.Hash),
   calendar: createIcon(LucideIcons.Calendar),
   clock: createIcon(LucideIcons.Clock),
   mail: createIcon(LucideIcons.Mail),
   phone: createIcon(LucideIcons.Phone),
   mapPin: createIcon(LucideIcons.MapPin),
+  mapPinOff: createIcon(LucideIcons.MapPinOff),
   spinner: createIcon(LucideIcons.Loader2),
 };
 
-// Set display names for custom icons
-Icons.history.displayName = 'History';
+

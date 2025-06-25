@@ -4,9 +4,10 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Bell, Search, Menu, User, Settings, LogOut } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { Bell, Search, Menu, User, Settings, LogOut, CreditCard, LifeBuoy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/useAuth';
 import {
@@ -21,7 +22,9 @@ import {
 
 export function AppHeader() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const pathname = usePathname();
+  const router = useRouter();
   const { user, logout } = useAuth();
 
   const navigation = [
@@ -55,72 +58,94 @@ export function AppHeader() {
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <Search className="h-5 w-5 text-gray-400" aria-hidden="true" />
               </div>
-              <Input
+                            <Input
                 id="search"
                 name="search"
                 className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                 placeholder="Şirket, sicil no veya vergi no ile ara..."
                 type="search"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    router.push(`/dashboard/search?q=${searchTerm}`);
+                  }
+                }}
               />
             </div>
           </div>
         </div>
         
-        <div className="ml-4 flex items-center md:ml-6">
-          <Button variant="ghost" size="icon" className="rounded-full">
-            <span className="sr-only">Bildirimleri görüntüle</span>
-            <Bell className="h-6 w-6" aria-hidden="true" />
-          </Button>
-          
-          {/* Profile dropdown */}
-          <div className="ml-3 relative">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  className="relative h-8 w-8 rounded-full"
-                >
-                  <div className="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center">
-                    <span className="text-indigo-600 font-medium text-sm">
-                      {user?.name?.charAt(0).toUpperCase() || 'U'}
-                    </span>
-                  </div>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56" align="end">
-                <DropdownMenuLabel className="font-normal">
-                  <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none">
-                      {user?.name || 'Kullanıcı'}
-                    </p>
-                    <p className="text-xs leading-none text-muted-foreground">
-                      {user?.email}
-                    </p>
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  <DropdownMenuItem asChild>
+                <div className="ml-4 flex items-center md:ml-6">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="relative h-10 w-10 rounded-full">
+                <Avatar className="h-10 w-10">
+                  <AvatarImage src={user?.image || ''} alt={user?.name || 'Kullanıcı'} />
+                  <AvatarFallback className="bg-primary/10 text-primary font-semibold">
+                    {user?.name?.charAt(0).toUpperCase() || 'U'}
+                  </AvatarFallback>
+                </Avatar>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-64" align="end" forceMount>
+              <DropdownMenuLabel className="font-normal">
+                <div className="flex items-center gap-3">
+                    <Avatar className="h-10 w-10">
+                        <AvatarImage src={user?.image || ''} alt={user?.name || 'Kullanıcı'} />
+                        <AvatarFallback className="bg-primary/10 text-primary font-semibold">
+                            {user?.name?.charAt(0).toUpperCase() || 'U'}
+                        </AvatarFallback>
+                    </Avatar>
+                    <div className="flex flex-col space-y-1">
+                        <p className="text-sm font-medium leading-none">{user?.name || 'Kullanıcı'}</p>
+                        <p className="text-xs leading-none text-muted-foreground">
+                        {user?.email}
+                        </p>
+                    </div>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuItem asChild>
                     <Link href="/dashboard/profile" className="cursor-pointer">
-                      <User className="mr-2 h-4 w-4" />
-                      <span>Profil</span>
+                        <User className="mr-2 h-4 w-4" />
+                        <span>Profil</span>
                     </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link href="/dashboard/settings" className="cursor-pointer">
-                      <Settings className="mr-2 h-4 w-4" />
-                      <span>Ayarlar</span>
-                    </Link>
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={logout} className="cursor-pointer">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Çıkış Yap</span>
                 </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+                <DropdownMenuItem asChild>
+                    <Link href="/dashboard/billing" className="cursor-pointer">
+                        <CreditCard className="mr-2 h-4 w-4" />
+                        <span>Faturalandırma</span>
+                    </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                    <Link href="/dashboard/settings" className="cursor-pointer">
+                        <Settings className="mr-2 h-4 w-4" />
+                        <span>Ayarlar</span>
+                    </Link>
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+               <DropdownMenuItem asChild>
+                    <Link href="/dashboard/notifications" className="cursor-pointer">
+                        <Bell className="mr-2 h-4 w-4" />
+                        <span>Bildirimler</span>
+                    </Link>
+                </DropdownMenuItem>
+                 <DropdownMenuItem asChild>
+                    <Link href="/support" className="cursor-pointer">
+                        <LifeBuoy className="mr-2 h-4 w-4" />
+                        <span>Destek</span>
+                    </Link>
+                </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={logout} className="cursor-pointer text-red-600 focus:bg-red-50 focus:text-red-700">
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>Çıkış Yap</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
       
@@ -147,41 +172,11 @@ export function AppHeader() {
             })}
           </div>
           <div className="pt-4 pb-3 border-t border-gray-200">
-            <div className="flex items-center px-4">
-              <div className="flex-shrink-0">
-                <div className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center">
-                  <span className="text-indigo-600 font-medium">KU</span>
-                </div>
-              </div>
-              <div className="ml-3">
-                <div className="text-base font-medium text-gray-800">Kullanıcı Adı</div>
-                <div className="text-sm font-medium text-gray-500">kullanici@example.com</div>
-              </div>
-            </div>
-            <div className="mt-3 space-y-1">
-              <Link
-                href="/dashboard/profile"
-                className="block px-4 py-2 text-base font-medium text-gray-500 hover:text-gray-800 hover:bg-gray-100"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Profiliniz
-              </Link>
-              <Link
-                href="/dashboard/settings"
-                className="block px-4 py-2 text-base font-medium text-gray-500 hover:text-gray-800 hover:bg-gray-100"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Ayarlar
-              </Link>
-              <button
-                onClick={() => {
-                  // TODO: Implement logout
-                  setMobileMenuOpen(false);
-                }}
-                className="w-full text-left block px-4 py-2 text-base font-medium text-gray-500 hover:text-gray-800 hover:bg-gray-100"
-              >
-                Çıkış Yap
-              </button>
+            <div className="px-2 space-y-1">
+               <DropdownMenuItem onClick={logout} className="cursor-pointer text-red-600 focus:bg-red-50 focus:text-red-700">
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>Çıkış Yap</span>
+              </DropdownMenuItem>
             </div>
           </div>
         </div>

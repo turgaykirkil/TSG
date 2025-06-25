@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Home, Search, BarChart3, Bookmark, Settings, UploadCloud, LogOut } from 'lucide-react';
@@ -33,8 +34,11 @@ export function AppSidebar() {
     <div className="hidden md:flex md:flex-shrink-0">
       <div className="flex flex-col w-64 border-r border-gray-200 bg-white">
         <div className="flex flex-col flex-grow pt-5 pb-4 overflow-y-auto">
-          <div className="flex items-center flex-shrink-0 px-4">
-            <h1 className="text-xl font-bold text-gray-900">TSG Platform</h1>
+                    <div className="flex items-center flex-shrink-0 px-6">
+                        <Link href="/dashboard" className="flex items-center gap-2">
+              <Image src="/sicilius-logo.svg" alt="Sicilius Logo" width={32} height={32} />
+              <span className="text-xl font-bold text-primary">Sicilius</span>
+            </Link>
           </div>
           <div className="mt-5 flex-grow flex flex-col">
             <nav className="flex-1 px-2 space-y-1">
@@ -46,13 +50,13 @@ export function AppSidebar() {
                     href={item.href}
                     className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md ${
                       isActive
-                        ? 'bg-indigo-50 text-indigo-700'
-                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-muted-foreground hover:text-primary hover:bg-primary/5'
                     }`}
                   >
                     <item.icon
                       className={`mr-3 flex-shrink-0 h-6 w-6 ${
-                        isActive ? 'text-indigo-500' : 'text-gray-400 group-hover:text-gray-500'
+                        isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-primary/80'
                       }`}
                       aria-hidden="true"
                     />
@@ -61,38 +65,18 @@ export function AppSidebar() {
                 );
               })}
             </nav>
-          </div>
-          <div className="flex-shrink-0 flex border-t border-gray-200 p-4">
-            <div className="w-full">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <div className="h-9 w-9 rounded-full bg-indigo-100 flex items-center justify-center">
-                    <span className="text-indigo-600 font-medium">
-                      {user?.name?.charAt(0).toUpperCase() || 'U'}
-                    </span>
-                  </div>
-                  <div className="ml-3">
-                    <p className="text-sm font-medium text-gray-700">
-                      {user?.name || 'Kullanıcı'}
-                    </p>
-                    <p className="text-xs text-gray-500 truncate max-w-[160px]">
-                      {user?.email}
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-gray-500 hover:text-gray-700"
-                  onClick={logout}
-                  title="Çıkış Yap"
-                >
-                  <LogOut className="h-4 w-4" />
-                  <span className="sr-only">Çıkış Yap</span>
-                </Button>
-              </div>
+            <div className="mt-auto px-2 pb-4">
+              <Button
+                variant="ghost"
+                onClick={logout}
+                className="w-full justify-start group flex items-center px-2 py-2 text-sm font-medium rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5"
+              >
+                <LogOut className="mr-3 h-6 w-6" />
+                <span>Çıkış Yap</span>
+              </Button>
             </div>
           </div>
+
         </div>
       </div>
     </div>

@@ -1,13 +1,15 @@
 import { type ReactNode, useState, useEffect } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/contexts/ThemeContext';
 import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 import { Icons } from '@/components/icons';
 import { UserNav } from '@/components/user-nav';
-import { toast } from 'react-hot-toast';
+import { FullScreenLoader } from '@/components/ui/loading-spinner';
+
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -45,43 +47,32 @@ const baseSidebarNavItems: NavItem[] = [
 ];
 
 export function DashboardLayout({ children, className }: DashboardLayoutProps) {
-
-  const { isAuthenticated, isLoading: isAuthLoading, user } = useAuth();
-  const isAdmin = user?.role === 'admin';
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const { theme, setTheme } = useTheme();
-  const pathname = usePathname();
+  const { data: session, status } = useSession();
   const router = useRouter();
+  const pathname = usePathname();
+  const { theme, setTheme } = useTheme();
+
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  const user = session?.user;
+  const isAdmin = user?.role === 'admin';
 
   const sidebarNavItems: NavItem[] = isAdmin
     ? [...baseSidebarNavItems, { title: 'Dosya İşlemleri', href: '/admin', icon: 'upload' } as NavItem]
     : baseSidebarNavItems;
 
-  
-  
-
-  // Kullanıcı giriş yapmamışsa giriş sayfasına yönlendir
   useEffect(() => {
-    if (!isAuthLoading) {
-      if (!isAuthenticated) {
-        toast.error('Bu sayfayı görüntülemek için giriş yapmalısınız');
-        router.push('/auth/login');
-      } else {
-        setIsLoading(false);
-      }
+    if (status === 'unauthenticated') {
+      // Redirect immediately without showing a toast, as the user will be on the login page.
+      router.push('/auth/login');
     }
-  }, [isAuthenticated, isAuthLoading, router]);
+  }, [status, router]);
 
   const toggleTheme = () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark';
     setTheme(newTheme);
     document.documentElement.classList.toggle('dark', newTheme === 'dark');
-    
-    // Kullanıcı tercihini localStorage'a kaydet
     localStorage.setItem('theme', newTheme);
-    
-    // Sistem temasına göre otomatik tema değişikliği için meta etiketini güncelle
     const metaThemeColor = document.querySelector('meta[name="theme-color"]');
     if (metaThemeColor) {
       metaThemeColor.setAttribute(
@@ -91,16 +82,13 @@ export function DashboardLayout({ children, className }: DashboardLayoutProps) {
     }
   };
 
-  // Yükleme durumunda yükleniyor göster
-  if (isLoading || isAuthLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="flex flex-col items-center space-y-4">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-          <p className="text-muted-foreground">Yükleniyor...</p>
-        </div>
-      </div>
-    );
+  if (status === 'loading') {
+    return <FullScreenLoader />;
+  }
+
+  if (status === 'unauthenticated') {
+    // Yönlendirme sırasında içeriğin görünmesini engelle
+    return null;
   }
 
   return (
@@ -116,7 +104,7 @@ export function DashboardLayout({ children, className }: DashboardLayoutProps) {
         )}
         onClick={() => setIsSidebarOpen(false)}
       >
-        <div 
+        <div
           className={cn(
             'fixed inset-y-0 left-0 z-50 w-64 transform bg-background shadow-lg transition-all duration-300 ease-in-out',
             isSidebarOpen ? 'translate-x-0' : '-translate-x-full',
@@ -144,7 +132,7 @@ export function DashboardLayout({ children, className }: DashboardLayoutProps) {
             {sidebarNavItems.map((item) => {
               const Icon = Icons[item.icon];
               const isActive = pathname === item.href;
-              
+
               return (
                 <Link
                   key={item.href}
@@ -180,7 +168,7 @@ export function DashboardLayout({ children, className }: DashboardLayoutProps) {
             {sidebarNavItems.map((item) => {
               const Icon = Icons[item.icon];
               const isActive = pathname === item.href;
-              
+
               return (
                 <Link
                   key={item.href}
@@ -199,7 +187,7 @@ export function DashboardLayout({ children, className }: DashboardLayoutProps) {
               );
             })}
           </nav>
-          
+
           <div className="border-t border-border p-4">
             <div className="flex items-center justify-between">
               <button

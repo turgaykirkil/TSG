@@ -18,7 +18,7 @@ export async function processExcelFile(file: File): Promise<ExcelProcessResult> 
     // Tüm sayfaları işle
     for (const sheetName of workbook.SheetNames) {
       const worksheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as any[][];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as unknown[][];
       
       if (jsonData.length === 0) continue;
       
@@ -28,17 +28,17 @@ export async function processExcelFile(file: File): Promise<ExcelProcessResult> 
       const dataStartIndex = isAnkara ? 2 : 1;
       
       const headers = (jsonData[headerRowIndex] || [])
-        .map((header: any) => String(header).trim())
+        .map((header: unknown) => String(header).trim())
         .filter(Boolean);
       
       if (headers.length === 0) continue;
       
-      const rows: Record<string, any>[] = [];
+      const rows: Record<string, unknown>[] = [];
       
       // Veri satırlarını işle
       for (let i = dataStartIndex; i < jsonData.length; i++) {
         const row = jsonData[i] || [];
-        const rowData: Record<string, any> = {};
+        const rowData: Record<string, unknown> = {};
         
         // Sadece dolu satırları ekle
         if (!row.some(cell => cell !== '')) continue;

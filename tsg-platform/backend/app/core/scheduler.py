@@ -201,30 +201,30 @@ def init_scheduler() -> None:
     from app.tasks.check_stuck_jobs import run_check_stuck_jobs
     from app.tasks.cleanup_jobs import run_cleanup_jobs
     
-    # Add task to check for stuck jobs
-    scheduler.add_task(
-        func=run_check_stuck_jobs,
-        interval=settings.STUCK_JOB_CHECK_INTERVAL,
-        name="check_stuck_jobs",
-        kwargs={
-            "older_than_minutes": settings.JOB_STUCK_AFTER_SECONDS // 60,
-            "max_retries": settings.MAX_JOB_RETRIES,
-            "auto_retry": settings.AUTO_RETRY_FAILED_JOBS,
-        },
-        run_immediately=False,
-    )
+    # # Add task to check for stuck jobs (Temporarily disabled)
+    # scheduler.add_task(
+    #     func=run_check_stuck_jobs,
+    #     interval=settings.STUCK_JOB_CHECK_INTERVAL,
+    #     name="check_stuck_jobs",
+    #     kwargs={
+    #         "older_than_minutes": settings.JOB_STUCK_AFTER_SECONDS // 60,
+    #         "max_retries": settings.MAX_JOB_RETRIES,
+    #         "auto_retry": settings.AUTO_RETRY_FAILED_JOBS,
+    #     },
+    #     run_immediately=False,
+    # )
     
-    # Add task to clean up old job records (run once per day)
-    scheduler.add_task(
-        func=run_cleanup_jobs,
-        interval=24 * 60 * 60,  # 24 hours
-        name="cleanup_jobs",
-        kwargs={
-            "completed_days": settings.COMPLETED_JOB_RETENTION_DAYS,
-            "failed_days": settings.FAILED_JOB_RETENTION_DAYS,
-        },
-        run_immediately=False,
-    )
+    # # Add task to clean up old job records (run once per day) (Temporarily disabled)
+    # scheduler.add_task(
+    #     func=run_cleanup_jobs,
+    #     interval=24 * 60 * 60,  # 24 hours
+    #     name="cleanup_jobs",
+    #     kwargs={
+    #         "completed_days": settings.COMPLETED_JOB_RETENTION_DAYS,
+    #         "failed_days": settings.FAILED_JOB_RETENTION_DAYS,
+    #     },
+    #     run_immediately=False,
+    # )
     
     # Start the scheduler
     scheduler.start()

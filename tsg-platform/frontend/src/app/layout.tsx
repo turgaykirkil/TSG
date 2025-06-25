@@ -1,9 +1,11 @@
 'use client';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Toaster } from 'react-hot-toast';
-import { AuthProvider } from '@/providers/AuthProvider';
+import { Toaster } from '@/components/ui/toaster';
+
 import { SessionProvider } from '@/providers/SessionProvider';
+import { useSession } from 'next-auth/react';
+import { FullScreenLoader } from '@/components/ui/loading-spinner';
 import { Inter, Space_Grotesk } from 'next/font/google';
 import { cn } from '@/lib/utils';
 import '@/globals.css';
@@ -32,6 +34,16 @@ const queryClient = new QueryClient({
   },
 });
 
+function AuthWrapper({ children }: { children: React.ReactNode }) {
+  const { status } = useSession();
+
+  if (status === 'loading') {
+    return <FullScreenLoader />;
+  }
+
+  return <>{children}</>;
+}
+
 export default function RootLayout({
   children,
 }: {
@@ -54,7 +66,7 @@ export default function RootLayout({
       <body className="min-h-screen bg-gradient-to-br from-background via-background/95 to-background/90 font-sans text-foreground">
         <QueryClientProvider client={queryClient}>
           <SessionProvider>
-            <AuthProvider>
+            <AuthWrapper>
               <div className="relative min-h-screen flex flex-col">
                 {/* Gradient overlay */}
                 <div className="absolute inset-0 -z-10 overflow-hidden">
@@ -66,27 +78,9 @@ export default function RootLayout({
                 {children}
                 
                 {/* Toaster için özel stil */}
-                <Toaster 
-                  position="top-right" 
-                  toastOptions={{
-                    className: '!bg-card !text-foreground !border !border-border',
-                    success: {
-                      className: '!bg-green-50/90 !text-green-800 dark:!bg-green-900/30 dark:!text-green-200 !border-green-200/50 dark:!border-green-800/50',
-                      iconTheme: {
-                        primary: '#10b981',
-                        secondary: '#fff',
-                      },
-                    },
-                    error: {
-                      className: '!bg-red-50/90 !text-red-800 dark:!bg-red-900/30 dark:!text-red-200 !border-red-200/50 dark:!border-red-800/50',
-                    },
-                    loading: {
-                      className: '!bg-blue-50/90 !text-blue-800 dark:!bg-blue-900/30 dark:!text-blue-200 !border-blue-200/50 dark:!border-blue-800/50',
-                    },
-                  }} 
-                />
+                <Toaster />
               </div>
-            </AuthProvider>
+            </AuthWrapper>
           </SessionProvider>
         </QueryClientProvider>
       </body>

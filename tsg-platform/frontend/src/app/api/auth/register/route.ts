@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { User } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { Database } from '../../../../types/supabase';
+
 
 // Define a more specific type for user profile that matches our database schema
 type UserProfile = {

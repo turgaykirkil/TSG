@@ -1,27 +1,34 @@
-/* eslint-disable no-restricted-globals */
-import { processExcelFile } from '@/lib/file-utils';
+import { processExcelFile, type ExcelProcessResult } from '@/lib/file-utils';
 
-// Worker mesaj türü
 interface WorkerRequest {
   fileId: string;
   file: File;
 }
 
-interface WorkerResponse {
+interface WorkerSuccessResponse {
+  type: 'SUCCESS';
   fileId: string;
-  result: ReturnType<typeof processExcelFile> extends Promise<infer R> ? R : never;
+  result: ExcelProcessResult;
 }
+
+interface WorkerErrorResponse {
+  type: 'ERROR';
+  fileId: string;
+  error: string;
+}
+
+
 
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   const { fileId, file } = event.data;
+
   try {
     const result = await processExcelFile(file);
-    const response: WorkerResponse = { fileId, result } as any;
-    // @ts-ignore
-    self.postMessage(response);
-  } catch (error) {
-    const response: WorkerResponse = { fileId, result: { success: false, fileName: file.name, sheets: [], error: (error as Error).message } } as any;
-    // @ts-ignore
-    self.postMessage(response);
+    const response: WorkerSuccessResponse = { type: 'SUCCESS', fileId, result };
+    postMessage(response);
+  } catch (e) {
+    const errorMessage = e instanceof Error ? e.message : 'Bilinmeyen bir worker hatası oluştu';
+    const response: WorkerErrorResponse = { type: 'ERROR', fileId, error: errorMessage };
+    postMessage(response);
   }
 };

@@ -1,0 +1,11 @@
+# Find and replace in all files
+find . -type f -exec sed -i '' 's/TSG Platform/Sicilius/g' {} +
+find . -type f -exec sed -i '' 's/TSG_Platform/Sicilius/g' {} + 
+
+# Verify no TSG references remain
+grep -r "TSG Platform" .
+grep -r "TSG_Platform" .
+grep -r "tsg-platform" .
+
+# Check logo file exists
+ls tsg-platform/frontend/public/sicilius-logo.svg 

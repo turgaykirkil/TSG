@@ -20,9 +20,9 @@ export default function DashboardOverview() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Genel Bakış</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Sicilius Dashboard</h1>
         <p className="text-muted-foreground">
-          Son aktiviteleriniz ve özet bilgiler burada gösterilir.
+          Sicilius ile şirket veritabanınızı yönetin ve analiz edin.
         </p>
       </div>
 
@@ -50,9 +50,9 @@ export default function DashboardOverview() {
         {/* Search Card */}
         <Card className="col-span-4">
           <CardHeader>
-            <CardTitle>Hızlı Arama</CardTitle>
+            <CardTitle>Şirket Arama</CardTitle>
             <CardDescription>
-              Şirket adı, sicil no veya vergi no ile arama yapın.
+              Şirket bilgilerini Sicilius ile kolayca bulun.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -77,7 +77,7 @@ export default function DashboardOverview() {
         <Card className="col-span-3">
           <CardHeader>
             <CardTitle>Son Aramalar</CardTitle>
-            <CardDescription>Son yaptığınız aramalar.</CardDescription>
+            <CardDescription>Sicilius ile yaptığınız son aramalar.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">

@@ -5,7 +5,7 @@ import { authOptions } from '@/lib/auth';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
-  title: 'Şirketler | TSG Platform',
+  title: 'Şirketler | Sicilius',
   description: 'Kayıtlı tüm şirketlerin listesi',
 };
 

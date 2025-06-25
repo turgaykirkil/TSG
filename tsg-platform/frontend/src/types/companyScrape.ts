@@ -22,7 +22,7 @@ export interface CompanyScrapeCreate {
   last_scraped_at?: string | null;
 }
 
-export interface CompanyScrapeUpdate extends Partial<CompanyScrapeCreate> {}
+export type CompanyScrapeUpdate = Partial<CompanyScrapeCreate>;
 
 export interface CompanyScrapeResponse {
   data: CompanyScrape | CompanyScrape[];

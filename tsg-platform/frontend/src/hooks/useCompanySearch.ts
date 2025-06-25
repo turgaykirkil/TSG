@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
-import { CompanyData } from '@/lib/types/company.types';
+import { Company } from '@/types/company.types';
 
-const fetchCompanies = async (searchTerm: string): Promise<CompanyData[]> => {
+const fetchCompanies = async (searchTerm: string): Promise<Company[]> => {
   // Arama terimi boşsa sorguyu çalıştırma
   if (!searchTerm.trim()) {
     return [];
@@ -13,7 +13,7 @@ const fetchCompanies = async (searchTerm: string): Promise<CompanyData[]> => {
 
   const { data, error } = await supabase
     .from('companies')
-    .select('*') // Tip uyumluluğu için tüm kolonları seç
+    .select('*, koordinat') // Koordinat sütununu da açıkça seçiyoruz
     .or(`firma_unvani.ilike.${query},sicil_no.ilike.${query},adres.ilike.${query}`)
     .limit(50); // Sonuçları sınırlayarak performansı artır
 
@@ -30,7 +30,7 @@ const fetchCompanies = async (searchTerm: string): Promise<CompanyData[]> => {
  * @param searchTerm Arama yapılacak metin.
  */
 export const useCompanySearch = (searchTerm: string) => {
-  return useQuery<CompanyData[], Error>({
+  return useQuery<Company[], Error>({
     queryKey: ['companies', searchTerm],
     queryFn: () => fetchCompanies(searchTerm),
     enabled: !!searchTerm.trim(), // Sadece arama terimi varsa sorguyu çalıştır

@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Search, BarChart, Shield, Zap, Users, FileText, CheckCircle2 } from 'lucide-react';
@@ -70,10 +71,13 @@ export default function HomePage() {
           <div className="mx-auto mt-16 flex max-w-2xl sm:mt-24 lg:ml-10 lg:mr-0 lg:mt-0 lg:max-w-none lg:flex-none xl:ml-32">
             <div className="max-w-3xl flex-none sm:max-w-5xl lg:max-w-none">
               <div className="-m-2 rounded-xl bg-gray-900/5 p-2 ring-1 ring-inset ring-gray-900/10 lg:-m-4 lg:rounded-2xl lg:p-4">
-                <img
+                <Image
                   src="/dashboard-preview.png"
                   alt="TSG Platform Dashboard Önizleme"
                   className="w-[76rem] rounded-md bg-white/5 shadow-2xl ring-1 ring-white/10"
+                  width={1216}
+                  height={720}
+                  priority
                 />
               </div>
             </div>
@@ -122,7 +126,7 @@ export default function HomePage() {
                   Hemen başlayın, 14 gün ücretsiz deneyin
                 </h2>
                 <p className="mt-6 text-lg leading-8 text-gray-600">
-                  TSG Platform'un tüm özelliklerini 14 gün boyunca ücretsiz deneyin. Kredi kartı bilgisi gerekmez.
+                  TSG Platform&apos;un tüm özelliklerini 14 gün boyunca ücretsiz deneyin. Kredi kartı bilgisi gerekmez.
                 </p>
                 <div className="mt-10 flex items-center gap-x-6">
                   <Link href="/register">

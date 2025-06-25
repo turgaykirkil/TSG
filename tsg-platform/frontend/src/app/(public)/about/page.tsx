@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Building2, Users, BarChart, Shield, Zap, Lightbulb, Handshake, Award } from 'lucide-react';
@@ -114,10 +115,13 @@ export default function AboutPage() {
           <div className="mx-auto mt-16 flex max-w-2xl sm:mt-24 lg:ml-10 lg:mr-0 lg:mt-0 lg:max-w-none lg:flex-none xl:ml-32">
             <div className="max-w-3xl flex-none sm:max-w-5xl lg:max-w-none">
               <div className="-m-2 rounded-xl bg-gray-900/5 p-2 ring-1 ring-inset ring-gray-900/10 lg:-m-4 lg:rounded-2xl lg:p-4">
-                <img
+                <Image
                   src="/about-hero.jpg"
                   alt="TSG Platform Ekibi"
-                  className="w-[76rem] rounded-md bg-white/5 shadow-2xl ring-1 ring-white/10"
+                  className="w-[76rem] rounded-md shadow-2xl ring-1 ring-inset ring-gray-900/10"
+                  width={1216}
+                  height={684}
+                  priority
                 />
               </div>
             </div>
@@ -170,7 +174,7 @@ export default function AboutPage() {
           >
             {team.map((person) => (
               <li key={person.name}>
-                <img className="aspect-[14/13] w-full rounded-2xl object-cover" src={person.image} alt="" />
+                <Image className="aspect-[14/13] w-full rounded-2xl object-cover" src={person.image} alt={person.name} width={400} height={371} />
                 <h3 className="mt-6 text-lg font-semibold leading-8 tracking-tight text-gray-900">{person.name}</h3>
                 <p className="text-base leading-7 text-blue-600">{person.role}</p>
                 <p className="text-sm leading-6 text-gray-600">{person.bio}</p>
@@ -210,7 +214,7 @@ export default function AboutPage() {
             Hemen Başlayın
           </h2>
           <p className="mx-auto mt-6 max-w-xl text-lg leading-8 text-blue-100">
-            TSG Platform'un tüm özelliklerini keşfetmek için hemen ücretsiz hesabınızı oluşturun.
+            TSG Platform&apos;un tüm özelliklerini keşfetmek için hemen ücretsiz hesabınızı oluşturun.
           </p>
           <div className="mt-10 flex items-center justify-center gap-x-6">
             <Link

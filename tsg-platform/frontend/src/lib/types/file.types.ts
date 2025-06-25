@@ -14,7 +14,7 @@ export interface TableHeader {
 export interface ExcelSheetResult {
   sheetName: string;
   headers: string[];
-  rows: Record<string, any>[];
+  rows: Record<string, unknown>[];
 }
 
 // Excel işleme sonucu tipi
@@ -35,12 +35,12 @@ export interface PdfProcessResult {
   uploadedAt: Date;
   text?: string;
   pageCount?: number;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   error?: string;
   meta?: {
     processedAt?: string;
     error?: boolean;
-    [key: string]: any;
+    [key: string]: unknown;
   };
 }
 
@@ -57,6 +57,6 @@ export interface CustomFile extends File {
   fileType?: string;
   uploadedAt?: Date;
   insertedCount?: number; // Başarıyla eklenen kayıt sayısı
-  meta?: Record<string, any>;
+  meta?: Record<string, unknown>;
   müdürlük: string;
 }

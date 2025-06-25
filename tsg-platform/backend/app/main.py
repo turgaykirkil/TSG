@@ -94,9 +94,18 @@ async def http_exception_handler(request, exc):
 # Uygulama başlangıcında yapılacak işlemler
 @app.on_event("startup")
 async def startup_event():
-    # Gerekirse veritabanı tablolarını oluştur
-    Base.metadata.create_all(bind=engine)
-    logger.info("Veritabanı başlatıldı")
+    # Veritabanı bağlantısını test et ve gerekirse tabloları oluştur
+    try:
+        # Bağlantıyı test etmek için kısa bir sorgu çalıştır
+        with engine.connect() as connection:
+            logger.info("Veritabanı bağlantısı başarılı.")
+        
+        # Tabloları oluştur
+        Base.metadata.create_all(bind=engine)
+        logger.info("Veritabanı tabloları başarıyla senkronize edildi.")
+    except Exception as e:
+        logger.warning("Veritabanı bağlantısı kurulamadı: %s", str(e))
+        logger.warning("Uygulama, veritabanı olmadan devam edecek. Veritabanı gerektiren endpoint'ler çalışmayabilir.")
     
     # Scheduler'ı başlat
     try:

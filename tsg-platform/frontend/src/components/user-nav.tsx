@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
+import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/contexts/ThemeContext';
 import { Icons } from '@/components/icons';
 import { Button } from '@/components/ui/button';
@@ -15,10 +16,15 @@ import {
 
 export function UserNav() {
   const { theme, setTheme } = useTheme();
+  const { user, logout } = useAuth();
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
 
   const toggleTheme = () => {
     setTheme(theme === 'dark' ? 'light' : 'dark');
+  };
+
+  const handleLogout = async () => {
+    await logout();
   };
 
   return (
@@ -45,16 +51,18 @@ export function UserNav() {
         <DropdownMenuContent className="w-56" align="end" forceMount>
           <DropdownMenuLabel className="font-normal">
             <div className="flex flex-col space-y-1">
-              <p className="text-sm font-medium leading-none">Kullanıcı Adı</p>
+              <p className="text-sm font-medium leading-none">
+                {user?.name || 'Kullanıcı'}
+              </p>
               <p className="text-xs leading-none text-muted-foreground">
-                kullanici@example.com
+                {user?.email}
               </p>
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
             <DropdownMenuItem asChild>
-              <Link to="/dashboard/settings">
+              <Link href="/dashboard/settings">
                 <Icons.settings className="mr-2 h-4 w-4" />
                 <span>Hesap Ayarları</span>
               </Link>
@@ -66,7 +74,7 @@ export function UserNav() {
             </DropdownMenuItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={handleLogout}>
             <Icons.logOut className="mr-2 h-4 w-4" />
             <span>Çıkış Yap</span>
           </DropdownMenuItem>

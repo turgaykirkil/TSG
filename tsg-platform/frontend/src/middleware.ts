@@ -23,6 +23,7 @@ export default withAuth({
       if (!token) return false;
 
       // Admin route ise rol kontrolü yap
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if (pathname.startsWith('/admin') && (token as any).role !== 'admin') {
         return false;
       }
@@ -43,6 +44,6 @@ export const config = {
      * - favicon.ico (favicon file)
      * - public folder
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|.*\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|.*[.](?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

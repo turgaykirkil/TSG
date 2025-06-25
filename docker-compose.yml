@@ -1,0 +1,5 @@
+version: '3.8'
+services:
+  sicilius-frontend:
+    build: ./tsg-platform/frontend
+    # ... other configuration ... 
