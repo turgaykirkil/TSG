@@ -37,26 +37,6 @@ const nextConfig = {
     NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET,
   },
 
-  // Webpack configuration
-  webpack: (config, { isServer }) => {
-    const resolvedSrcPath = path.resolve(__dirname, 'src');
-    // Log only once during the build process
-    if (isServer) {
-      console.log('--- [DEBUG] Webpack Alias Resolution ---');
-      console.log('__dirname:', __dirname);
-      console.log('Resolved @ path:', resolvedSrcPath);
-      console.log('------------------------------------');
-    }
-
-    // Add path aliases
-    config.resolve.alias = {
-      ...config.resolve.alias,
-      '@': resolvedSrcPath,
-    };
-
-    return config;
-  },
-
   // Image domains
   images: {
     domains: ['localhost'],
