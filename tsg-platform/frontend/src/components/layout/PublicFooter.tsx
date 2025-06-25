@@ -38,8 +38,8 @@ export function PublicFooter() {
       title: 'İletişim',
       links: [
         { 
-          name: 'info@tsgplatform.com', 
-          href: 'mailto:info@tsgplatform.com',
+          name: 'info@sicilius.com', 
+          href: 'mailto:info@sicilius.com',
           icon: <Mail className="w-4 h-4 mr-2" />
         },
         { 
@@ -87,7 +87,7 @@ export function PublicFooter() {
           <div className="space-y-5">
             <div className="flex items-center space-x-2">
               <span className="text-2xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-                TSG Platform
+                Sicilius
               </span>
             </div>
             <p className="text-foreground/70 text-sm leading-relaxed">
@@ -144,7 +144,7 @@ export function PublicFooter() {
         {/* Bottom bar */}
         <div className="flex flex-col md:flex-row justify-between items-center pt-4">
           <p className="text-sm text-foreground/60 text-center md:text-left">
-            &copy; {currentYear} TSG Platform. Tüm hakları saklıdır.
+            &copy; {currentYear} Sicilius. Tüm hakları saklıdır.
           </p>
           
           <div className="flex items-center space-x-6 mt-4 md:mt-0">

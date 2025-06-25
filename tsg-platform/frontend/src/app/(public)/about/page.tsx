@@ -97,7 +97,7 @@ export default function AboutPage() {
               Hakkımızda
             </h1>
             <p className="mt-6 text-lg leading-8 text-gray-600">
-              TSG Platform, şirket bilgilerine hızlı, güvenli ve etkili bir şekilde erişmenizi sağlayan 
+              Sicilius, şirket bilgilerine hızlı, güvenli ve etkili bir şekilde erişmenizi sağlayan 
               öncü bir iş zekası platformudur. 2010 yılından bu yana, iş dünyasının ihtiyaçlarını 
               anlayarak geliştirdğimiz çözümlerimizle binlerce kullanıcıya hizmet veriyoruz.
             </p>
@@ -117,7 +117,7 @@ export default function AboutPage() {
               <div className="-m-2 rounded-xl bg-gray-900/5 p-2 ring-1 ring-inset ring-gray-900/10 lg:-m-4 lg:rounded-2xl lg:p-4">
                 <Image
                   src="/about-hero.jpg"
-                  alt="TSG Platform Ekibi"
+                  alt="Sicilius Ekibi"
                   className="w-[76rem] rounded-md shadow-2xl ring-1 ring-inset ring-gray-900/10"
                   width={1216}
                   height={684}
@@ -138,7 +138,7 @@ export default function AboutPage() {
               İşinizi büyütmenize yardımcı olacak araçlar
             </p>
             <p className="mt-6 text-lg leading-8 text-gray-600">
-              TSG Platform olarak, şirket bilgilerine erişim sürecinizi basitleştiriyor ve hızlandırıyoruz.
+              Sicilius olarak, şirket bilgilerine erişim sürecinizi basitleştiriyor ve hızlandırıyoruz.
             </p>
           </div>
           <div className="mx-auto mt-16 max-w-2xl sm:mt-20 lg:mt-24 lg:max-w-4xl">
@@ -214,7 +214,7 @@ export default function AboutPage() {
             Hemen Başlayın
           </h2>
           <p className="mx-auto mt-6 max-w-xl text-lg leading-8 text-blue-100">
-            TSG Platform&apos;un tüm özelliklerini keşfetmek için hemen ücretsiz hesabınızı oluşturun.
+            Sicilius&apos;un tüm özelliklerini keşfetmek için hemen ücretsiz hesabınızı oluşturun.
           </p>
           <div className="mt-10 flex items-center justify-center gap-x-6">
             <Link

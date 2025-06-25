@@ -19,7 +19,7 @@ export default function ContactPage() {
                 <div>
                   <dt className="sr-only">Email</dt>
                   <dd>
-                    <a className="font-semibold text-indigo-600" href="mailto:info@tsgplatform.com">info@tsgplatform.com</a>
+                    <a className="font-semibold text-indigo-600" href="mailto:info@sicilius.com">info@sicilius.com</a>
                   </dd>
                 </div>
                 <div className="mt-1">

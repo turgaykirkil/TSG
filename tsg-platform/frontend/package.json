@@ -2,8 +2,8 @@
   "name": "sicilius-platform",
   "private": true,
   "version": "1.0.0",
-  "description": "TSG Platform Frontend with Next.js App Router",
-  "author": "TSG Team",
+  "description": "Sicilius - Company Intelligence Platform",
+  "author": "Sicilius Team",
   "license": "MIT",
   "scripts": {
     "dev": "next dev",

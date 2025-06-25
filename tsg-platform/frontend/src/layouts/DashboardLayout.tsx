@@ -106,7 +106,7 @@ export function DashboardLayout({ children, className }: DashboardLayoutProps) {
       >
         <div
           className={cn(
-            'fixed inset-y-0 left-0 z-50 w-64 transform bg-background shadow-lg transition-all duration-300 ease-in-out',
+            'fixed inset-y-0 left-0 z-50 w-64 bg-background shadow-lg transition-all duration-300 ease-in-out',
             isSidebarOpen ? 'translate-x-0' : '-translate-x-full',
             'lg:translate-x-0',
             'border-r border-border',
@@ -116,7 +116,7 @@ export function DashboardLayout({ children, className }: DashboardLayoutProps) {
           <div className="flex h-16 items-center justify-between border-b border-border px-6">
             <Link href="/dashboard" className="flex items-center space-x-2">
               <Icons.logo className="h-8 w-8" />
-              <span className="text-xl font-bold">TSG Platform</span>
+              <span className="text-xl font-bold">Sicilius</span>
             </Link>
             <Button
               variant="ghost"
@@ -160,7 +160,7 @@ export function DashboardLayout({ children, className }: DashboardLayoutProps) {
         <div className="flex h-16 flex-shrink-0 items-center border-b border-border px-6">
           <Link href="/dashboard" className="flex items-center space-x-2">
             <Icons.logo className="h-8 w-8" />
-            <span className="text-xl font-bold">TSG Platform</span>
+            <span className="text-xl font-bold">Sicilius</span>
           </Link>
         </div>
         <div className="flex flex-1 flex-col overflow-y-auto">

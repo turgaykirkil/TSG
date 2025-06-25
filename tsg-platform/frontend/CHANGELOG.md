@@ -1,5 +1,11 @@
 # Sicilius Platform Changelog
 
+## [0.6.0] - 2025-06-25
+
+### Changed
+- **Rebranding:** The entire frontend application has been rebranded from "TSG Platform" to "Sicilius". This includes all user-facing text, contact information, metadata, and internal identifiers to align with the new brand identity.
+- Updated `README.md`, `package.json`, and other configuration files to reflect the "Sicilius" name.
+
 ## 0.5.1 - 2024-07-28
 
 ### Eklendi (Added)

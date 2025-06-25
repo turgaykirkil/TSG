@@ -43,7 +43,7 @@ export function Footer({ className }: FooterProps) {
           <div className="space-y-4">
             <div className="flex items-center space-x-2">
               <Icons.logo className="h-8 w-8" />
-              <span className="text-xl font-bold">TSG Platform</span>
+              <span className="text-xl font-bold">Sicilius</span>
             </div>
             <p className="text-muted-foreground text-sm">
               Şirketlerin ihtiyaç duyduğu çözümleri sunan kapsamlı bir platform.
@@ -93,8 +93,8 @@ export function Footer({ className }: FooterProps) {
               </div>
               <div className="flex items-center space-x-2">
                 <Icons.mail className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                <a href="mailto:info@tsgplatform.com" className="text-muted-foreground hover:text-foreground transition-colors">
-                  info@tsgplatform.com
+                <a href="mailto:info@sicilius.com" className="text-muted-foreground hover:text-foreground transition-colors">
+                  info@sicilius.com
                 </a>
               </div>
               <div className="flex items-center space-x-2">
@@ -144,7 +144,7 @@ export function Footer({ className }: FooterProps) {
         </div>
 
         <div className="mt-12 pt-8 border-t text-center text-sm text-muted-foreground">
-          <p>&copy; {currentYear} TSG Platform. Tüm hakları saklıdır.</p>
+          <p>&copy; {currentYear} Sicilius. Tüm hakları saklıdır.</p>
           <div className="mt-2 flex justify-center space-x-4 text-xs">
             <Link href="/privacy" className="hover:underline">Gizlilik Politikası</Link>
             <span>•</span>

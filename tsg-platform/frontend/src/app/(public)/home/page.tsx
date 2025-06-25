@@ -54,7 +54,7 @@ export default function HomePage() {
               Şirket Bilgilerine Hızlı ve Güvenli Erişim
             </h1>
             <p className="mt-6 text-lg leading-8 text-gray-600">
-              TSG Platform ile şirket bilgilerini kolayca görüntüleyin, analiz edin ve raporlayın.
+              Sicilius ile şirket bilgilerini kolayca görüntüleyin, analiz edin ve raporlayın.
               Ticaret Sicil Gazetesi kayıtlarına tek bir yerden erişin.
             </p>
             <div className="mt-10 flex items-center gap-x-6">
@@ -73,7 +73,7 @@ export default function HomePage() {
               <div className="-m-2 rounded-xl bg-gray-900/5 p-2 ring-1 ring-inset ring-gray-900/10 lg:-m-4 lg:rounded-2xl lg:p-4">
                 <Image
                   src="/dashboard-preview.png"
-                  alt="TSG Platform Dashboard Önizleme"
+                  alt="Sicilius Dashboard Önizleme"
                   className="w-[76rem] rounded-md bg-white/5 shadow-2xl ring-1 ring-white/10"
                   width={1216}
                   height={720}
@@ -94,7 +94,7 @@ export default function HomePage() {
               İşinizi kolaylaştıran tüm araçlar
             </p>
             <p className="mt-6 text-lg leading-8 text-gray-600">
-              TSG Platform, şirket bilgilerine erişim sürecinizi basitleştirir ve hızlandırır.
+              Sicilius, şirket bilgilerine erişim sürecinizi basitleştirir ve hızlandırır.
               İşte size sunduğumuz bazı özellikler:
             </p>
           </div>
@@ -126,7 +126,7 @@ export default function HomePage() {
                   Hemen başlayın, 14 gün ücretsiz deneyin
                 </h2>
                 <p className="mt-6 text-lg leading-8 text-gray-600">
-                  TSG Platform&apos;un tüm özelliklerini 14 gün boyunca ücretsiz deneyin. Kredi kartı bilgisi gerekmez.
+                  Sicilius&apos;un tüm özelliklerini 14 gün boyunca ücretsiz deneyin. Kredi kartı bilgisi gerekmez.
                 </p>
                 <div className="mt-10 flex items-center gap-x-6">
                   <Link href="/register">

@@ -1,6 +1,6 @@
-# TSG Platform Frontend
+# Sicilius Platform Frontend
 
-Modern, performant, and accessible frontend for the TSG Platform, built with Next.js, TypeScript, and Tailwind CSS.
+Modern, performant, and accessible frontend for the Sicilius Platform, built with Next.js, TypeScript, and Tailwind CSS.
 
 ## 🚀 Features
 
@@ -23,8 +23,8 @@ Modern, performant, and accessible frontend for the TSG Platform, built with Nex
 1. Clone the repository
 
    ```bash
-   git clone https://github.com/yourusername/tsg-platform.git
-   cd tsg-platform/frontend
+   git clone https://github.com/turgaykirkil/TSG.git
+   cd TSG/tsg-platform/frontend
    ```
 
 2. Install dependencies:

@@ -42,7 +42,7 @@ export function PublicHeader() {
               className="flex items-center space-x-2 group"
             >
               <span className="text-2xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-                TSG Platform
+                Sicilius
               </span>
             </Link>
           </div>
