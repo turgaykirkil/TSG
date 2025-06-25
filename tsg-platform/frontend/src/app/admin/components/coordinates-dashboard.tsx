@@ -2,14 +2,14 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { supabase } from '@/lib/supabaseClient';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Icons } from '@/components/icons';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Input } from '@/components/ui/input';
-import LoadingSpinner from '@/components/ui/loading-spinner';
-import { geocodeAddress, GeocodeResult } from '@/lib/geocode';
+import { supabase } from '../../../lib/supabaseClient';
+import { Button } from '../../../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
+import { Icons } from '../../../components/icons';
+import { Alert, AlertDescription, AlertTitle } from '../../../components/ui/alert';
+import { Input } from '../../../components/ui/input';
+import LoadingSpinner from '../../../components/ui/loading-spinner';
+import { geocodeAddress, GeocodeResult } from '../../../lib/geocode';
 
 // Define the props for the component
 interface CoordinatesDashboardProps {
