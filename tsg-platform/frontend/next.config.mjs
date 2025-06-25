@@ -44,10 +44,16 @@ const nextConfig = {
 
   // Webpack configuration
   webpack: (config) => {
+    const resolvedSrcPath = path.resolve(__dirname, 'src');
+    console.log('--- [DEBUG] Webpack Alias Resolution ---');
+    console.log('__dirname:', __dirname);
+    console.log('Resolved @ path:', resolvedSrcPath);
+    console.log('------------------------------------');
+
     // Add path aliases
     config.resolve.alias = {
       ...config.resolve.alias,
-      '@': path.resolve(__dirname, 'src'),
+      '@': resolvedSrcPath,
     };
 
     return config;
