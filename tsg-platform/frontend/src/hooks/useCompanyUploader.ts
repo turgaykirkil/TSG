@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabaseClient';
-import { type CompanyData } from '@/types/company.types';
+import { type Company } from '@/types/company.types';
 
 export const useCompanyUploader = () => {
   const [isUploading, setIsUploading] = useState(false);
@@ -9,18 +9,15 @@ export const useCompanyUploader = () => {
   const [progress, setProgress] = useState(0);
   const [isSuccess, setIsSuccess] = useState(false);
 
-  const upload = useCallback(async (companies: CompanyData[], sicilMudurluk: string, onSuccess?: () => void) => {
+  const upload = useCallback(async (companies: Company[], sicilMudurluk: string, onSuccess?: () => void) => {
     console.log(`[Uploader] Upload started. Companies count: ${companies.length}, Directorate: ${sicilMudurluk}`);
     if (!companies || companies.length === 0) {
       toast.warning('Yüklenecek şirket verisi bulunamadı.');
-      console.warn('[Uploader] Upload function called with no companies.');
       return;
     }
     if (!sicilMudurluk) {
-        toast.warning('Lütfen bir Sicil Müdürlüğü seçin.');
-        console.warn('[Uploader] Upload function called with no directorate.');
-        setIsUploading(false); // Yükleme durumunu sıfırla
-        return;
+      toast.warning('Lütfen bir Sicil Müdürlüğü seçin.');
+      return;
     }
 
     setIsUploading(true);
@@ -28,53 +25,61 @@ export const useCompanyUploader = () => {
     setProgress(0);
     setIsSuccess(false);
 
+    const BATCH_SIZE = 100;
+    let totalUploaded = 0;
+    let totalFailed = 0;
+
     try {
-      setProgress(10);
-      
-      const companiesToUpload = companies.map(company => ({
-        ...company,
-        sicil_mudurluk: sicilMudurluk,
-        created_at: company.created_at || new Date().toISOString(),
-      }));
+      for (let i = 0; i < companies.length; i += BATCH_SIZE) {
+        const batch = companies.slice(i, i + BATCH_SIZE).map(company => ({
+          ...company,
+          sicil_mudurluk: sicilMudurluk,
+          created_at: company.created_at || new Date().toISOString(),
+        }));
 
-      console.log('[Uploader] Connecting to Supabase for upsert...');
-      const { data, error: uploadError } = await supabase
-        .from('companies')
-        .upsert(companiesToUpload, { onConflict: 'sicil_no' })
-        .select();
-      
-      setProgress(80);
-      console.log('[Uploader] Supabase upsert operation completed.');
+        try {
+          const { error: batchError } = await supabase
+            .from('companies')
+            .upsert(batch, { onConflict: 'sicil_no' });
 
-      if (uploadError) {
-        console.error('[Uploader] Supabase error object:', uploadError);
-        throw uploadError;
+          if (batchError) {
+            console.warn(`[Uploader] Batch (from index ${i}) failed. Retrying individually.`, batchError);
+            toast.warning(`Bir grup veri yüklenemedi, tek tek deneniyor... (Kayıt ${i})`);
+            // Retry individually
+            for (const company of batch) {
+              const { error: individualError } = await supabase
+                .from('companies')
+                .upsert(company, { onConflict: 'sicil_no' });
+
+              if (individualError) {
+                console.error(`[Uploader] Failed to upload individual company: ${company.sicil_no}`, individualError);
+                totalFailed++;
+              } else {
+                totalUploaded++;
+              }
+            }
+          } else {
+            totalUploaded += batch.length;
+          }
+
+        } catch (e) {
+            console.error(`[Uploader] Critical error during batch (from index ${i}).`, e);
+            totalFailed += batch.length; // Assume whole batch failed on critical error
+        }
+
+        setProgress(Math.round(((i + batch.length) / companies.length) * 100));
       }
 
-      setProgress(100);
       setIsSuccess(true);
-      toast.success(`${companies.length} şirket verisi başarıyla yüklendi/güncellendi.`);
-      console.log('[Uploader] Upload successful.');
-
-      if (onSuccess) {
-        console.log('[Uploader] Executing onSuccess callback.');
-        onSuccess();
-      }
+      toast.success(`Yükleme tamamlandı. Başarılı: ${totalUploaded}, Başarısız: ${totalFailed}`);
+      if (onSuccess) onSuccess();
 
     } catch (e: unknown) {
-      console.error('[Uploader] Full error during Supabase upload:', e);
-      let errorMessage = 'Veri yüklenirken bir hata oluştu.';
-      if (e instanceof Error) {
-        if (e.message.includes('violates not-null constraint')) {
-            errorMessage = 'Veritabanı hatası: Gerekli bir alan eksik. Lütfen tekrar deneyin.';
-        } else if (e.message.includes('check constraint')) {
-            errorMessage = 'Veri doğrulama hatası. Lütfen girdiğiniz verileri kontrol edin.';
-        }
-      }
+      const errorMessage = 'Yükleme sırasında beklenmedik bir hata oluştu.';
+      console.error('[Uploader] Unrecoverable error during upload process:', e);
       setError(errorMessage);
-      toast.error(`Yükleme Başarısız: ${errorMessage}`);
+      toast.error(errorMessage);
     } finally {
-      console.log('[Uploader] Upload process finished. Resetting isUploading state.');
       setIsUploading(false);
     }
   }, []);

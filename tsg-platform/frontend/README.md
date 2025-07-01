@@ -91,6 +91,39 @@ frontend/
 - [Radix UI](https://www.radix-ui.com/) - Accessible UI primitives
 - [Lucide Icons](https://lucide.dev/) - Icons
 
+## 🔧 Supabase Configuration
+
+This project uses Supabase for its backend and database. The following configurations are required for full functionality.
+
+### Find Conflicting Coordinates Function
+
+To resolve cases where different addresses might have been assigned the same coordinates, a Supabase RPC function is used. You need to create this function in your Supabase project's SQL Editor (`Database` -> `SQL Editor` -> `New query`).
+
+This function finds all coordinates that are assigned to more than one unique address.
+
+```sql
+CREATE OR REPLACE FUNCTION find_conflicting_coordinates()
+RETURNS TABLE(conflicting_koordinat geometry, address_count bigint, unique_addresses text[]) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        koordinat AS conflicting_koordinat,
+        COUNT(DISTINCT adres) AS address_count,
+        ARRAY_AGG(DISTINCT adres) AS unique_addresses
+    FROM
+        companies
+    WHERE
+        koordinat IS NOT NULL
+    GROUP BY
+        koordinat
+    HAVING
+        COUNT(DISTINCT adres) > 1;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+This function can be called from the frontend's "Coordinates Dashboard" to identify and reset conflicting entries, allowing them to be re-processed correctly.
+
 ## 📝 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

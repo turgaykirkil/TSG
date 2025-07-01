@@ -1,16 +1,30 @@
 'use client';
 
-import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Search, BarChart3, Bookmark, Settings, UploadCloud, LogOut } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import {
+  Home,
+  Search,
+  BarChart3,
+  Bookmark,
+  Settings,
+  UploadCloud,
+  LogOut,
+  type LucideIcon,
+} from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { Logo } from '@/components/ui/logo';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+
+interface AppSidebarProps {
+  onLinkClick?: () => void;
+}
 
 type NavItem = {
   name: string;
   href: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: LucideIcon;
 };
 
 const baseNavigation: NavItem[] = [
@@ -21,63 +35,60 @@ const baseNavigation: NavItem[] = [
   { name: 'Ayarlar', href: '/dashboard/settings', icon: Settings },
 ];
 
-export function AppSidebar() {
+export function AppSidebar({ onLinkClick }: AppSidebarProps) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const isAdmin = user?.role === 'admin';
+
   const navigation: NavItem[] = isAdmin
     ? [...baseNavigation, { name: 'Dosya İşlemleri', href: '/admin', icon: UploadCloud }]
     : baseNavigation;
-  
+
+  const handleLogout = () => {
+    if (onLinkClick) onLinkClick();
+    logout();
+  };
 
   return (
-    <div className="hidden md:flex md:flex-shrink-0">
-      <div className="flex flex-col w-64 border-r border-gray-200 bg-white">
-        <div className="flex flex-col flex-grow pt-5 pb-4 overflow-y-auto">
-                    <div className="flex items-center flex-shrink-0 px-6">
-                        <Link href="/dashboard" className="flex items-center gap-2">
-              <Image src="/sicilius-logo.svg" alt="Sicilius Logo" width={32} height={32} />
-              <span className="text-xl font-bold text-primary">Sicilius</span>
-            </Link>
-          </div>
-          <div className="mt-5 flex-grow flex flex-col">
-            <nav className="flex-1 px-2 space-y-1">
-              {navigation.map((item) => {
-                const isActive = pathname === item.href;
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md ${
-                      isActive
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground hover:text-primary hover:bg-primary/5'
-                    }`}
-                  >
-                    <item.icon
-                      className={`mr-3 flex-shrink-0 h-6 w-6 ${
-                        isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-primary/80'
-                      }`}
-                      aria-hidden="true"
-                    />
-                    {item.name}
-                  </Link>
-                );
-              })}
-            </nav>
-            <div className="mt-auto px-2 pb-4">
-              <Button
-                variant="ghost"
-                onClick={logout}
-                className="w-full justify-start group flex items-center px-2 py-2 text-sm font-medium rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5"
-              >
-                <LogOut className="mr-3 h-6 w-6" />
-                <span>Çıkış Yap</span>
-              </Button>
-            </div>
-          </div>
+    <div className="flex h-full flex-col bg-background">
+      <div className="flex h-16 shrink-0 items-center border-b px-6">
+        <Link href="/dashboard" className="flex items-center gap-2" onClick={onLinkClick}>
+          <Logo className="h-7 w-7 text-primary" />
+          <span className="text-xl font-bold text-foreground">Sicilius</span>
+        </Link>
+      </div>
 
-        </div>
+      <nav className="flex-1 space-y-1 p-4">
+        {navigation.map((item) => {
+          const isActive =
+            pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+          return (
+            <Link
+              key={item.name}
+              href={item.href}
+              onClick={onLinkClick}
+              className={cn(
+                'flex items-center gap-3 rounded-lg px-3 py-2 text-slate-700 transition-all hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-50',
+                isActive &&
+                  'bg-sky-100 text-sky-600 hover:bg-sky-100 hover:text-sky-600 dark:bg-sky-900/50 dark:text-sky-400 dark:hover:bg-sky-900/60 dark:hover:text-sky-400'
+              )}
+            >
+              <item.icon className="h-5 w-5" aria-hidden="true" />
+              <span className="text-sm font-medium">{item.name}</span>
+            </Link>
+          );
+        })}
+      </nav>
+
+      <div className="mt-auto border-t p-4">
+        <Button
+          variant="ghost"
+          onClick={handleLogout}
+          className="w-full justify-start gap-3 px-3 py-2 text-slate-700 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-50"
+        >
+          <LogOut className="h-5 w-5" />
+          <span className="text-sm font-medium">Çıkış Yap</span>
+        </Button>
       </div>
     </div>
   );

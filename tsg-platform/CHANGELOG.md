@@ -1,5 +1,21 @@
 # TSG Platform Değişiklik Kaydı
 
+## [0.1.17] - 2025-06-29
+
+### Fixed
+- **Backend Database Connection:** Resolved a persistent backend database connection failure (`could not translate host name`) by switching from the direct (IPv6-only) connection string to the IPv4-compatible Session Pooler URL. This ensures the backend can reliably connect to the Supabase database from different network environments.
+
+## [0.1.16] - 2025-06-29
+
+### Fixed
+- **Backend Veritabanı Bağlantısı:** Uygulama, Docker dışında çalıştırıldığında ortaya çıkan veritabanı bağlantı hatası giderildi. Sabit kodlanmış `DATABASE_URL` (`postgresql://.../@db/...`) kaldırıldı ve bunun yerine bağlantı bilgisinin `.env` dosyasındaki `TSG_DATABASE_URL` ortam değişkeninden okunması sağlandı. Bu değişiklik, projenin farklı ortamlarda (yerel, Docker, production) esnek bir şekilde çalışmasına olanak tanır.
+- **Backend Başlangıç Hataları:** Uygulama başlatılırken `scraping_router` ile ilgili oluşan `NameError` ve import tutarsızlıkları giderilerek sunucunun kararlı bir şekilde başlaması sağlandı.
+
+## [0.1.15] - 2025-06-28
+
+### Changed
+- **ScrapingDashboard:** Added login form, waiting screen, office selection UI and placeholder for results table and PDF management.
+
 ## [0.1.14] - 2025-06-24
 
 ### Fixed
@@ -32,7 +48,9 @@
 ## [0.1.10] - 2025-06-22
 
 ### Changed
-- **Excel Parsing:** Overhauled the Excel file parsing logic based on user feedback. Removed complex, heuristic-based header detection in favor of a simple "what you see is what you get" approach. The new parser reads the sheet directly into a raw data table, ensuring all columns (like 'ADRES') are displayed correctly and preventing data loss.
+- **Excel Parsing:** Overhauled the Excel file parsing logic based on user feedback.
+- **[Scraping Dashboard]:** Updated iframe src to point to the new login endpoint (`https://www.ticaretsicil.gov.tr`) instead of broken `/girisyap`.
+- Removed complex, heuristic-based header detection in favor of a simple "what you see is what you get" approach. The new parser reads the sheet directly into a raw data table, ensuring all columns (like 'ADRES') are displayed correctly and preventing data loss.
 
 ## [0.1.9] - 2024-08-02
 
@@ -77,6 +95,23 @@
 ### Database
 
 - Added a `koordinat` column of type `GEOMETRY(Point, 4326)` to the `companies` table to store location data.
+
+## [0.1.7] - 2025-06-28
+### Changed
+- Scraping sırasında işlenen firmalar ve hata mesajları tablo olarak gösteriliyor. Tablo canlı olarak güncelleniyor.
+- Kod okunabilirliği ve modernliği korundu.
+
+## [0.1.6] - 2025-06-28
+### Changed
+- ScrapingDashboard UI modernleştirildi: Kullanıcıdan scraping yapılacak adet (count) isteniyor, başlatınca input ve buton kayboluyor, progressbar ve durdur butonu görünüyor.
+- Durdur'a basınca tüm state sıfırlanıyor ve tekrar başlat ekranı geliyor.
+
+## [0.1.5] - 2025-06-28
+### Changed
+- Scraping dashboard tamamen sadeleştirildi. Login, captcha ve müdürlük seçimi adımları kaldırıldı.
+- Artık sadece 'Scraping’i Başlat' butonu ve ilerleme göstergesi var.
+- Supabase'de scraping yapılmamış şirketleri çekmek için SQL sorgusu örneği (select * from companies where scraped_at is null order by id asc limit 100;) kod içerisine yorum olarak eklendi.
+- Kod okunabilirliği ve modernliği artırıldı.
 
 ## [0.1.4] - 2025-06-15
 

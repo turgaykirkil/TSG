@@ -19,24 +19,13 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import LoadingSpinner from '@/components/ui/loading-spinner';
-import { Buffer } from 'buffer';
-// @ts-ignore
-import wkx from 'wkx';
-import type { Company, CompanyWithLocation } from '@/types/company.types';
+import type { Company } from '@/types/company.types';
 
-interface CompanyForMap {
-  id: string;
-  firma_unvani: string;
-  adres: string;
+export interface MarkerData {
   koordinat: { x: number; y: number };
+  companies: { id: string; firma_unvani: string | null; adres: string | null }[];
 }
 
-interface MarkerData {
-  koordinat: { x: number; y: number };
-  companies: { id: string; firma_unvani: string; adres: string }[];
-}
-
-// Dynamically import the MapDisplay component to ensure it's client-side only
 const MapDisplay = dynamic(() => import('./components/MapDisplay'), {
   ssr: false,
   loading: () => (
@@ -46,7 +35,6 @@ const MapDisplay = dynamic(() => import('./components/MapDisplay'), {
   ),
 });
 
-// Yükleme sırasında gösterilecek iskelet kart bileşeni
 const CompanyCardSkeleton = () => (
   <Card className="flex flex-col">
     <CardHeader><Skeleton className="h-6 w-3/4" /><Skeleton className="h-4 w-1/4 mt-2" /></CardHeader>
@@ -91,87 +79,40 @@ export default function SearchPage() {
   const [inputValue, setInputValue] = useState(urlQuery);
   const [debouncedInputValue] = useDebounce(inputValue, 500);
 
-  const { data: companies, isLoading, isError, error } = useCompanySearch(urlQuery);
+  const { data: companies, isLoading, isError, error } = useCompanySearch(debouncedInputValue);
 
   useEffect(() => {
     setInputValue(urlQuery);
   }, [urlQuery]);
 
   useEffect(() => {
-    if (debouncedInputValue !== urlQuery) {
-      router.push(`/dashboard/search?q=${debouncedInputValue}`);
+    const params = new URLSearchParams(searchParams.toString());
+    if (debouncedInputValue) {
+      params.set('q', debouncedInputValue);
+    } else {
+      params.delete('q');
     }
-  }, [debouncedInputValue, urlQuery, router]);
+    router.replace(`?${params.toString()}`);
+  }, [debouncedInputValue, router, searchParams]);
 
-  const markersData = useMemo(() => {
+  const markersData: MarkerData[] = useMemo(() => {
     if (!companies) return [];
 
-    const companiesWithCoords = companies
-      .map(c => {
-        if (!c.koordinat || !c.adres) {
-          return null;
-        }
-
-        // Case 1: Koordinat is already a GeoJSON object
-        if (typeof c.koordinat === 'object' && c.koordinat !== null && Array.isArray((c.koordinat as any).coordinates)) {
-          const coords = (c.koordinat as any).coordinates;
-          if (coords.length === 2 && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
-            return {
-              id: c.sicil_no,
-              firma_unvani: c.firma_unvani,
-              adres: c.adres,
-              koordinat: { x: coords[0], y: coords[1] },
-            };
-          }
-        }
-
-        // Case 2: Koordinat is a string (WKB or JSON)
-        if (typeof c.koordinat === 'string') {
-          try {
-            const geometry: any = wkx.Geometry.parse(Buffer.from(c.koordinat, 'hex'));
-            if (geometry && geometry.x !== undefined && geometry.y !== undefined) {
-              return {
-                id: c.sicil_no,
-                firma_unvani: c.firma_unvani,
-                adres: c.adres,
-                koordinat: { x: geometry.x, y: geometry.y },
-              };
-            }
-          } catch (wkbError) {
-            try {
-              const koords = JSON.parse(c.koordinat);
-              if (koords && typeof koords === 'object' && 'x' in koords && 'y' in koords) {
-                const x = Number(koords.x);
-                const y = Number(koords.y);
-                if (!isNaN(x) && !isNaN(y)) {
-                  return {
-                    id: c.sicil_no,
-                    firma_unvani: c.firma_unvani,
-                    adres: c.adres,
-                    koordinat: { x, y },
-                  };
-                }
-              }
-            } catch (jsonError) {
-              // Both string parsing methods failed
-            }
-          }
-        }
-
-        return null;
-      })
-      .filter((c): c is CompanyForMap => c !== null);
+    const companiesWithCoords = companies.filter(
+      (company): company is Company & { koordinat: { x: number; y: number } } =>
+        company.koordinat != null
+    );
 
     const groupedByCoords = companiesWithCoords.reduce(
       (acc, company) => {
-        const key = `${company.koordinat.y},${company.koordinat.x}`;
+        const key = `${company.koordinat.x},${company.koordinat.y}`;
         if (!acc[key]) {
           acc[key] = {
             koordinat: company.koordinat,
             companies: [],
           };
         }
-        acc[key].companies.push({ id: company.id, firma_unvani: company.firma_unvani, adres: company.adres });
+        acc[key].companies.push({ id: company.id || '', firma_unvani: company.firma_unvani, adres: company.adres ?? null });
         return acc;
       },
       {} as Record<string, MarkerData>
@@ -189,8 +130,8 @@ export default function SearchPage() {
       );
     }
     if (isError) return renderError(error);
-    if (!urlQuery) return renderInitialState();
-    if (companies && companies.length === 0) return renderNoResults(urlQuery);
+    if (!debouncedInputValue) return renderInitialState();
+    if (companies && companies.length === 0) return renderNoResults(debouncedInputValue);
 
     return (
       <Tabs defaultValue="list" className="w-full">
@@ -220,7 +161,7 @@ export default function SearchPage() {
             ))}
           </div>
         </TabsContent>
-        <TabsContent value="map" className="mt-4">
+        <TabsContent value="map" className="mt-4 h-[70vh] rounded-lg overflow-hidden border">
           <MapDisplay markers={markersData} />
         </TabsContent>
       </Tabs>

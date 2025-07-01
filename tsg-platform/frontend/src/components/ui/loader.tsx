@@ -2,6 +2,7 @@
 
 import Image from 'next/image';
 import { motion } from 'framer-motion';
+import { Logo } from '@/components/ui/logo';
 
 const Loader = () => {
   return (
@@ -17,13 +18,7 @@ const Loader = () => {
             ease: "easeInOut",
           }}
         >
-          <Image
-            src="/sicilius-logo.svg"
-            alt="Sicilius Yükleniyor..."
-            width={128}
-            height={128}
-            priority
-          />
+          <Logo className="h-32 w-32" />
         </motion.div>
       </div>
     </div>

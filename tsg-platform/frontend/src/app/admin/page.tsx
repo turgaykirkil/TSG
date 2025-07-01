@@ -5,7 +5,7 @@ import { Icons } from '@/components/icons';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { supabase } from '@/lib/supabaseClient';
+
 import FileUploadSection from './components/file-upload-section';
 import ScrapingDashboard from './components/scraping-dashboard';
 import OCRProcessing from './components/ocr-processing';
@@ -28,53 +28,36 @@ const AdminPage = () => {
 
     const fetchStats = useCallback(async () => {
     try {
-      const { count: totalCount } = await supabase
-        .from('companies')
-        .select('*', { count: 'exact', head: true });
-      const { count: scrapedCount } = await supabase
-        .from('companies')
-        .select('*', { count: 'exact', head: true })
-        .not('last_scraped_at', 'is', null);
-
-      const { count: withCoordinatesCount } = await supabase
-        .from('companies')
-        .select('id', { count: 'exact', head: true })
-        .not('koordinat', 'is', null);
-
+      // Backend API'den istatistikleri çekiyoruz. URL'nin ortam değişkeninden gelmesi daha doğrudur.
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      if (!apiUrl) {
+        throw new Error('API URL is not configured in environment variables.');
+      }
+      const response = await fetch(`${apiUrl}/stats`);
+      if (!response.ok) {
+        throw new Error(`API isteği başarısız oldu: ${response.status}`);
+      }
+      const data = await response.json();
       setStats({
-        totalCompanies: totalCount || 0,
-        scrapedCompanies: scrapedCount || 0,
-        withCoordinates: withCoordinatesCount || 0,
+        totalCompanies: data.totalCompanies || 0,
+        scrapedCompanies: data.scrapedCompanies || 0,
+        withCoordinates: data.withCoordinates || 0,
       });
     } catch (error) {
       console.error('İstatistikler yüklenirken hata oluştu:', error);
-      setStats(prev => ({
-        ...prev,
+      setStats({
         totalCompanies: 0,
         scrapedCompanies: 0,
-      }));
+        withCoordinates: 0,
+      });
     }
   }, []);
 
   useEffect(() => {
     fetchStats();
-
-    const subscription = supabase
-      .channel('companies_changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'companies' },
-        (payload) => {
-          console.log('Değişiklik algılandı, istatistikler yenileniyor:', payload);
-          fetchStats();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(subscription);
-    };
-  }, []);
+    // Not: Supabase abonelikleri ile sağlanan gerçek zamanlı güncelleme kaldırıldı.
+    // Bu özellik gerekirse, backend üzerinden WebSocket gibi bir teknoloji ile yeniden uygulanmalıdır.
+  }, [fetchStats]);
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-8">

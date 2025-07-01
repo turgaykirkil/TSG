@@ -13,6 +13,8 @@ export const companySchema = z.object({
   firma_unvani: z.string().nullable(),
   adres: z.string().nullable().optional(),
   sicil_mudurluk: z.string().min(1, 'Sicil müdürlüğü boş olamaz.').optional(),
+  is_scraped: z.boolean().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   created_at: z.string().datetime().optional(),
   last_scraped_at: z.string().datetime().nullable().optional(),
   koordinat: pointSchema.nullable().optional(), // Koordinat alanı eklendi

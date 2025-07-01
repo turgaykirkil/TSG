@@ -2,17 +2,16 @@ import os
 from functools import lru_cache
 from typing import List, Optional, Set
 
-from pydantic_settings import BaseSettings
-from pydantic import AnyHttpUrl, Field, ConfigDict, RedisDsn, PostgresDsn, validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AnyHttpUrl, Field, RedisDsn, PostgresDsn, field_validator
 
 class Settings(BaseSettings):
     # Pydantic v2 config
-    model_config = ConfigDict(
+    model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore",
-        case_sensitive=True,
-        env_prefix="TSG_"
+        env_prefix='tsg_',
+        case_sensitive=False
     )
     
     # API Settings
@@ -27,22 +26,15 @@ class Settings(BaseSettings):
     # Server
     HOST: str = "0.0.0.0"
     PORT: int = 5001
-    CORS_ORIGINS: List[AnyHttpUrl] = [
-        "http://localhost:3000",  # Default frontend development server
-        "http://localhost:5001",  # Backend development server
-    ]
+    CORS_ORIGINS: str
     
-    @validator('CORS_ORIGINS', pre=True)
-    def assemble_cors_origins(cls, v: str | list[str]) -> list[str] | str:
-        if isinstance(v, str) and not v.startswith('['):
-            return [i.strip() for i in v.split(',')]
-        elif isinstance(v, str) and v.startswith('[') and v.endswith(']'):
-            import json
-            return json.loads(v)
-        return v
-    
-    # Database
-    DATABASE_URL: PostgresDsn = "postgresql://postgres:postgres@db:5432/tsg_platform"
+    # Database (SQLAlchemy connection)
+    DATABASE_URL: PostgresDsn
+
+    # Supabase Client
+    SUPABASE_URL: Optional[AnyHttpUrl] = None
+    SUPABASE_KEY: Optional[str] = None
+
     TEST_DATABASE_URL: str = "sqlite:///./test_tsg_platform.db"
     
     # Security
@@ -53,13 +45,7 @@ class Settings(BaseSettings):
     # File Uploads
     UPLOAD_FOLDER: str = "./data/uploads"
     MAX_CONTENT_LENGTH: int = 16 * 1024 * 1024  # 16MB
-    ALLOWED_EXTENSIONS: Set[str] = {"pdf", "png", "jpg", "jpeg"}
-    
-    @validator('ALLOWED_EXTENSIONS', pre=True)
-    def assemble_allowed_extensions(cls, v: str | set[str]) -> set[str]:
-        if isinstance(v, str):
-            return {ext.strip() for ext in v.split(',')}
-        return v
+    ALLOWED_EXTENSIONS: str
     
     # OCR
     TESSERACT_CMD: str = "/usr/bin/tesseract"

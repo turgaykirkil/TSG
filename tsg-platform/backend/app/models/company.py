@@ -28,6 +28,7 @@ class Company(Base):
     # Status
     is_active = Column(Boolean, default=True)
     establishment_date = Column(DateTime)
+    scraped_at = Column(DateTime, nullable=True, default=None)  # Son scraping yapılan zaman
     
     # Relationships
     gazette_entries = relationship("GazetteEntry", back_populates="company")

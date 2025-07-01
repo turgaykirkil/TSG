@@ -1,233 +1,376 @@
-// Force re-render to clear stale cache
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Icons } from '@/components/icons';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
-import LoadingSpinner from '@/components/ui/loading-spinner';
-import { geocodeAddress, GeocodeResult } from '@/lib/geocode';
 
-// Define the props for the component
-interface CoordinatesDashboardProps {
-  stats: {
-    totalCompanies: number;
-    withCoordinates: number;
-  };
-  refreshStats: () => void;
-}
-
-// The GeocodeResult interface is now defined in @/lib/geocode.ts
-
-/**
- * Cleans and simplifies a raw address string to improve geocoding accuracy.
- * This function applies a multi-step process:
- * 1. Normalizes Turkish characters and converts to lowercase.
- * 2. Strips common company type suffixes (e.g., 'anonim şirketi') and other noise words.
- * 3. Removes generic address-related keywords (e.g., 'mahallesi', 'caddesi', 'sokak').
- * 4. Cleans up punctuation and consolidates whitespace.
- * 5. Adds a country context for the final query.
- */
-const simplifyAddress = (address: string): string => {
-  if (!address) return '';
-
-  // 1. Use Unicode normalization to decompose combined characters (like 'i̇') and remove diacritics.
-  // This is more robust than simple character replacement.
-  let simplified = address
-    .toLowerCase()
-    .normalize('NFD') // Decompose characters (e.g., 'ö' -> 'o' + '¨')
-    .replace(/[\u0300-\u036f]/g, ''); // Remove diacritical marks
-
-  // 2. Remove common company type suffixes (using the normalized form)
-  const companyNoise = /\b(a\.s\.|anonim sirketi|as|ltd\. sti\.|limited sirketi|ltd sti|sanayi ve ticaret|ticaret|sanayi|kuyumculuk|insaat|otomotiv|turizm|gida|tekstil|ithalat|ihracat|danismanlik|yonetim|gayrimenkul|emlak|mucevherat|pazarlama)\b/gi;
-  simplified = simplified.replace(companyNoise, '');
-
-  // 3. Remove generic address keywords (noise, using the normalized form)
-  const addressNoise = /\b(apt|apartmani|mah|mahallesi|cad|caddesi|sok|sokak|sk|bulvari|blv|is merkezi|hani|han|sitesi|ic kapi|dis kapi|koyu|ilcesi|no|kat|daire)\b/gi;
-  simplified = simplified.replace(addressNoise, '');
-
-  // 4. Remove punctuation and special characters, then clean up whitespace
-  simplified = simplified.replace(/[.,:;]/g, ' '); // Replace punctuation with space
-  simplified = simplified.replace(/[/]/g, ' '); // Treat slashes as spaces
-  simplified = simplified.replace(/\s+/g, ' ').trim();
-
-  // 5. Add country context if not present
-  if (!/turkey|türkiye/i.test(simplified)) {
-    simplified = `${simplified}, turkey`;
-  }
-
-  return simplified;
+// Type definitions
+type Stats = {
+  total_companies: number;
+  with_coordinates: number;
+  without_coordinates: number;
+  conflicts: number;
 };
 
-const CoordinatesDashboard = ({ stats, refreshStats }: CoordinatesDashboardProps) => {
+type CompanyData = {
+  id: string;
+  adres: string;
+  sicil_no: string;
+  sicil_mudurluk: string;
+  koordinat?: string | null;
+  created_at?: string;
+};
+
+type CompanyUpdatePayload = {
+  id: string;
+  sicil_no: string;
+  sicil_mudurluk: string;
+  koordinat?: string;
+  geocode_attempted_at: string;
+  created_at: string;
+};
+
+const CoordinatesDashboard = () => {
+  const [stats, setStats] = useState<Stats | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isResolving, setIsResolving] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [progress, setProgress] = useState(0);
-  const [totalToFetch, setTotalToFetch] = useState(0);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [fetchLimit, setFetchLimit] = useState(100);
+  const [limit, setLimit] = useState(100); // State for the limit
 
-  const withoutCoordinates = stats.totalCompanies - stats.withCoordinates;
+  const refreshStats = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.rpc('get_coordinate_stats');
+      if (error) throw error;
+      setStats(data);
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+      setMessage({ type: 'error', text: 'İstatistikler yüklenemedi.' });
+    }
+  }, []);
 
-  const handleFetchCoordinates = useCallback(async () => {
+  useEffect(() => {
+    refreshStats();
+  }, [refreshStats]);
+
+  const geocodeAddress = async (address: string): Promise<{ latitude: number; longitude: number } | null> => {
+    if (!address) return null;
+    const apiKey = process.env.NEXT_PUBLIC_LOCATIONIQ_API_KEY;
+    const url = `https://us1.locationiq.com/v1/search?key=${apiKey}&q=${encodeURIComponent(address)}&format=json`;
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        console.error(`Geocoding API error for address '${address}': ${response.statusText}`);
+        return null;
+      }
+      const data = await response.json();
+      if (data && data[0]) {
+        return { latitude: parseFloat(data[0].lat), longitude: parseFloat(data[0].lon) };
+      }
+      return null;
+    } catch (error) {
+      console.error(`Error geocoding address '${address}':`, error);
+      return null;
+    }
+  };
+
+  const fetchAllFromSupabase = async (queryBuilder: any) => {
+    const allData: any[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+
+    console.log("Tüm veritabanı taranıyor (sayfalar halinde)...");
+    while (hasMore) {
+      const { data, error } = await queryBuilder.range(page * pageSize, (page + 1) * pageSize - 1);
+      if (error) {
+        console.error("Sayfalama sırasında hata:", error);
+        throw error;
+      }
+      if (data && data.length > 0) {
+        allData.push(...data);
+        if (data.length < pageSize) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+    console.log(`Tarama tamamlandı. Toplam kayıt: ${allData.length}`);
+    return allData;
+  };
+
+  const handleFetchCoordinates = useCallback(async (fetchLimit: number) => {
+    if (!fetchLimit || fetchLimit <= 0) {
+      setMessage({ type: 'error', text: "Lütfen 0'dan büyük geçerli bir sayı girin." });
+      return;
+    }
     setIsLoading(true);
     setMessage(null);
     setProgress(0);
+    console.log(`--- Koordinat Getirme İşlemi Başladı (Limit: ${fetchLimit}) ---`);
 
     try {
-      // 1. SORGUNUN GÜNCELLENMESİ: Sadece koordinatı ve deneme zamanı olmayanları getir
-      const { data: companies, error: fetchError } = await supabase
+      const { data: companiesToFetch, error: fetchError } = await supabase
         .from('companies')
-        .select('id, firma_unvani, adres')
+        .select('id, adres, sicil_no, sicil_mudurluk')
         .is('koordinat', null)
-        .is('geocode_attempted_at', null) // Yeni koşul
+        .is('geocode_attempted_at', null)
         .limit(fetchLimit);
 
       if (fetchError) throw fetchError;
 
-      if (!companies || companies.length === 0) {
-        setMessage({
-          type: 'success',
-          text: 'Koordinat getirilecek yeni firma bulunmuyor. Tüm firmalar işlenmiş veya koordinatları mevcut.',
-        });
+      if (!companiesToFetch || companiesToFetch.length === 0) {
+        setMessage({ type: 'info', text: 'Tüm firmaların koordinatları mevcut veya daha önce denenmiş.' });
         setIsLoading(false);
         return;
       }
+      console.log(`1. Toplam ${companiesToFetch.length} adet konumlandırılacak şirket bulundu.`);
 
-      console.log('[GEO-DEBUG] Veritabanından çekilecek firma sayısı:', companies.length);
-      setTotalToFetch(companies.length);
-      let successCount = 0;
-      let notFoundCount = 0;
-      let skippedCount = 0;
-      let errorCount = 0;
+      const addressMap = new Map<string, CompanyData[]>();
+      for (const company of companiesToFetch) {
+        const address = company.adres?.trim().toLowerCase();
+        if (address) {
+          if (!addressMap.has(address)) {
+            addressMap.set(address, []);
+          }
+          addressMap.get(address)!.push(company);
+        }
+      }
+      console.log(`2. Şirketler ${addressMap.size} adet benzersiz adrese göre gruplandırıldı.`);
 
-      for (let i = 0; i < companies.length; i++) {
-        const company = companies[i];
+      let addressesProcessed = 0;
+      const allUpdates: CompanyUpdatePayload[] = [];
+      const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+      console.log('3. Benzersiz adresler için konumlandırma başlıyor (Sıralı ve Gecikmeli)...');
+      for (const [address, companies] of addressMap.entries()) {
+        const geocodeResult = await geocodeAddress(address);
         const now = new Date().toISOString();
 
-        if (!company.adres || company.adres.trim() === '') {
-          console.log(`[GEO-SKIP] ID ${company.id}: Adres boş, denendi olarak işaretleniyor.`);
-          skippedCount++;
-          // Adres boş olsa bile denendi olarak işaretle ki tekrar sorgulanmasın
-          await supabase.from('companies').update({ geocode_attempted_at: now }).eq('id', company.id);
-          setProgress(i + 1);
-          continue;
-        }
+        const updatePayloads = companies.map((company: CompanyData) => ({
+          id: company.id,
+          sicil_no: company.sicil_no,
+          sicil_mudurluk: company.sicil_mudurluk,
+          koordinat: geocodeResult ? `POINT(${geocodeResult.longitude} ${geocodeResult.latitude})` : undefined,
+          geocode_attempted_at: now,
+          created_at: company.created_at || now, // Preserve existing created_at or set new one
+        }));
 
-        const simplifiedAddress = simplifyAddress(company.adres);
-        console.log(`[GEO-QUERY] ID ${company.id}: "${simplifiedAddress}"`);
+        allUpdates.push(...updatePayloads);
+        addressesProcessed++;
+        setProgress((addressesProcessed / addressMap.size) * 100);
 
-        try {
-          const result = await geocodeAddress(simplifiedAddress);
-
-          if (result) { // Check if a result was returned (not null)
-            console.log(`[GEO-SUCCESS] ID ${company.id}: Koordinatlar bulundu -> ${result.latitude}, ${result.longitude}`);
-            // 2. BAŞARILI DURUM: Hem koordinatı hem de deneme zamanını kaydet
-            await supabase
-              .from('companies')
-              .update({
-                koordinat: `POINT(${result.longitude} ${result.latitude})`, // Use correct properties
-                geocode_attempted_at: now,
-              })
-              .eq('id', company.id);
-            successCount++;
-          } else { // result is null, geocoding failed
-            console.warn(`[GEO-NOT-FOUND] ID ${company.id}: Adres bulunamadı, denendi olarak işaretleniyor.`);
-            notFoundCount++;
-            // 3. BAŞARISIZ DURUM: Sadece deneme zamanını kaydet
-            await supabase.from('companies').update({ geocode_attempted_at: now }).eq('id', company.id);
-          }
-        } catch (apiError: any) {
-          console.error(`[GEO-ERROR] ID ${company.id}: API hatası. Bu kayıt daha sonra tekrar denenecek.`, apiError.message);
-          // API hatası durumunda denendi olarak İŞARETLEME, sonraki çalıştırmada tekrar denensin.
-          errorCount++;
-        }
-
-        setProgress(i + 1);
+        // Rate limit'e uymak için 500ms bekle (saniyede 2 istek)
+        await delay(500);
       }
 
-      const summaryText = `İşlem tamamlandı. Başarılı: ${successCount}, Bulunamadı (işaretlendi): ${notFoundCount}, Atlandı (işaretlendi): ${skippedCount}, Hata (tekrar denenecek): ${errorCount}.`;
-      setMessage({ type: 'success', text: summaryText });
+      const successfulUpdates = allUpdates.filter(u => u.koordinat);
+      const failedAttempts = allUpdates.filter(u => !u.koordinat);
+
+      console.log(`4. Konumlandırma tamamlandı. ${successfulUpdates.length} şirket için konum bulundu, ${failedAttempts.length} şirket için denendi.`);
+
+      if (allUpdates.length > 0) {
+        console.log('5. Veritabanı güncelleniyor...');
+        const { error: updateError } = await supabase.from('companies').upsert(allUpdates);
+        if (updateError) throw updateError;
+        console.log('6. Veritabanı başarıyla güncellendi.');
+      }
+
+      setMessage({ type: 'success', text: `${successfulUpdates.length} firma başarıyla konumlandırıldı. ${failedAttempts.length} firma için konum bulunamadı.` });
+      refreshStats();
+
+    } catch (error) {
+      console.error('Error fetching coordinates:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Bilinmeyen bir hata oluştu.';
+      setMessage({ type: 'error', text: `Hata: ${errorMessage}` });
+    } finally {
+      setIsLoading(false);
+      console.log('--- Koordinat Getirme İşlemi Tamamlandı ---');
+    }
+  }, [refreshStats]);
+
+  const handleResolveConflicts = async () => {
+    setIsResolving(true);
+    setMessage(null);
+    setProgress(0);
+    console.log('--- Çakışma Çözme İşlemi Başladı (Tüm Veritabanı) ---');
+
+    try {
+      const queryBuilder = supabase
+        .from('companies')
+        .select('id, koordinat, sicil_no, sicil_mudurluk, adres')
+        .not('koordinat', 'is', null);
+      
+      const companies: CompanyData[] = await fetchAllFromSupabase(queryBuilder);
+      console.log(`1. Veritabanından ${companies.length} adet koordinatlı şirket çekildi.`);
+
+      const coordsMap = new Map<string, CompanyData[]>();
+      companies.forEach((c) => {
+        if (c.koordinat) {
+          if (!coordsMap.has(c.koordinat)) {
+            coordsMap.set(c.koordinat, []);
+          }
+          coordsMap.get(c.koordinat)!.push(c);
+        }
+      });
+      console.log(`2. Şirketler ${coordsMap.size} farklı koordinata göre gruplandırıldı.`);
+
+      const companiesToReGeocode: CompanyData[] = [];
+      let conflictLocationCount = 0;
+
+      console.log('3. Çakışmalar kontrol ediliyor...');
+      coordsMap.forEach((conflictingCompanies) => {
+        if (conflictingCompanies.length > 1) {
+          const uniqueAddresses = new Set(conflictingCompanies.map(c => c.adres?.trim().toLowerCase()));
+          if (uniqueAddresses.size > 1) {
+            conflictLocationCount++;
+            companiesToReGeocode.push(...conflictingCompanies);
+          }
+        }
+      });
+
+      console.log(`4. Toplam ${conflictLocationCount} çakışma noktasında ${companiesToReGeocode.length} şirket yeniden konumlandırılacak.`);
+
+      if (companiesToReGeocode.length === 0) {
+        setMessage({ type: 'info', text: 'Farklı adreslere sahip çakışan koordinat bulunamadı.' });
+        setIsResolving(false);
+        return;
+      }
+
+      let companiesProcessed = 0;
+      const allUpdates: CompanyUpdatePayload[] = [];
+      const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+      console.log('5. Yeniden konumlandırma başlıyor (Sıralı ve Gecikmeli)...');
+      for (const company of companiesToReGeocode) {
+        const geocodeResult = await geocodeAddress(company.adres);
+        const now = new Date().toISOString();
+
+        allUpdates.push({
+          id: company.id,
+          sicil_no: company.sicil_no,
+          sicil_mudurluk: company.sicil_mudurluk,
+          koordinat: geocodeResult ? `POINT(${geocodeResult.longitude} ${geocodeResult.latitude})` : undefined,
+          geocode_attempted_at: now,
+          created_at: company.created_at || now, // Preserve existing created_at or set new one
+        });
+
+        companiesProcessed++;
+        setProgress((companiesProcessed / companiesToReGeocode.length) * 100);
+
+        // Rate limit'e uymak için 500ms bekle (saniyede 2 istek)
+        await delay(500);
+      }
+      
+      const successfulUpdates = allUpdates.filter(u => u.koordinat);
+      console.log(`6. Yeniden konumlandırma tamamlandı. ${successfulUpdates.length} başarılı.`);
+
+      if (allUpdates.length > 0) {
+        console.log('7. Veritabanı güncelleniyor...');
+        const { error: updateError } = await supabase.from('companies').upsert(allUpdates);
+        if (updateError) throw updateError;
+        console.log('8. Veritabanı başarıyla güncellendi.');
+      }
+
+      setMessage({ type: 'success', text: `${conflictLocationCount} çakışma noktasında ${successfulUpdates.length} şirket başarıyla yeniden konumlandırıldı.` });
       refreshStats();
 
     } catch (error: any) {
-      console.error('Koordinat getirme işlemi sırasında genel bir hata oluştu:', error);
-      setMessage({ type: 'error', text: `Genel Hata: ${error.message}` });
+      console.error('Error resolving conflicts:', error);
+      setMessage({ type: 'error', text: `Çakışma çözülürken hata: ${error.message}` });
     } finally {
-      setIsLoading(false);
+      setIsResolving(false);
+      setProgress(0);
     }
-  }, [fetchLimit, refreshStats]);
+  };
 
   return (
-    <div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Koordinatı Olan Firmalar</CardTitle>
-            <Icons.mapPin className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.withCoordinates.toLocaleString('tr-TR')}</div>
-            <p className="text-xs text-muted-foreground">
-              Toplam {stats.totalCompanies.toLocaleString('tr-TR')} firmanın %{stats.totalCompanies > 0 ? ((stats.withCoordinates / stats.totalCompanies) * 100).toFixed(1) : 0}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Koordinatı Olmayan Firmalar</CardTitle>
-            <Icons.mapPinOff className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{withoutCoordinates.toLocaleString('tr-TR')}</div>
-             <p className="text-xs text-muted-foreground">
-              Koordinat bilgisi eksik olan firmalar
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
+    <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Toplu Koordinat Ekleme</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Adres bilgilerini kullanarak koordinatı eksik olan firmaların coğrafi konum verilerini otomatik olarak getirin.
-            Bu işlem firma sayısına göre uzun sürebilir.
-          </p>
+          <CardTitle>Koordinat İstatistikleri</CardTitle>
         </CardHeader>
         <CardContent>
-          {message && (
-            <Alert variant={message.type === 'error' ? 'destructive' : 'success'} className="mb-4">
-              <AlertTitle>{message.type === 'error' ? 'Hata!' : 'Başarılı!'}</AlertTitle>
-              <AlertDescription>{message.text}</AlertDescription>
-            </Alert>
-          )}
-
-          {isLoading ? (
-            <div className="flex flex-col items-center justify-center">
-              <LoadingSpinner />
-              <p className="mt-2 text-sm text-muted-foreground">
-                Koordinatlar getiriliyor... ({progress} / {totalToFetch})
-              </p>
-              <div className="w-full bg-muted rounded-full h-2.5 mt-2">
-                <div className="bg-primary h-2.5 rounded-full" style={{ width: `${totalToFetch > 0 ? (progress / totalToFetch) * 100 : 0}%` }}></div>
+          {stats ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+              <div>
+                <p className="text-2xl font-bold">{stats.total_companies}</p>
+                <p className="text-sm text-muted-foreground">Toplam Firma</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-green-600">{stats.with_coordinates}</p>
+                <p className="text-sm text-muted-foreground">Koordinatlı</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-red-600">{stats.without_coordinates}</p>
+                <p className="text-sm text-muted-foreground">Koordinatsız</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-orange-500">{stats.conflicts}</p>
+                <p className="text-sm text-muted-foreground">Çakışan</p>
               </div>
             </div>
           ) : (
-            <div className="flex items-center space-x-2">
+            <p>İstatistikler yükleniyor...</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Koordinat İşlemleri</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-4 p-4 border rounded-lg">
+            <h4 className="font-medium">Kontrollü Koordinat Getirme</h4>
+            <p className="text-sm text-muted-foreground">
+              API limitlerini aşmamak için, bir seferde kaç firmanın koordinatının getirileceğini belirtin. Bu işlem, koordinatı olmayan ve daha önce denenmemiş firmaları getirecektir.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center gap-4">
               <Input
                 type="number"
-                value={fetchLimit}
-                onChange={(e) => setFetchLimit(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                className="max-w-[100px]"
-                min="1"
+                value={limit}
+                onChange={(e) => setLimit(Math.max(0, Number(e.target.value)))}
+                placeholder="Sayı girin"
+                className="max-w-[150px]"
               />
-              <Button onClick={handleFetchCoordinates} disabled={isLoading || withoutCoordinates === 0}>
-                {isLoading ? <Icons.spinner className="mr-2 h-4 w-4 animate-spin" /> : <Icons.download className="mr-2 h-4 w-4" />}
-                Getir
+              <Button onClick={() => handleFetchCoordinates(limit)} disabled={isLoading || isResolving} className="flex-1">
+                {isLoading ? 'Koordinatlar Getiriliyor...' : `Sıradaki ${limit} Firmanın Koordinatını Getir`}
               </Button>
+            </div>
+          </div>
+
+          <div className="space-y-4 p-4 border rounded-lg">
+             <h4 className="font-medium">Toplu Çakışma Çözme</h4>
+            <p className="text-sm text-muted-foreground">
+              Aynı koordinata sahip ancak farklı adresleri olan firmaları tespit edip yeniden konumlandırır. Bu işlem tüm veritabanını tarar ve uzun sürebilir.
+            </p>
+            <Button onClick={handleResolveConflicts} disabled={isLoading || isResolving} variant="destructive" className="w-full">
+              {isResolving ? 'Çakışmalar Çözülüyor...' : 'Tüm Çakışmaları Çöz'}
+            </Button>
+          </div>
+          {(isLoading || isResolving) && (
+            <div className="space-y-2">
+              <Progress value={progress} />
+              <p className="text-sm text-center text-muted-foreground">
+                İşleniyor... {Math.round(progress)}%
+              </p>
+            </div>
+          )}
+          {message && (
+            <div className={`p-4 rounded-md text-sm ${
+              message.type === 'success' ? 'bg-green-100 text-green-800' :
+              message.type === 'error' ? 'bg-red-100 text-red-800' :
+              'bg-blue-100 text-blue-800'
+            }`}>
+              {message.text}
             </div>
           )}
         </CardContent>

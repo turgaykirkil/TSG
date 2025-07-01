@@ -1,5 +1,50 @@
 # Sicilius Platform Changelog
 
+## [0.6.3] - 2025-06-28
+
+### Added
+- **[Scraping Dashboard]** Integrated iframe-based login via Ticaret Sicil site, replacing manual form.
+- **[API Endpoints]** Added `/api/scraping/session` to check login session and `/api/scraping/start` to initiate scraping through backend proxy.
+- **[Component]** Updated `ScrapingDashboard` with `handleBeginLogin`, `handleLoginComplete`, and `handleStartScraping` functions for session check, error/status handling, and flow control.
+
+## [0.6.2] - 2025-06-26
+
+### Fixed
+- **[Harita]** Şirket arama sonuçlarında koordinatların yanlış işlenmesine ve haritada görünmemesine neden olan kritik bir hata düzeltildi. Veri işleme mantığı, Supabase'den gelen GeoJSON formatını doğru şekilde kullanacak biçimde yeniden yazıldı.
+- **Coordinates Dashboard:** Resolved multiple bugs in the `CoordinatesDashboard` component, including type errors with `GeocodeResult`, missing icon references, and incorrect state handling (`isResolving`).
+
+### Changed
+- **[UI]** Kenar çubuğu (sidebar) yeniden düzenlendi. Logo boyutu ve hizalaması düzeltilerek görsel denge iyileştirildi ve aktif sayfa gösterimi daha tutarlı hale getirildi.
+- **[UI]** Uygulamanın renk paleti, Sicilius logosundaki renkler ve Apple tasarım estetiği temel alınarak tamamen yenilendi. Daha modern ve markayla tutarlı bir görünüm sağlandı.
+- **[Fix]** Tailwind CSS yapılandırması (`tailwind.config.js`), yeni renk paletini doğru şekilde uygulaması için düzeltildi. Bu, tema değişikliklerinin tüm bileşenlere yansımasını sağladı.
+
+### Added
+- **Intelligent Geocoding:** Implemented advanced geocoding logic in the dashboard:
+  - **Address Caching:** The system now checks if an address already has coordinates in the database before making a new API call.
+  - **Batch Updates:** All companies sharing the same address are updated with the new coordinates in a single, efficient operation.
+  - **Conflict Resolution:** Added a feature to find and reset coordinates that are incorrectly assigned to multiple different addresses, using a new Supabase RPC function (`find_conflicting_coordinates`).
+
+### Changed
+- **Geocoding Performance:** Improved the update mechanism to target only the specific set of companies being processed, enhancing performance.
+
+### Refactor
+- **[Tür Güvenliği]** `supabase.ts` dosyası, merkezi ve spesifik tipler (`CompanyForCheck`, `CompanyForBatchAdd`) kullanacak şekilde yeniden düzenlendi. Bu, tür güvenliğini ve kodun okunabilirliğini artırır.
+- **[Kod Kalitesi]** `useCompanySearch.ts` hook'u, koordinat ayrıştırma mantığını ayrı bir yardımcı fonksiyona (`parsePointString`) taşıyarak yeniden düzenlendi. Bu, kodun okunabilirliğini ve bakımını kolaylaştırır.
+
+### Docs
+- **Supabase Function:** Added the SQL definition for the `find_conflicting_coordinates` RPC function to the project's `README.md` to facilitate environment setup.
+
+## [0.6.1] - 2025-06-25
+
+### Changed
+- **[Dosya Yükleme]** Toplu veri yükleme mekanizması, büyük dosyalarda yaşanan 'statement timeout' hatalarını önlemek için tamamen yeniden yapılandırıldı. Veriler artık 100'erli gruplar halinde (batch) işleniyor. Bir grup başarısız olursa, sistem o gruptaki kayıtları tek tek deneyerek hatalı olanları atlar ve sağlam olanları yüklemeye devam eder. Bu, yükleme sürecini daha dayanıklı ve güvenilir hale getirir.
+- **[Coğrafi Kodlama]** Adres basitleştirme mantığı, `cadde`, `sokak` ve `no` gibi kritik bilgileri koruyacak şekilde iyileştirildi. Bu, farklı adreslerin yanlışlıkla aynı koordinatlara atanması sorununu çözer ve coğrafi kodlama doğruluğunu önemli ölçüde artırır.
+
+### Fixed
+- **[Tip Güvenliği]** Dosya yükleme (`useCompanyUploader`) ve veri tipleri (`company.types.ts`) arasındaki tutarsızlıklar giderilerek tüm `lint` ve `TypeScript` tip hataları düzeltildi. Bu, kodun kararlılığını ve bakımını kolaylalaştırır.
+
+
+
 ## [0.6.0] - 2025-06-25
 
 ### Changed

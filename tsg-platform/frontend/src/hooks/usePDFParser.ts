@@ -18,12 +18,14 @@ const parsePdfApi = async (file: File): Promise<ParsedTable[]> => {
   const formData = new FormData();
   formData.append('file', file);
 
-  const apiUrl = process.env.NEXT_PUBLIC_PDF_PARSER_URL;
-  if (!apiUrl) {
-    throw new Error('PDF parser API URL is not configured. Please set NEXT_PUBLIC_PDF_PARSER_URL in your environment variables.');
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (!baseUrl) {
+    throw new Error('API URL is not configured. Please set NEXT_PUBLIC_API_URL in your environment variables.');
   }
 
-  const response = await fetch(apiUrl, {
+  const fullUrl = `${baseUrl}/parsing/parse-pdf`;
+
+  const response = await fetch(fullUrl, {
     method: 'POST',
     body: formData,
     // Note: Don't set 'Content-Type' header, browser does it for multipart/form-data

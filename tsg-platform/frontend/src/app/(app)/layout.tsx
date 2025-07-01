@@ -1,5 +1,5 @@
-import { AppSidebar } from '@/components/layout/AppSidebar';
 import { AppHeader } from '@/components/layout/AppHeader';
+import { AppSidebar } from '@/components/layout/AppSidebar';
 import type { ReactNode } from 'react';
 import { Suspense } from 'react';
 import Loader from '@/components/ui/loader';

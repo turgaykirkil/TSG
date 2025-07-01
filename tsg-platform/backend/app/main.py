@@ -7,12 +7,16 @@ from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
+import httpx
+import base64
+import random
 
 from app.core.config import settings
 from app.core.scheduler import start_scheduler, stop_scheduler
-from app.api.v1 import api_router
 from app.db.base import Base, engine
+from app.api.v1 import api_router
 from app.api import upload_api
+from app.api.v1.endpoints import company_scrape, parsing, scraping, stats, search
 
 # Logging ayarları
 logging.basicConfig(
@@ -34,7 +38,7 @@ app = FastAPI(
 # CORS ayarları
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Tüm origin'lere izin ver
+    allow_origins=settings.CORS_ORIGINS.split(",") if settings.CORS_ORIGINS else [],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -51,12 +55,33 @@ async def add_cors_headers(request: Request, call_next):
     response.headers["Access-Control-Allow-Credentials"] = "true"
     return response
 
+# Captcha proxy endpoint
+@app.get("/captcha")
+async def get_captcha():
+    try:
+        rnd = random.random()
+        url = f"https://www.ticaretsicil.gov.tr/captcha/captcha.php?{rnd}"
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            encoded = base64.b64encode(resp.content).decode()
+        return {"image": f"data:image/jpeg;base64,{encoded}"}
+    except Exception as e:
+        logger.error("Captcha fetch error: %s", e)
+        raise HTTPException(status_code=500, detail="Captcha fetch failed")
+
 # Static dosyalar
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # API router'larını ekle
-app.include_router(api_router, prefix="/api")
+api_router.include_router(scraping.router, prefix="/scraping", tags=["Scraping"])
+api_router.include_router(parsing.router, prefix="/parsing", tags=["Parsing"])
+api_router.include_router(company_scrape.router, prefix="/company-scrape", tags=["Company Scrape"])
+api_router.include_router(stats.router, prefix="", tags=["Stats"])
+api_router.include_router(search.router, prefix="", tags=["Search"])
+
+app.include_router(api_router, prefix="/api/v1")
 app.include_router(upload_api.router, prefix="/api")
 
 # Kök endpoint

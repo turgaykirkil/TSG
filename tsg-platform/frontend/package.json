@@ -56,8 +56,8 @@
     "tailwind-merge": "^3.3.1",
     "tailwindcss-animate": "^1.0.7",
     "use-debounce": "^10.0.5",
-    "wkx": "0.5.0",
     "uuid": "^11.1.0",
+    "wkx": "0.5.0",
     "xlsx": "^0.18.5",
     "zod": "^3.25.67"
   },

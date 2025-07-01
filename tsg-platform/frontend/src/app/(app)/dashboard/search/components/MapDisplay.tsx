@@ -1,10 +1,9 @@
 'use client';
 
 import 'leaflet/dist/leaflet.css';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
-
 
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
@@ -21,16 +20,17 @@ L.Icon.Default.mergeOptions({
 
 interface MarkerData {
   koordinat: { x: number; y: number };
-  companies: { id: string; firma_unvani: string; adres: string }[];
+  companies: { id: string; firma_unvani: string | null; adres: string | null }[];
 }
 
 interface MapDisplayProps {
   markers: MarkerData[];
 }
 
-const MapDisplay = ({ markers }: MapDisplayProps) => {
+const MapDisplay = memo(({ markers }: MapDisplayProps) => {
   // Default center for the map (Turkey)
-  const position: [number, number] = [39.9334, 32.8597];
+  // Türkiye'yi daha iyi ortalamak için harita merkezi güncellendi.
+  const position: [number, number] = [39.0, 35.5];
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
@@ -42,7 +42,7 @@ const MapDisplay = ({ markers }: MapDisplayProps) => {
   }
 
   return (
-    <MapContainer center={position} zoom={6} scrollWheelZoom={true} style={{ height: '100%', width: '100%' }}>
+    <MapContainer center={position} zoom={5} scrollWheelZoom={true} style={{ height: '100%', width: '100%' }}>
       <>
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
@@ -54,8 +54,8 @@ const MapDisplay = ({ markers }: MapDisplayProps) => {
               <div className="space-y-2">
                 {marker.companies.map(company => (
                   <div key={company.id}>
-                    <div className="font-bold">{company.firma_unvani}</div>
-                    <div className="text-sm text-gray-600">{company.adres}</div>
+                    <div className="font-bold">{company.firma_unvani || 'İsim Bilgisi Yok'}</div>
+                    <div className="text-sm text-gray-600">{company.adres || 'Adres Bilgisi Yok'}</div>
                   </div>
                 ))}
               </div>
@@ -65,6 +65,8 @@ const MapDisplay = ({ markers }: MapDisplayProps) => {
       </>
     </MapContainer>
   );
-};
+});
+
+MapDisplay.displayName = 'MapDisplay';
 
 export default MapDisplay;

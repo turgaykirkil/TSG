@@ -1,21 +1,13 @@
 import { cn } from '@/lib/utils';
 import { Icons } from '@/components/icons';
-import Image from 'next/image';
+import { Logo } from '@/components/ui/logo';
 
 // This is the full-screen loader with the main logo
 export const FullScreenLoader = () => {
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
       <div className="relative mb-6">
-        <Image 
-          src="/sicilius-logo.svg" 
-          alt="Sicilius Logo" 
-          width={150} 
-          height={150} 
-          className="animate-pulse duration-1000"
-          style={{ height: 'auto' }}
-          priority
-        />
+        <Logo className="animate-pulse duration-1000" />
       </div>
 
     </div>

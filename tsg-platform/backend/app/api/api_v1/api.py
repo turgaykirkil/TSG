@@ -12,7 +12,8 @@ from app.api.api_v1.endpoints import (
     file_uploads,
     jobs,
     utils,
-    parsing
+    parsing,
+    scraping
 )
 from app.api.v1.endpoints import company_scrape
 
@@ -47,3 +48,6 @@ api_router.include_router(utils.router, prefix="/utils", tags=["Utilities"])
 
 # Parsing endpoints
 api_router.include_router(parsing.router, prefix="/parsing", tags=["Parsing"])
+
+# Scraping endpoints
+api_router.include_router(scraping.router, prefix="/scraping", tags=["Scraping"])

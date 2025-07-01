@@ -1,7 +1,7 @@
-import type { ReactNode } from 'react';
+import React from 'react';
 
-export default function DashboardLayout({ children }: { children: ReactNode }) {
-  return (
-    <>{children}</>
-  );
+// This layout is intentionally left simple to avoid nested layouts.
+// The main layout is handled by /app/(app)/layout.tsx.
+export default function DashboardPassthroughLayout({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
 }

@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { MainNav } from '@/components/main-nav';
 import { UserNav } from '@/components/user-nav';
+import { Logo } from '@/components/ui/logo';
 
 
 type HeaderProps = React.HTMLAttributes<HTMLDivElement>;
@@ -15,13 +16,7 @@ export const Header: React.FC<HeaderProps> = ({ className }) => {
     <header className={cn('sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60', className)}>
       <div className="container flex h-16 items-center">
         <Link href="/" className="mr-6 flex items-center space-x-2">
-          <Image 
-            src="/sicilius-logo.svg?version=1" 
-            alt="Sicilius Logo"
-            className="h-8 w-auto"
-            width={32}
-            height={32}
-          />
+          <Logo />
           <span className="font-bold">Sicilius</span>
         </Link>
         <MainNav />
