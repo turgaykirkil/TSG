@@ -14,9 +14,8 @@ import random
 from app.core.config import settings
 from app.core.scheduler import start_scheduler, stop_scheduler
 from app.db.base import Base, engine
-from app.api.v1 import api_router
+from app.api.api_v1.api import api_router
 from app.api import upload_api
-from app.api.v1.endpoints import company_scrape, parsing, scraping, stats, search
 
 # Logging ayarları
 logging.basicConfig(
@@ -24,6 +23,8 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+logger.info("MAIN.PY: Top-level logger configured.")
+
 
 # Uygulama oluştur
 app = FastAPI(
@@ -35,25 +36,35 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 
+@app.on_event("startup")
+async def startup_event():
+    logger.info("STARTUP_EVENT: Application is starting up. Logging should be working.")
+    # start_scheduler()
+
+@app.on_event("shutdown")
+def shutdown_event():
+    logger.info("SHUTDOWN_EVENT: Application is shutting down.")
+    # stop_scheduler()
+
 # CORS ayarları
+# Geliştirme ortamında frontend'den (localhost:3000) gelen isteklere izin ver.
+# Production'da bu ayarlar daha kısıtlayıcı olmalıdır.
+origins = [
+    "http://localhost",
+    "http://localhost:3000",
+    "http://127.0.0.1",
+    "http://127.0.0.1:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS.split(",") if settings.CORS_ORIGINS else [],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
 )
 
-# Tüm yanıtlara CORS başlıkları ekle
-@app.middleware("http")
-async def add_cors_headers(request: Request, call_next):
-    response = await call_next(request)
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "POST, GET, DELETE, PUT, PATCH, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    return response
+
 
 # Captcha proxy endpoint
 @app.get("/captcha")
@@ -75,12 +86,6 @@ os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # API router'larını ekle
-api_router.include_router(scraping.router, prefix="/scraping", tags=["Scraping"])
-api_router.include_router(parsing.router, prefix="/parsing", tags=["Parsing"])
-api_router.include_router(company_scrape.router, prefix="/company-scrape", tags=["Company Scrape"])
-api_router.include_router(stats.router, prefix="", tags=["Stats"])
-api_router.include_router(search.router, prefix="", tags=["Search"])
-
 app.include_router(api_router, prefix="/api/v1")
 app.include_router(upload_api.router, prefix="/api")
 
@@ -119,13 +124,16 @@ async def http_exception_handler(request, exc):
 # Uygulama başlangıcında yapılacak işlemler
 @app.on_event("startup")
 async def startup_event():
+    logger.info("Uygulama başlangıç olayı (startup event) tetiklendi.")
     # Veritabanı bağlantısını test et ve gerekirse tabloları oluştur
     try:
+        logger.info("Veritabanı bağlantısı deneniyor...")
         # Bağlantıyı test etmek için kısa bir sorgu çalıştır
         with engine.connect() as connection:
             logger.info("Veritabanı bağlantısı başarılı.")
         
         # Tabloları oluştur
+        logger.info("Veritabanı tabloları senkronize ediliyor...")
         Base.metadata.create_all(bind=engine)
         logger.info("Veritabanı tabloları başarıyla senkronize edildi.")
     except Exception as e:
@@ -134,10 +142,12 @@ async def startup_event():
     
     # Scheduler'ı başlat
     try:
+        logger.info("Scheduler başlatılıyor...")
         start_scheduler()
         logger.info("Arka plan görev planlayıcısı başlatıldı")
     except Exception as e:
         logger.error("Arka plan görev planlayıcısı başlatılırken hata oluştu: %s", str(e))
+    logger.info("Uygulama başlangıç olayı tamamlandı.")
 
 # Uygulama kapanırken yapılacak işlemler
 @app.on_event("shutdown")

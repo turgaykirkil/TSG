@@ -3,7 +3,7 @@ from playwright.async_api import async_playwright
 from sqlalchemy.orm import Session
 from app import crud, models
 
-# Bu liste, scraping_chromium.py dosyasından alınmıştır ve tutarlılık için burada tutulmaktadır.
+# Bu liste, scraping_browser.py dosyasından alınmıştır ve tutarlılık için burada tutulmaktadır.
 VALID_CITIES = [
     "İSTANBUL", "ANKARA", "İZMİR", "ACIPAYAM", "ADANA", "ADIYAMAN", "AFYONKARAHİSAR",
     "AFŞİN", "AKHİSAR", "AKSARAY", "AKYAZI", "AKÇAKOCA", "AKŞEHİR", "ALACA", "ALANYA",

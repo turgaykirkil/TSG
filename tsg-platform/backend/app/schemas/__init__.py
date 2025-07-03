@@ -8,15 +8,14 @@ TSG Araştırma Platformu - Şemalar
 from .token import Token, TokenPayload
 from .user import User, UserCreate, UserInDB, UserUpdate
 from .company import Company, CompanyCreate, CompanyUpdate, CompanyInDB
+from .utils import Coordinates
 from .gazette import Gazette, GazetteCreate, GazetteUpdate, GazetteInDB
 from .gazette_entry import GazetteEntry, GazetteEntryCreate, GazetteEntryUpdate, GazetteEntryInDB
 from .person import Person, PersonCreate, PersonUpdate, PersonInDB
 from .relation import CompanyPersonRelation, CompanyPersonRelationCreate, CompanyPersonRelationUpdate, CompanyPersonRelationInDB
 from .file_upload import FileUpload, FileUploadCreate, FileUploadUpdate, FileUploadInDB
 from .job_history import JobHistory, JobHistoryCreate, JobHistoryUpdate, JobHistoryInDB
-from .company_scrape import (
-    CompanyScrape, CompanyScrapeCreate, CompanyScrapeUpdate, CompanyScrapeInDB,
-)
+from .announcement import Announcement, AnnouncementCreate, AnnouncementUpdate, AnnouncementInDB
 
 from .job_history_process import (
     JobResultSummary,
@@ -39,6 +38,7 @@ __all__ = [
     'CompanyPersonRelation', 'CompanyPersonRelationCreate', 'CompanyPersonRelationUpdate', 'CompanyPersonRelationInDB',
     'FileUpload', 'FileUploadCreate', 'FileUploadUpdate', 'FileUploadInDB',
     'JobHistory', 'JobHistoryCreate', 'JobHistoryUpdate', 'JobHistoryInDB',
+    'Announcement', 'AnnouncementCreate', 'AnnouncementUpdate', 'AnnouncementInDB',
     'CompanyScrape', 'CompanyScrapeCreate', 'CompanyScrapeUpdate', 'CompanyScrapeInDB',
     'JobResultSummary', 'JobProgressUpdate', 'JobStartRequest', 'JobUpdateRequest',
     'JobFilter', 'JobStats', 'JobStatusResponse',

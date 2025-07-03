@@ -38,10 +38,10 @@ const baseNavigation: NavItem[] = [
 export function AppSidebar({ onLinkClick }: AppSidebarProps) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const isAdmin = user?.role === 'admin';
+    const isAdmin = user?.role === 'ADMIN';
 
   const navigation: NavItem[] = isAdmin
-    ? [...baseNavigation, { name: 'Dosya İşlemleri', href: '/admin', icon: UploadCloud }]
+    ? [...baseNavigation, { name: 'Admin', href: '/admin', icon: UploadCloud }]
     : baseNavigation;
 
   const handleLogout = () => {

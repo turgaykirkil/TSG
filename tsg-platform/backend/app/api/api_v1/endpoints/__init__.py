@@ -1,30 +1,13 @@
 """
-API v1 endpoints
+TSG Araştırma Platformu - API v1 Endpoints
 """
-from app.api.v1.endpoints import company_scrape
+
 from fastapi import APIRouter
 
-api_router = APIRouter()
-api_router.include_router(company_scrape.router, prefix="/company-scrapes", tags=["company-scrapes"])
+from .parsing import router as parsing_router
 
-from app.api.api_v1.endpoints import (
-    auth,
-    users,
-    companies,
-    gazettes,
-    persons,
-    file_uploads,
-    jobs,
-    utils
-)
+router = APIRouter()
 
-__all__ = [
-    "auth",
-    "users",
-    "companies",
-    "gazettes",
-    "persons",
-    "file_uploads",
-    "jobs",
-    "utils"
-]
+# Endpoint'leri router'a ekle
+
+router.include_router(parsing_router)

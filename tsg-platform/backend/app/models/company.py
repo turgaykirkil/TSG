@@ -1,50 +1,49 @@
-from sqlalchemy import Column, String, Text, ForeignKey, Integer, DateTime, Boolean, Index
+from sqlalchemy import Column, String, DateTime, Text, func, Date, Integer, Boolean, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
+from geoalchemy2 import Geometry
+import uuid
+from app.db.base import Base
 
-from app.models.base import Base
+from .announcement import Announcement
 
 class Company(Base):
     __tablename__ = "companies"
-    
-    # Basic Information
-    title = Column(String(500), nullable=False, index=True)
-    trade_name = Column(String(500))
-    tax_number = Column(String(50), unique=True, index=True)
-    mersis_number = Column(String(50), unique=True, index=True)
-    trade_registry_number = Column(String(50), index=True)
-    
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    unvan = Column(String(500), index=True)
+    mersis_number = Column(String(50), unique=True, index=True, nullable=True)
+    sicil_no = Column(String(50), unique=True, index=True)
+    sicil_mudurluk = Column(String(255), nullable=True)
+    nace_code = Column(String(255), nullable=True)
+
     # Contact Information
-    phone = Column(String(20))
-    email = Column(String(255))
-    website = Column(String(255))
-    
+    phone = Column(String(20), nullable=True)
+    email = Column(String(255), nullable=True)
+    website = Column(String(255), nullable=True)
+
     # Address Information
-    address = Column(Text)
-    district = Column(String(100))
-    city = Column(String(100))
+    address = Column(Text, nullable=True)
+    district = Column(String(100), nullable=True)
+    city = Column(String(100), nullable=True)
     country = Column(String(100), default="Türkiye")
-    postal_code = Column(String(20))
-    
-    # Status
+    koordinat = Column(Geometry('POINT', srid=4326), nullable=True, index=True)
+
+    # Status and Timestamps
     is_active = Column(Boolean, default=True)
-    establishment_date = Column(DateTime)
-    scraped_at = Column(DateTime, nullable=True, default=None)  # Son scraping yapılan zaman
-    
+    establishment_date = Column(Date, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    scraped_at = Column(DateTime, nullable=True)
+
+    # PDF Info
+    pdf_name = Column(String, nullable=True)
+    pdf_path = Column(String, nullable=True)
+
     # Relationships
+    announcements = relationship("Announcement", back_populates="company", cascade="all, delete-orphan")
     gazette_entries = relationship("GazetteEntry", back_populates="company")
     persons = relationship("CompanyPersonRelation", back_populates="company")
-    
-    # Indexes
-    __table_args__ = (
-        Index('idx_company_title_trgm', 'title', postgresql_using='gin', postgresql_ops={'title': 'gin_trgm_ops'}),
-    )
-    
+
     def __repr__(self):
-        return f"<Company {self.title}>"
-    
-    def to_dict(self):
-        result = super().to_dict()
-        # Convert datetime to string for JSON serialization
-        if 'establishment_date' in result and result['establishment_date']:
-            result['establishment_date'] = result['establishment_date'].isoformat()
-        return result
+        return f"<Company(id={self.id}, unvan='{self.unvan}')>"

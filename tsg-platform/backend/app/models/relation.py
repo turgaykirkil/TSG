@@ -1,7 +1,8 @@
 from sqlalchemy import Boolean, Column, Integer, String, ForeignKey, Enum, Text, DateTime, Index
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
-from app.models.base import Base
+from app.db.base import Base
 import enum
 
 class RelationType(str, enum.Enum):
@@ -16,8 +17,8 @@ class CompanyPersonRelation(Base):
     __tablename__ = "company_person_relations"
     
     # Relationships
-    company_id = Column(Integer, ForeignKey("companies.id"), primary_key=True)
-    person_id = Column(Integer, ForeignKey("persons.id"), primary_key=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), primary_key=True)
+    person_id = Column(UUID(as_uuid=True), ForeignKey("persons.id"), primary_key=True)
     
     # Relation Details
     relation_type = Column(Enum(RelationType), nullable=False, index=True)

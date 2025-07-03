@@ -15,7 +15,7 @@ async def open_site():
     Hata durumunda stdout/stderr ve path bilgisi döner.
     """
     print("\n========== API REQUEST: /api/scraping/open-site (POST) ==========")
-    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "scraping_chromium.py"))
+    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "scraping_browser.py"))
     python_exec = sys.executable or "python"
     logs = {}
     logs['cwd'] = os.getcwd()

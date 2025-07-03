@@ -7,13 +7,25 @@ import sys
 
 # Model tanımlarını ekleyin
 sys.path.append(os.getcwd())
-from app.models.base import Base
+from app.db.base import Base  # Doğru Base objesini import et
+
+# Modellerin Alembic tarafından tanınması için import edilmesi gerekiyor
+from app.models.user import User
+from app.models.company import Company
+from app.models.announcement import Announcement
+from app.models.gazette import Gazette, GazetteEntry
+from app.models.person import Person
+from app.models.relation import CompanyPersonRelation
+from app.models.file_upload import FileUpload
+from app.models.job_history import JobHistory
 
 # Alembic Config yapılandırması
 config = context.config
 
-# SQLAlchemy URL'sini config'ten al
-config.set_main_option('sqlalchemy.url', 'postgresql://postgres:postgres@db:5432/tsg_platform')
+# .env dosyasından veritabanı URL'sini dinamik olarak yükle
+from app.core.config import get_settings
+settings = get_settings()
+config.set_main_option('sqlalchemy.url', str(settings.DATABASE_URL))
 
 # Logging yapılandırması
 if config.config_file_name is not None:
@@ -21,6 +33,11 @@ if config.config_file_name is not None:
 
 # Metadataları al
 target_metadata = Base.metadata
+
+def include_object(object, name, type_, reflected, compare_to):
+    if type_ == "table" and name == "spatial_ref_sys":
+        return False
+    return True
 
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
@@ -45,7 +62,8 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection, 
             target_metadata=target_metadata,
-            compare_type=True
+            compare_type=True,
+            include_object=include_object
         )
 
         with context.begin_transaction():

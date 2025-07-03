@@ -114,6 +114,7 @@ export const Icons = {
   // Navigation
   arrowLeftCircle: createIcon(LucideIcons.ArrowLeftCircle),
   arrowRightCircle: createIcon(LucideIcons.ArrowRightCircle),
+  fastForward: createIcon(LucideIcons.FastForward),
   
   // Actions
   refreshCw: createIcon(LucideIcons.RefreshCw),

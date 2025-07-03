@@ -1,5 +1,6 @@
 import os
 from functools import lru_cache
+from pathlib import Path
 from typing import List, Optional, Set
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -17,6 +18,9 @@ class Settings(BaseSettings):
     # API Settings
     API_V1_STR: str = "/api/v1"
     
+    # Project Paths
+    PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
+
     # App Settings
     APP_NAME: str = "TSG Platform"
     APP_VERSION: str = "1.0.0"
@@ -56,7 +60,7 @@ class Settings(BaseSettings):
     LOG_FILE: str = "./logs/tsg_platform.log"
     
     # Redis
-    REDIS_URL: RedisDsn = "redis://redis:6379/0"
+    REDIS_URL: RedisDsn = "redis://localhost:6379/0"
     
     # Background Tasks
     BACKGROUND_TASKS_MAX_WORKERS: int = Field(

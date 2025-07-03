@@ -1,7 +1,9 @@
 from sqlalchemy import Column, String, Text, Integer, ForeignKey, DateTime, Boolean, Enum, Index
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
+import uuid
 
-from app.models.base import Base
+from app.db.base import Base
 import enum
 
 class GazetteType(str, enum.Enum):
@@ -11,6 +13,8 @@ class GazetteType(str, enum.Enum):
 
 class Gazette(Base):
     __tablename__ = "gazettes"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     
     # Basic Information
     gazette_number = Column(String(100), index=True)
@@ -42,11 +46,13 @@ class Gazette(Base):
 class GazetteEntry(Base):
     __tablename__ = "gazette_entries"
     
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    
     # Relationships
-    gazette_id = Column(Integer, ForeignKey("gazettes.id"), nullable=False, index=True)
+    gazette_id = Column(UUID(as_uuid=True), ForeignKey("gazettes.id"), nullable=False, index=True)
     gazette = relationship("Gazette", back_populates="entries")
     
-    company_id = Column(Integer, ForeignKey("companies.id"), index=True)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), index=True)
     company = relationship("Company", back_populates="gazette_entries")
     
     # Content

@@ -10,7 +10,7 @@ import { useFileProcessor, type ProcessedFileData, type ParsedTable } from '@/ho
 import { useColumnMapper, type ColumnType } from '@/hooks/useColumnMapper';
 import { useCompanyUploader } from '@/hooks/useCompanyUploader';
 import type { ExcelSheetResult } from '@/lib/file-utils';
-import type { CompanyData } from '@/types/company.types';
+import type { Company as CompanyData } from '@/types/company.types';
 import { ColumnTypeModal } from './column-type-modal';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -318,7 +318,7 @@ export default function FileUploadSection() {
       <Card className="w-full max-w-2xl mx-auto">
         <CardHeader>
           <CardTitle>Dosya İşleniyor</CardTitle>
-          <CardDescription>{processor.currentFile?.name || 'Lütfen bekleyin...'}</CardDescription>
+          <CardDescription>{processor.currentFiles.length > 0 ? `${processor.currentFiles.length} dosya seçildi` : 'Lütfen bekleyin...'}</CardDescription>
         </CardHeader>
         <CardContent>
           <ProcessingState progress={processor.isProcessingExcel ? processor.excelProgress : 50} />
@@ -349,7 +349,7 @@ export default function FileUploadSection() {
     return (
       <PdfTableSelector
         tables={processor.pdfData}
-        fileName={processor.currentFile?.name || 'PDF Dosyası'}
+        fileName={processor.currentFiles.length > 0 ? processor.currentFiles.map(f => f.name).join(', ') : 'PDF Dosyası'}
         onSelectTable={setSelectedPdfTable}
         onReset={handleReset}
       />
@@ -357,7 +357,7 @@ export default function FileUploadSection() {
   }
 
   // 4. Show data mapping for a selected PDF table
-  if (selectedPdfTable && processor.currentFile) {
+  if (selectedPdfTable && processor.currentFiles.length > 0) {
     const sheetResult: ExcelSheetResult = {
       sheetName: selectedPdfTable.table_name,
       headers: selectedPdfTable.headers,
@@ -374,7 +374,7 @@ export default function FileUploadSection() {
     };
 
     const fileData: ProcessedFileData = {
-      fileName: processor.currentFile.name,
+      fileName: processor.currentFiles.map(f => f.name).join(', '),
       sheets: [sheetResult],
     };
 

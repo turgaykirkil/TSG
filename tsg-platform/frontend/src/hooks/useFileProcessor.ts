@@ -30,7 +30,7 @@ export const useFileProcessor = () => {
 
   // General state
   const [error, setError] = useState<string | null>(null);
-  const [currentFile, setCurrentFile] = useState<File | null>(null);
+  const [currentFiles, setCurrentFiles] = useState<File[]>([]);
 
   const reset = useCallback(() => {
     setExcelData(null);
@@ -38,40 +38,53 @@ export const useFileProcessor = () => {
     setExcelProgress(0);
     pdfParser.reset();
     setError(null);
-    setCurrentFile(null);
+    setCurrentFiles([]);
   }, [pdfParser]);
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
       if (acceptedFiles.length === 0) return;
-      const file = acceptedFiles[0];
 
       reset();
-      setCurrentFile(file);
+      setCurrentFiles(acceptedFiles);
 
-      const fileType = file.type;
-      const fileName = file.name.toLowerCase();
+      const pdfFiles = acceptedFiles.filter(
+        (f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf')
+      );
 
-      // --- PDF Processing Path ---
-      if (fileType === 'application/pdf' || fileName.endsWith('.pdf')) {
-        pdfParser.parsePdf(file);
+      const excelFiles = acceptedFiles.filter(
+        (f) =>
+          f.type === 'application/vnd.ms-excel' ||
+          f.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+          f.name.toLowerCase().endsWith('.xls') ||
+          f.name.toLowerCase().endsWith('.xlsx')
+      );
+
+      if (pdfFiles.length > 0 && excelFiles.length > 0) {
+        toast.error('Lütfen aynı anda yalnızca PDF veya yalnızca Excel dosyaları yükleyin.');
+        reset();
         return;
       }
 
-      // --- Excel Processing Path ---
-      if (
-        fileType === 'application/vnd.ms-excel' ||
-        fileType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-        fileName.endsWith('.xls') ||
-        fileName.endsWith('.xlsx')
-      ) {
+      // --- PDF Processing Path ---
+      if (pdfFiles.length > 0) {
+        pdfParser.parsePdf(pdfFiles);
+        return;
+      }
+
+      // --- Excel Processing Path (only process the first Excel file for now) ---
+      if (excelFiles.length > 0) {
+        if (excelFiles.length > 1) {
+          toast.info('Şu anda yalnızca ilk Excel dosyası işlenecektir.');
+        }
+        const fileToProcess = excelFiles[0];
         setIsProcessingExcel(true);
         try {
           const progressInterval = setInterval(() => {
             setExcelProgress((prev) => (prev >= 95 ? 95 : prev + 5));
           }, 300);
 
-          const result = await processExcelFile(file);
+          const result = await processExcelFile(fileToProcess);
           clearInterval(progressInterval);
           setExcelProgress(100);
 
@@ -94,9 +107,7 @@ export const useFileProcessor = () => {
         return;
       }
       
-      // Should not happen if dropzone config is correct
-      toast.error('Desteklenmeyen dosya türü.');
-
+      toast.error('Desteklenmeyen dosya türü. Lütfen .xls, .xlsx veya .pdf dosyası seçin.');
     },
     [reset, pdfParser]
   );
@@ -120,7 +131,7 @@ export const useFileProcessor = () => {
     onDropRejected,
     accept: ACCEPTED_FILE_TYPES,
     maxSize: MAX_FILE_SIZE,
-    multiple: false,
+    multiple: true,
   });
 
   // Consolidate processing states and errors
@@ -133,7 +144,7 @@ export const useFileProcessor = () => {
     getInputProps,
     isDragActive,
     reset,
-    currentFile,
+    currentFiles,
 
     // Overall status
     isProcessing,

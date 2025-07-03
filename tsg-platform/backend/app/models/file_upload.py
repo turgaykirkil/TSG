@@ -1,7 +1,9 @@
 from sqlalchemy import Column, String, Integer, ForeignKey, Enum, Text, DateTime, Boolean, JSON
+from sqlalchemy.dialects.postgresql import UUID
+import uuid
 from sqlalchemy.orm import relationship
 
-from app.models.base import Base
+from app.db.base import Base
 import enum
 
 class FileUploadStatus(str, enum.Enum):
@@ -18,6 +20,8 @@ class FileUploadType(str, enum.Enum):
 
 class FileUpload(Base):
     __tablename__ = "file_uploads"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     
     # File Information
     file_name = Column(String(255), nullable=False)
@@ -40,7 +44,7 @@ class FileUpload(Base):
     file_metadata = Column(JSON)  # For storing any additional metadata
     
     # Relationships
-    uploaded_by_id = Column(Integer, ForeignKey("users.id"), index=True)
+    uploaded_by_id = Column(UUID(as_uuid=True), ForeignKey("app_users.id"), index=True)
     uploaded_by = relationship("User", back_populates="file_uploads")
     
     # Job History

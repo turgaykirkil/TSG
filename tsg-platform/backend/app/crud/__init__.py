@@ -29,8 +29,11 @@ from .crud_file_upload import file_upload
 # Job History CRUD operations
 from .crud_job_history import job_history
 
+# Announcement CRUD operations
+from .crud_announcement import announcement
+
 # Company Scrape CRUD operations
-from .crud_company_scrape import company_scrape
+
 
 __all__ = [
     # Base
@@ -46,4 +49,5 @@ __all__ = [
     "file_upload",
     "job_history",
     "company_scrape",
+    "announcement",
 ]

@@ -1,4 +1,5 @@
 import { withAuth } from 'next-auth/middleware';
+import { NextResponse } from 'next/server';
 
 // Public rotalar (auth gerektirmez)
 const PUBLIC_PATHS = [
@@ -24,7 +25,7 @@ export default withAuth({
 
       // Admin route ise rol kontrolü yap
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if (pathname.startsWith('/admin') && (token as any).role !== 'admin') {
+      if (pathname.startsWith('/admin') && (token as any).role !== 'ADMIN') {
         return false;
       }
 

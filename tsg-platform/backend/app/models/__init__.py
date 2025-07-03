@@ -1,4 +1,3 @@
-from .base import Base
 from .user import User
 from .company import Company
 from .gazette import Gazette, GazetteEntry
@@ -6,7 +5,7 @@ from .person import Person
 from .relation import CompanyPersonRelation
 from .file_upload import FileUpload
 from .job_history import JobHistory
-from .company_scrape import CompanyScrape
+
 
 __all__ = [
     'Base',

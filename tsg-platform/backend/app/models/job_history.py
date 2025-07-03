@@ -1,7 +1,9 @@
 from sqlalchemy import Column, String, Integer, ForeignKey, Enum, Text, DateTime, JSON, Index
+from sqlalchemy.dialects.postgresql import UUID
+import uuid
 from sqlalchemy.orm import relationship
 
-from app.models.base import Base
+from app.db.base import Base
 import enum
 
 class JobType(str, enum.Enum):
@@ -22,6 +24,8 @@ class JobStatus(str, enum.Enum):
 
 class JobHistory(Base):
     __tablename__ = "job_histories"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     
     # Job Information
     job_type = Column(Enum(JobType), nullable=False, index=True)
@@ -42,10 +46,10 @@ class JobHistory(Base):
     stack_trace = Column(Text)
     
     # Relationships
-    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("app_users.id"), index=True)
     user = relationship("User", back_populates="job_histories")
     
-    file_upload_id = Column(Integer, ForeignKey("file_uploads.id"), index=True)
+    file_upload_id = Column(UUID(as_uuid=True), ForeignKey("file_uploads.id"), index=True)
     file_upload = relationship("FileUpload", back_populates="job_histories")
     
     # Additional Context

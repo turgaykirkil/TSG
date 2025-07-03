@@ -1,0 +1,108 @@
+ProjeTanımıVeAmacı: |
+    Bu faz, kullanıcıların ticaret odalarından aldıkları şirket PDF dokümanlarını sisteme yükleyerek 
+    bu dokümanlardan **sicil numarası**, **ticaret unvanı** gibi temel şirket bilgilerini otomatik çıkarmayı 
+    ve yerel bir SQLite veritabanına kaydetmeyi kapsar. Böylece şirket bilgileri merkezi bir veritabanında toplanır 
+    ve gerektiğinde React tabanlı bir önizleme arayüzü üzerinden görüntülenebilir. 
+    Amaç, kullanıcıya yüklediği belgelerin içeriğini hızlıca görme ve doğrulama imkanı sunmaktır.
+TeknikBileşenler:
+    Backend:
+        DilVeÇerçeve: "Python (FastAPI)"
+        Açıklama: "FastAPI ile PDF yükleme için bir REST API (ör. **POST /upload**) implementasyonu. 
+                   Yüklenen PDF dosyası alınır, içinden sicil no/unvan gibi alanlar `extract_fields_from_pdf` fonksiyonu ile çıkarılır 
+                   ve SQLite veritabanına kaydedilir."
+    Frontend:
+        Teknoloji: "React (JavaScript/TypeScript)"
+        Açıklama: "Kullanıcı arayüzü, PDF dosyasının yüklenmesini sağlayan bir form ve yüklenen belgeyi önizleyen bileşen içerir. 
+                   Önyüz, FastAPI backend’ine istek atarak dosya yükleme ve sonuç gösterme işlemlerini gerçekleştirir."
+    Veritabanı:
+        Teknoloji: "SQLite"
+        Açıklama: "Tek dosyalı, yerel SQLite veritabanı. Örneğin `companies` adında bir tablo ile 
+                   **sicil_no**, **unvan** gibi alanları saklar. Gerektiğinde PDF dosyasının yolu veya özet bilgisi de eklenebilir."
+    OCR:
+        Durum: "Yok"
+        Açıklama: "Bu aşamada OCR kullanılmaz; PDF içeriği metin olarak okunabiliyor varsayılır veya gerekli alanlar metadatalardan alınır."
+    WebScraping:
+        Durum: "Yok"
+        Açıklama: "Bu aşamada web scraping yapılmamaktadır."
+    GrafikAnalizi:
+        Durum: "Yok"
+        Açıklama: "Bu aşamada grafiksel ilişki analizi özelliği yoktur."
+KodÖrnekleri:
+    - Açıklama: "FastAPI ile PDF dosyası yükleme ve işleme endpoint örneği"
+      Kod: |
+        from fastapi import FastAPI, File, UploadFile
+        import sqlite3
+        app = FastAPI()
+        conn = sqlite3.connect("database.sqlite")
+        
+        @app.post("/upload")
+        async def upload_pdf(file: UploadFile = File(...)):
+            content = await file.read()
+            pdf_data = extract_fields_from_pdf(content)  # sicil no, unvan çıkaran yardımcı fonksiyon
+            conn.execute(
+                "INSERT INTO companies (sicil_no, unvan) VALUES (?, ?)", 
+                (pdf_data["sicil_no"], pdf_data["unvan"])
+            )
+            conn.commit()
+            return {"status": "ok", "sicil_no": pdf_data["sicil_no"]}
+    - Açıklama: "React üzerinde PDF yükleme formu bileşeni (özet)"
+      Kod: |
+        import { useState } from 'react';
+        function UploadForm() {
+          const [file, setFile] = useState(null);
+          const handleSubmit = async (e) => {
+            e.preventDefault();
+            const formData = new FormData();
+            formData.append("file", file);
+            await fetch("/upload", { method: "POST", body: formData });
+          };
+          return (
+            <form onSubmit={handleSubmit}>
+              <input 
+                type="file" accept=".pdf" 
+                onChange={e => setFile(e.target.files[0])} 
+              />
+              <button type="submit">Yükle</button>
+            </form>
+          );
+        }
+DosyaDizinYapısı: |
+    proje_kök_dizini/
+        backend/
+            main.py           # FastAPI uygulaması başlangıç noktası
+            database.sqlite   # SQLite veritabanı dosyası
+            requirements.txt  # Backend bağımlılıkları (FastAPI, PyPDF2 vb.)
+            utils.py          # PDF işleme ve DB yardımcı fonksiyonları (örn. extract_fields_from_pdf)
+        frontend/
+            src/
+                App.js        # React ana uygulama bileşeni
+                components/
+                    UploadForm.js  # PDF yükleme ve önizleme bileşeni
+            public/
+                index.html    # Uygulama ana HTML dosyası
+            package.json      # Frontend bağımlılık tanımlamaları
+        .gitignore            # Örn. node_modules/ ve database.sqlite gibi dosyalar git tarafından takip edilmez
+DikkatEdilmesiGerekenler:
+    - "PDF dosya boyutlarına dikkat edilmelidir; çok büyük dosyalar için boyut kısıtlaması uygulanmalı ve uygun hata mesajları gösterilmelidir."
+    - "Veritabanına kayıt yaparken aynı sicil numarası tekrar yüklenirse, yinelenen kayıt oluşmaması için birincil anahtar veya benzersiz indeks tanımlanmalıdır."
+    - "Farklı PDF formatlarına karşı esnek olunmalı; `extract_fields_from_pdf` fonksiyonu, alanları **regex** veya PDF metadata yoluyla tespit ederken farklı düzenlere uyum sağlayabilmelidir."
+Güvenlikİlkeleri:
+    - "Yalnızca belirli dosya tiplerinin (örn. PDF) yüklenmesine izin verilmeli; dosya uzantısı ve MIME tipi kontrolü yapılmalıdır."
+    - "Yüklenen dosyalar sunucuda kalıcı olarak saklanmamalı veya güvenli bir dizinde tutulmalıdır. Gerekliyse upload klasörü dışında erişilemeyen bir konum kullanılmalı ve işlem sonrası dosya silinmelidir."
+    - "FastAPI uygulamasında **CORS** sadece gerekli origin’lere izin verecek şekilde yapılandırılmalı (örn. sadece local frontend adresi)."
+Testİlkeleri:
+    - "PDF yükleme ve veritabanı kayıt işlemleri için birim testleri hazırlanmalı (örneğin, sahte bir PDF içeriği ile `extract_fields_from_pdf` fonksiyonu ve /upload endpoint’i test edilmeli)."
+    - "Entegrasyon testi: Örnek bir PDF dosyası yüklenerek /upload API’sinin doğru HTTP yanıtını verdiği ve SQLite veritabanına beklenen veriyi yazdığı doğrulanmalı."
+    - "React bileşenleri için Jest/React Testing Library ile dosya seçimi ve form gönderimi senaryoları test edilmeli; bileşenin doğru API çağrısını yaptığından emin olunmalı."
+Loglamaİlkeleri:
+    - "Sunucu tarafında her yükleme girişimi, yüklenen dosyanın adı ve başarı/başarısızlık durumu loglanmalıdır (info seviyesinde)."
+    - "Hata durumlarında (örneğin PDF içeriği okunamazsa) istisna bilgileri ve yığın izleri loglanmalı ancak hassas bilgiler (dosya yolu, kullanıcı IP vs.) loglanmamalıdır."
+    - "Geliştirme aşamasında debug logları ile `extract_fields_from_pdf` fonksiyonunun çıkardığı veriler izlenebilir; üretimde debug logları kapatılarak sadece uyarı ve hata logları tutulmalıdır."
+Erişilebilirlikİlkeleri:
+    - "Önyüzde dosya yükleme formu ve butonları klavye ile erişilebilir olmalıdır. `<label>` elementleri kullanılarak dosya seçme input’u etiketlenmeli ve ARIA özellikleriyle desteklenmelidir."
+    - "PDF önizlemesi sağlanıyorsa, görme engelli kullanıcılar için PDF içeriğinin önemli kısımları metin olarak sunulmalı (örn. PDF içindeki metin çıkarılıp gösterilebilir)."
+    - "Renk ve tasarım seçimlerinde **WCAG** standartlarına uygun kontrast oranları sağlanmalı; örneğin buton ve arka plan renkleri yeterli kontrasta sahip olmalıdır."
+WindsurfUyumluluğu:
+    - "YAML tanım dosyası, Windsurf IDE tarafından kolay anlaşılacak biçimde tutarlı girintiler ve anlamlı anahtar isimleri ile yapılandırılmıştır."
+    - "Kod örnekleri, Cascade AI'nin projeyi oluştururken kullanabileceği şekilde kısa, öz ve anlaşılır tutulmuştur."
+    - "Şemanın her bölümünde (backend, frontend, vb.) ilgili bileşenler açıkça tanımlanmıştır. Bu sayede WindSurf, projenin bu fazındaki gereksinimleri doğru şekilde kavrayıp kurulum adımlarını eksiksiz uygulayabilir."

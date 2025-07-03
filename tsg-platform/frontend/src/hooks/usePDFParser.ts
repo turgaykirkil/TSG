@@ -14,9 +14,10 @@ interface ParsePdfResponse {
   error: string | null;
 }
 
-const parsePdfApi = async (file: File): Promise<ParsedTable[]> => {
+const parsePdfApi = async (files: File[]): Promise<ParsedTable[]> => {
   const formData = new FormData();
-  formData.append('file', file);
+  // Backend 'files' adında bir liste bekliyor
+  files.forEach(file => formData.append('files', file));
 
   const baseUrl = process.env.NEXT_PUBLIC_API_URL;
   if (!baseUrl) {
@@ -42,7 +43,7 @@ const parsePdfApi = async (file: File): Promise<ParsedTable[]> => {
 export const usePDFParser = () => {
   const [parsedTables, setParsedTables] = useState<ParsedTable[]>([]);
 
-  const mutation = useMutation<ParsedTable[], Error, File>({ 
+  const mutation = useMutation<ParsedTable[], Error, File[]>({ 
     mutationFn: parsePdfApi,
     onSuccess: (data) => {
       setParsedTables(data);
@@ -50,11 +51,11 @@ export const usePDFParser = () => {
     // onError is handled by the component via mutation.isError and mutation.error
   });
 
-  const parsePdf = (file: File) => {
-    if (!file) return;
+  const parsePdf = (files: File[]) => {
+    if (!files || files.length === 0) return;
     // Reset state before a new upload
     setParsedTables([]);
-    mutation.mutate(file);
+    mutation.mutate(files);
   };
 
   return {
