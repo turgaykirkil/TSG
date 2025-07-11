@@ -14,57 +14,26 @@ logger = logging.getLogger(__name__)
 @router.get("/coordinates", summary="Get coordinate statistics")
 def get_coordinate_stats(supabase: Client = Depends(get_supabase_client)):
     """
-    Retrieves statistics about company coordinates from the database.
+    Retrieves statistics about company coordinates from the database by calling a dedicated RPC function.
+    This is highly efficient as all computation is done on the database side.
     """
     try:
-        logger.info("Fetching coordinate stats by processing in Python...")
-
-        # Fetch all companies with their coordinate data
-        response = supabase.table("companies").select("sicil_no, koordinat").execute()
-
-        if not hasattr(response, 'data'):
-            logger.error(f"Failed to fetch coordinates: {getattr(response, 'error', 'Unknown error')}")
-            raise HTTPException(status_code=500, detail="Failed to fetch coordinate data.")
-
-        all_companies = response.data
-        total_companies = len(all_companies)
+        logger.info("Fetching coordinate stats via RPC call...")
+        response = supabase.rpc('get_coordinate_statistics').execute()
         
-        with_coordinates = 0
-        coordinates_list = []
+        if not response.data:
+            logger.error("Failed to get data from RPC call 'get_coordinate_statistics'")
+            raise HTTPException(status_code=500, detail="Could not retrieve coordinate statistics.")
 
-        for company in all_companies:
-            if company.get('koordinat'):
-                with_coordinates += 1
-                # Ensure we handle potential dict format for coordinates
-                coord_val = company['koordinat']
-                if isinstance(coord_val, dict):
-                    # Create a stable, hashable representation of the coordinate dict
-                    coord_val = tuple(sorted(coord_val.items()))
-                coordinates_list.append(coord_val)
+        # The RPC function returns a single JSON object, not a list.
+        stats = response.data
+        logger.info(f"Successfully fetched coordinate stats: {stats}")
         
-        without_coordinates = total_companies - with_coordinates
-
-        # Calculate conflicts by finding duplicate coordinates
-        seen_coordinates = set()
-        duplicates = set()
-        for coord in coordinates_list:
-            if coord in seen_coordinates:
-                duplicates.add(coord)
-            else:
-                seen_coordinates.add(coord)
-        
-        coordinate_conflicts = len(duplicates)
-
-        return {
-            "coordinated": with_coordinates,
-            "uncoordinated": without_coordinates,
-            "conflicts": coordinate_conflicts,
-            "total": total_companies,
-        }
+        return stats
 
     except Exception as e:
         logger.error(f"An unexpected error occurred while fetching coordinate stats: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="An unexpected error occurred while fetching coordinate statistics.")
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 
 @router.get("", summary="Get application-wide statistics", include_in_schema=False)

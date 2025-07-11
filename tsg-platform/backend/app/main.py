@@ -161,11 +161,10 @@ async def startup_event():
     # Scheduler'ı başlat
     try:
         logger.info("Scheduler başlatılıyor...")
-        start_scheduler()
-        logger.info("Arka plan görev planlayıcısı başlatıldı")
+        # start_scheduler()
+        logger.info("Uygulama başlangıç olayı tamamlandı.")
     except Exception as e:
         logger.error("Arka plan görev planlayıcısı başlatılırken hata oluştu: %s", str(e))
-    logger.info("Uygulama başlangıç olayı tamamlandı.")
 
 # Uygulama kapanırken yapılacak işlemler
 @app.on_event("shutdown")
@@ -174,8 +173,8 @@ async def shutdown_event():
     
     # Scheduler'ı durdur
     try:
-        stop_scheduler()
-        logger.info("Arka plan görev planlayıcısı durduruldu")
+        # stop_scheduler()
+        logger.info("Uygulama kapatılıyor...")
     except Exception as e:
         logger.error("Arka plan görev planlayıcısı durdurulurken hata oluştu: %s", str(e))
 
