@@ -56,13 +56,8 @@ export default function HomePage() {
                   </Link>
                 </div>
               </div>
-                <img
-                  src="/placeholder.svg"
-                  width="550"
-                  height="550"
-                  alt="Hero"
-                  className="mx-auto aspect-square overflow-hidden rounded-xl object-cover sm:w-full lg:order-last lg:aspect-square"
-                />
+                <div>
+                </div>
             </div>
           </div>
         </section>

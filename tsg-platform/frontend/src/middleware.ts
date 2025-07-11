@@ -1,40 +1,33 @@
-import { withAuth } from 'next-auth/middleware';
 import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
-// Public rotalar (auth gerektirmez)
-const PUBLIC_PATHS = [
-  '/',
-  '/about',
-  '/contact',
-  '/login',
-  '/register',
-  '/forgot-password',
-  '/reset-password',
-];
+export function middleware(request: NextRequest) {
+  const token = request.cookies.get('auth_token')?.value;
+  const { pathname } = request.nextUrl;
 
-export default withAuth({
-  callbacks: {
-    authorized: ({ token, req }) => {
-      const { pathname } = req.nextUrl;
+  // If there's a token and the user is trying to access the login page,
+  // redirect them to the dashboard.
+  if (token && pathname.startsWith('/login')) {
+    return NextResponse.redirect(new URL('/dashboard', request.url));
+  }
 
-      // Public path ise izin ver
-      if (PUBLIC_PATHS.includes(pathname)) return true;
+  // Define public paths that don't require authentication
+  const publicPaths = ['/', '/login', '/register', '/about', '/contact'];
+  const isPublicPath = publicPaths.some(path => 
+    pathname === path || pathname.startsWith(`${path}/`)
+  );
 
-      // Oturum yoksa engelle
-      if (!token) return false;
+  // If there's no token and the user is trying to access a protected route,
+  // redirect them to the login page.
+  if (!token && !isPublicPath) {
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('callbackUrl', pathname);
+    return NextResponse.redirect(loginUrl);
+  }
 
-      // Admin route ise rol kontrolü yap
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if (pathname.startsWith('/admin') && (token as any).role !== 'ADMIN') {
-        return false;
-      }
+  return NextResponse.next();
+}
 
-      return true;
-    },
-  },
-});
-
-// Configure which routes should be processed by this middleware
 export const config = {
   matcher: [
     /*
@@ -43,8 +36,8 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
-     * - public folder
+     * - and other static assets
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|.*[.](?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|logo.svg|placeholder.svg).*)',
   ],
 };

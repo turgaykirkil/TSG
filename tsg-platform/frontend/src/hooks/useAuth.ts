@@ -1,129 +1,172 @@
 'use client';
 
-import { signIn, signOut, useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
-import { useCallback, useState } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
+import { AxiosError } from 'axios';
+import api from '@/lib/axios';
+import { API_ENDPOINTS } from '@/config/constants';
+import type { User, Session, AuthResult, RegisterData, ApiErrorResponse, AuthContextType } from '../types/auth';
 
-type User = {
-  id: string;
-  email: string;
-  name: string;
-  role: string;
-  image?: string;
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof AxiosError) {
+    const errorData = error.response?.data as ApiErrorResponse;
+    if (errorData?.detail) {
+      if (typeof errorData.detail === 'string') return errorData.detail;
+      if (Array.isArray(errorData.detail) && errorData.detail[0]?.msg) return errorData.detail[0].msg;
+    }
+  }
+  return 'Beklenmeyen bir hata oluştu.';
 };
 
-type AuthResult = {
-  success: boolean;
-  error?: string;
-};
-
-export const useAuth = () => {
-  const { data: session, status, update } = useSession();
+export const useAuth = (): AuthContextType => {
+  const [session, setSession] = useState<Session>({ user: null, status: 'loading' });
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(false);
+  const searchParams = useSearchParams();
 
-  const login = useCallback(
-    async (email: string, password: string, redirectTo: string = '/dashboard'): Promise<AuthResult> => {
-      console.log('[useAuth] Giriş işlemi başlatılıyor...');
-      setIsLoading(true);
-      
-      try {
-        // 1. NextAuth ile giriş yap
-        console.log('[useAuth] NextAuth ile giriş yapılıyor...');
-        const result = await signIn('credentials', {
-          redirect: false,
-          email,
-          password,
-          callbackUrl: redirectTo,
-        });
-
-        console.log('[useAuth] NextAuth yanıtı:', result);
-
-        // 2. Hata kontrolü
-        if (result?.error) {
-          const errorMsg = result.error === 'CredentialsSignin' 
-            ? 'Geçersiz e-posta veya şifre' 
-            : result.error;
-          console.error('[useAuth] Giriş hatası:', errorMsg);
-          return { success: false, error: errorMsg };
-        }
-
-        // Başarılı giriş - session otomatik olarak yenilenecek
-        console.log('[useAuth] Giriş başarılı, yönlendiriliyor:', redirectTo);
-        // İsteğe bağlı olarak router.refresh() çağrısı eklenebilir
-        await update(); // Sessiyonu arka planda yenile, hata fırlatma
-        
-        return { success: true };
-        
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Bilinmeyen bir hata oluştu';
-        console.error('[useAuth] Giriş işleminde hata:', errorMessage);
-        return { success: false, error: errorMessage };
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [update]
-  );
-
-  const logout = useCallback(async (): Promise<void> => {
+  const checkAuth = useCallback(async () => {
+    setLoading(true);
     try {
-      setIsLoading(true);
-      await signOut({ redirect: false });
-      router.push('/login');
-      router.refresh();
+      const response = await api.get<User>(API_ENDPOINTS.USERS.ME);
+      setSession({ user: response.data, status: 'authenticated' });
     } catch (error) {
-      console.error('Çıkış hatası:', error);
-      toast.error('Çıkış yapılırken bir hata oluştu');
+      setSession({ user: null, status: 'unauthenticated' });
     } finally {
-      setIsLoading(false);
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
+
+  const login = useCallback(async (email: string, password: string): Promise<AuthResult> => {
+    setLoading(true);
+    try {
+      const formData = new URLSearchParams();
+      formData.append('username', email);
+      formData.append('password', password);
+      await api.post(API_ENDPOINTS.AUTH.LOGIN, formData, { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+      const { data: user } = await api.get<User>(API_ENDPOINTS.USERS.ME);
+      setSession({ user, status: 'authenticated' });
+      toast.success('Giriş başarılı!');
+      const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
+      router.push(callbackUrl);
+      return { success: true, user };
+    } catch (error) {
+      const errorMessage = getErrorMessage(error);
+      toast.error(errorMessage);
+      setSession({ user: null, status: 'unauthenticated' });
+      return { success: false, error: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  }, [router, searchParams]);
+
+  const register = useCallback(async (userData: RegisterData): Promise<AuthResult> => {
+    setLoading(true);
+    try {
+      const { data: user } = await api.post<User>(API_ENDPOINTS.AUTH.REGISTER, userData);
+      toast.success('Kayıt başarılı! Lütfen giriş yapın.');
+      router.push('/login');
+      return { success: true, user };
+    } catch (error) {
+      const errorMessage = getErrorMessage(error);
+      toast.error(errorMessage);
+      return { success: false, error: errorMessage };
+    } finally {
+      setLoading(false);
     }
   }, [router]);
 
-  const register = useCallback(async (name: string, email: string, password: string) => {
+  const logout = useCallback(async () => {
+    setLoading(true);
     try {
-      const response = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Kayıt sırasında bir hata oluştu');
-      }
-
-      // Auto-login after registration
-      await login(email, password);
-      toast.success('Hesabınız başarıyla oluşturuldu!');
+      await api.post(API_ENDPOINTS.AUTH.LOGOUT);
+      toast.info('Başarıyla çıkış yaptınız.');
     } catch (error) {
-      console.error('Kayıt hatası:', error);
-      toast.error(error instanceof Error ? error.message : 'Kayıt sırasında bir hata oluştu');
-      throw error;
-    }
-  }, [login]);
-
-  const refreshSession = useCallback(async (): Promise<void> => {
-    try {
-      setIsLoading(true);
-      await update();
-    } catch (error) {
-      console.error('Session yenileme hatası:', error);
-      throw error;
+      console.error('Logout error:', getErrorMessage(error));
     } finally {
-      setIsLoading(false);
+      setSession({ user: null, status: 'unauthenticated' });
+      router.push('/login');
+      setLoading(false);
     }
-  }, [update]);
+  }, [router]);
+
+  const updateProfile = useCallback(async (userData: Partial<User>): Promise<AuthResult> => {
+    setLoading(true);
+    try {
+      const { data: updatedUser } = await api.patch<User>(API_ENDPOINTS.USERS.ME, userData);
+      setSession((prev: Session) => ({ ...prev, user: { ...(prev.user || {}), ...updatedUser } as User }));
+      toast.success('Profil başarıyla güncellendi!');
+      return { success: true, user: updatedUser };
+    } catch (error) {
+      const errorMessage = getErrorMessage(error);
+      toast.error(errorMessage);
+      return { success: false, error: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string): Promise<AuthResult> => {
+    setLoading(true);
+    try {
+      await api.post(API_ENDPOINTS.AUTH.CHANGE_PASSWORD, { current_password: currentPassword, new_password: newPassword });
+      toast.success('Şifre başarıyla değiştirildi!');
+      return { success: true };
+    } catch (error) {
+      const errorMessage = getErrorMessage(error);
+      toast.error(errorMessage);
+      return { success: false, error: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const forgotPassword = useCallback(async (email: string): Promise<AuthResult> => {
+    setLoading(true);
+    try {
+      await api.post(API_ENDPOINTS.AUTH.FORGOT_PASSWORD, { email });
+      toast.info('Şifre sıfırlama e-postası gönderildi.');
+      return { success: true };
+    } catch (error) {
+      const errorMessage = getErrorMessage(error);
+      toast.error(errorMessage);
+      return { success: false, error: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const resetPassword = useCallback(async (token: string, password: string): Promise<AuthResult> => {
+    setLoading(true);
+    try {
+      await api.post(API_ENDPOINTS.AUTH.RESET_PASSWORD, { token, password });
+      toast.success('Şifre başarıyla sıfırlandı. Giriş yapabilirsiniz.');
+      router.push('/login');
+      return { success: true };
+    } catch (error) {
+      const errorMessage = getErrorMessage(error);
+      toast.error(errorMessage);
+      return { success: false, error: errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  }, [router]);
 
   return {
+    session,
+    loading: session.status === 'loading' || loading,
+    isAuthenticated: session.status === 'authenticated',
     login,
-    logout,
     register,
-    refreshSession,
-    isAuthenticated: status === 'authenticated',
-    isLoading,
-    user: session?.user as User | undefined,
+    logout,
+    updateProfile,
+    changePassword,
+    forgotPassword,
+    resetPassword,
+    checkAuth,
   };
 };

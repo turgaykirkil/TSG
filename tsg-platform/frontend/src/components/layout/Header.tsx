@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/contexts/AuthContext';
 import { Menu, Search, Settings, LogOut } from 'lucide-react';
 import Link from 'next/link';
 
@@ -20,7 +20,8 @@ interface HeaderProps {
 }
 
 export function Header({ onMenuClick }: HeaderProps) {
-  const { user, logout } = useAuth();
+  const { session, logout } = useAuth();
+  const user = session.user;
 
   return (
     <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-4 border-b bg-background px-4 sm:px-6">

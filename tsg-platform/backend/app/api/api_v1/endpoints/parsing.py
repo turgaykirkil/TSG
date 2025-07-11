@@ -31,7 +31,6 @@ class CompanyDBData(BaseModel):
     unvan: Optional[str] = None
     address: Optional[str] = None
     sicil_mudurluk: Optional[str] = None
-    scraped_at: Optional[datetime] = None
 
 class SaveCompaniesRequest(BaseModel):
     companies: List[CompanyUploadData]
@@ -137,8 +136,7 @@ async def save_companies_data(payload: SaveCompaniesRequest, db: Session = Depen
             sicil_no=company_data.sicil_no,
             unvan=company_data.firma_unvani,
             address=company_data.adres,
-            sicil_mudurluk=company_data.sicil_mudurluk,
-            scraped_at=datetime.utcnow()
+            sicil_mudurluk=company_data.sicil_mudurluk
         )
         records_to_upsert.append(db_data.dict(exclude_none=True))
 
@@ -155,8 +153,7 @@ async def save_companies_data(payload: SaveCompaniesRequest, db: Session = Depen
             set_={
                 'unvan': stmt.excluded.unvan,
                 'address': stmt.excluded.address,
-                'sicil_mudurluk': stmt.excluded.sicil_mudurluk,
-                'scraped_at': stmt.excluded.scraped_at
+                'sicil_mudurluk': stmt.excluded.sicil_mudurluk
             }
         )
         db.execute(update_stmt)

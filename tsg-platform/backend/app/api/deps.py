@@ -1,9 +1,10 @@
 """
 Dependencies for FastAPI endpoints
 """
+import logging
 from typing import Generator, Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt
 from pydantic import ValidationError
@@ -14,7 +15,14 @@ from app.core import security
 from app.core.config import settings
 from app.db.session import SessionLocal
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login/access-token")
+reusable_oauth2 = OAuth2PasswordBearer(
+    tokenUrl=f"{settings.API_V1_STR}/auth/login", auto_error=False
+)
+
+async def cookie_or_header_scheme(request: Request, token: Optional[str] = Depends(reusable_oauth2)) -> Optional[str]:
+    if token:
+        return token
+    return request.cookies.get("auth_token")
 
 def get_db() -> Generator:
     """
@@ -27,29 +35,40 @@ def get_db() -> Generator:
         db.close()
 
 def get_current_user(
-    db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)
+    db: Session = Depends(get_db), token: str = Depends(cookie_or_header_scheme)
 ) -> models.User:
     """
     Get the current user from the token.
     """
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    logging.info(f"[deps.py] Attempting to get current user with token: {token[:10]}...")
     try:
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
         )
         token_data = schemas.TokenPayload(**payload)
-    except (jwt.JWTError, ValidationError):
+        logging.info(f"[deps.py] Token payload decoded successfully: {token_data}")
+    except (jwt.JWTError, ValidationError) as e:
+        logging.error(f"[deps.py] Token validation failed. Error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Could not validate credentials",
         )
-    
+
     user = crud.user.get(db, id=token_data.sub)
     if not user:
+        logging.warning(f"[deps.py] User with ID {token_data.sub} not found in database.")
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
-    
+
+    logging.info(f"[deps.py] User {user.email} found and is active.")
     return user
 
 def get_current_active_superuser(

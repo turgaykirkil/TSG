@@ -2,8 +2,8 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/toaster';
-import { SessionProvider, useSession } from 'next-auth/react';
 import { FullScreenLoader } from '@/components/ui/loading-spinner';
+import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -16,9 +16,9 @@ const queryClient = new QueryClient({
 });
 
 function AuthWrapper({ children }: { children: React.ReactNode }) {
-  const { status } = useSession();
+  const { loading } = useAuth();
 
-  if (status === 'loading') {
+  if (loading) {
     return <FullScreenLoader />;
   }
 
@@ -28,12 +28,12 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
 export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
-      <SessionProvider>
+      <AuthProvider>
         <AuthWrapper>
           {children}
           <Toaster />
         </AuthWrapper>
-      </SessionProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

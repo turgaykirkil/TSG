@@ -49,8 +49,10 @@ api_router.include_router(jobs.router, prefix="/jobs", tags=["Jobs"])
 # Utility endpoints
 api_router.include_router(utils.router, prefix="/utils", tags=["Utilities"])
 
-# Statistics endpoints
-api_router.include_router(stats.router, prefix="", tags=["Statistics"])
+# Stats endpoints
+api_router.include_router(stats.router, prefix="/stats", tags=["Stats"])
+
+
 
 # Parsing endpoints
 api_router.include_router(parsing.router, prefix="/parsing", tags=["Parsing"])
@@ -62,7 +64,7 @@ api_router.include_router(scraping.router, prefix="/scraping", tags=["Scraping"]
 api_router.include_router(search.router, prefix="/search", tags=["Search"])
 
 # Stats endpoints
-api_router.include_router(stats.router, prefix="/stats", tags=["Stats"])
+
 
 # Tools endpoints
 api_router.include_router(tools.router, prefix="/tools", tags=["Tools"])

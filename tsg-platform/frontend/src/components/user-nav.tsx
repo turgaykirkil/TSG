@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import Link from 'next/link';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { Icons } from '@/components/icons';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,8 @@ import {
 
 export function UserNav() {
   const { theme, setTheme } = useTheme();
-  const { user, logout } = useAuth();
+    const { session, logout } = useAuth();
+    const user = session.user;
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
 
   const toggleTheme = () => {

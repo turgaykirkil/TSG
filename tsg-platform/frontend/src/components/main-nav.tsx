@@ -1,12 +1,13 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { Icons } from '@/components/icons';
 
 export function MainNav() {
   const pathname = usePathname();
-  const { user } = useAuth();
+    const { session } = useAuth();
+  const user = session?.user;
   const isAdmin = user?.role === 'admin';
   return (
     <div className="flex items-center space-x-4 lg:space-x-6">

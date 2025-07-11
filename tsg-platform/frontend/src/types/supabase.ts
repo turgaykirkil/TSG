@@ -56,6 +56,8 @@ export interface Database {
 export type User = {
   id: string
   email?: string | null
+  name?: string | null
+  image?: string | null
   user_metadata?: {
     full_name?: string | null
     avatar_url?: string | null
@@ -66,6 +68,7 @@ export type User = {
   }
   created_at?: string
   updated_at?: string | null
+  role?: string
 }
 
 export type UserProfile = Database['public']['Tables']['users']['Row']

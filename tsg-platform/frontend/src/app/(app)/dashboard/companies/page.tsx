@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { getServerSession } from 'next-auth';
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { authOptions } from '@/lib/auth';
 import Link from 'next/link';
+import { API_BASE_URL, API_ENDPOINTS } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: 'Şirketler | Sicilius',
@@ -10,26 +10,66 @@ export const metadata: Metadata = {
 };
 
 type Company = {
-  id: number;
+  id: string; // Changed from number to string to match UUID
   name: string;
   type: string;
   city: string;
 };
 
-export default async function CompaniesPage() {
-  const session = await getServerSession(authOptions);
-
-  // Redirect to login if not authenticated
-  if (!session) {
-    redirect('/auth/login');
+async function getSession() {
+  const cookieStore = cookies();
+  const token = cookieStore.get('auth_token')?.value;
+  
+  if (!token) {
+    return null;
   }
 
-  // This would typically come from an API
-  const companies: Company[] = [
-    { id: 1, name: 'ABC Teknoloji A.Ş.', type: 'Anonim Şirket', city: 'İstanbul' },
-    { id: 2, name: 'XYZ Danışmanlık Ltd. Şti.', type: 'Limited Şirket', city: 'Ankara' },
-    { id: 3, name: '123 İnşaat A.Ş.', type: 'Anonim Şirket', city: 'İzmir' },
-  ];
+  try {
+    const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.AUTH.ME}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Session check failed:', error);
+    return null;
+  }
+}
+
+export default async function CompaniesPage() {
+  const session = await getSession();
+  
+  if (!session) { // Corrected session check
+    redirect('/login');
+  }
+
+  // Fetch companies from API
+  let companies: Company[] = [];
+  try {
+    const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.COMPANIES.BASE}`, {
+      headers: {
+        'Authorization': `Bearer ${cookies().get('auth_token')?.value}`,
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+    });
+
+    if (response.ok) {
+      companies = await response.json();
+    } else {
+      console.error('Failed to fetch companies:', await response.text());
+    }
+  } catch (error) {
+    console.error('Error fetching companies:', error);
+  }
 
   return (
     <div className="space-y-6">

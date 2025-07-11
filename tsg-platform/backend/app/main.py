@@ -5,6 +5,7 @@ import os
 import logging
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 import httpx
@@ -12,10 +13,10 @@ import base64
 import random
 
 from app.core.config import settings
-from app.core.scheduler import start_scheduler, stop_scheduler
 from app.db.base import Base, engine
 from app.api.api_v1.api import api_router
 from app.api import upload_api
+
 
 # Logging ayarları
 logging.basicConfig(
@@ -46,13 +47,20 @@ def shutdown_event():
     logger.info("SHUTDOWN_EVENT: Application is shutting down.")
     # stop_scheduler()
 
+# Session Middleware (Cookie ayarları için)
+# Geliştirme ortamında SameSite=None kullanabilmek için https_only=False olarak ayarlandı.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.SECRET_KEY,  # .env dosyasından güvenli bir anahtar okunmalı
+    https_only=False,  # Geliştirme ortamı için False, production için True olmalı
+    same_site="none",
+)
+
 # CORS ayarları
 # Geliştirme ortamında frontend'den (localhost:3000) gelen isteklere izin ver.
 # Production'da bu ayarlar daha kısıtlayıcı olmalıdır.
 origins = [
-    "http://localhost",
     "http://localhost:3000",
-    "http://127.0.0.1",
     "http://127.0.0.1:3000",
 ]
 
@@ -60,8 +68,18 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=[
+        "Accept",
+        "Accept-Encoding",
+        "Authorization",
+        "Content-Type",
+        "Origin",
+        "X-Requested-With",
+        "X-CSRF-Token",
+    ],
+    expose_headers=["Content-Length", "Set-Cookie", "X-CSRF-Token"],
+    max_age=86400,  # 24 hours
 )
 
 
@@ -81,13 +99,13 @@ async def get_captcha():
         logger.error("Captcha fetch error: %s", e)
         raise HTTPException(status_code=500, detail="Captcha fetch failed")
 
+# API Routers
+app.include_router(api_router, prefix=settings.API_V1_STR)
+app.include_router(upload_api.router, prefix=settings.API_V1_STR)
+
 # Static dosyalar
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# API router'larını ekle
-app.include_router(api_router, prefix="/api/v1")
-app.include_router(upload_api.router, prefix="/api")
 
 # Kök endpoint
 @app.get("/")
@@ -125,7 +143,7 @@ async def http_exception_handler(request, exc):
 @app.on_event("startup")
 async def startup_event():
     logger.info("Uygulama başlangıç olayı (startup event) tetiklendi.")
-    # Veritabanı bağlantısını test et ve gerekirse tabloları oluştur
+
     try:
         logger.info("Veritabanı bağlantısı deneniyor...")
         # Bağlantıyı test etmek için kısa bir sorgu çalıştır

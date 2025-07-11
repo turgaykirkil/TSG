@@ -1,6 +1,9 @@
+import logging
 from typing import Any, Dict, Optional, Union
 
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.core.security import get_password_hash, verify_password
 from app.crud.base import CRUDBase
@@ -46,11 +49,18 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
 
     def authenticate(self, db: Session, *, email: str, password: str) -> Optional[User]:
         """Kullanıcı girişi doğrular."""
+        logger.info(f"Kullanıcı girişi deneniyor: {email}")
         user = self.get_by_email(db, email=email)
         if not user:
+            logger.warning(f"Giriş başarısız: '{email}' e-posta adresine sahip kullanıcı bulunamadı.")
             return None
+        
+        logger.info(f"Kullanıcı bulundu: {email}. Şifre doğrulanıyor...")
         if not verify_password(password, user.hashed_password):
+            logger.warning(f"Giriş başarısız: '{email}' için şifre yanlış.")
             return None
+        
+        logger.info(f"Kullanıcı '{email}' başarıyla doğrulandı.")
         return user
 
     def is_active(self, user: User) -> bool:

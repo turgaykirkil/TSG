@@ -3,66 +3,97 @@
 import { useEffect, useState } from 'react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Activity, Building2, DollarSign, type LucideIcon, Users, Loader2 } from 'lucide-react';
+import { Building2, type LucideIcon, Loader2, FileSearch, FileText, Activity } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { dashboardService, StatsData } from '@/lib/api/dashboard';
+import { useAuth } from '@/contexts/AuthContext';
 
-// Static data that doesn't depend on the API for now
-const chartData = [
-  { name: 'Ocak', total: 1200 },
-  { name: 'Şubat', total: 2100 },
-  { name: 'Mart', total: 1400 },
-  { name: 'Nisan', total: 2780 },
-  { name: 'Mayıs', total: 1890 },
-  { name: 'Haziran', total: 2390 },
+// Varsayılan grafik verileri
+const defaultChartData = [
+  { name: 'Ocak', total: 0 },
+  { name: 'Şubat', total: 0 },
+  { name: 'Mart', total: 0 },
+  { name: 'Nisan', total: 0 },
+  { name: 'Mayıs', total: 0 },
+  { name: 'Haziran', total: 0 },
 ];
 
-const recentActivities = [
-  { user: 'Ahmet Yılmaz', action: 'yeni bir şirket ekledi.', time: '15 dakika önce' },
-  { user: 'Ayşe Kaya', action: 'bir rapor indirdi.', time: '1 saat önce' },
-  { user: 'Mehmet Can', action: 'bir arama sorgusu çalıştırdı.', time: '3 saat önce' },
+// Varsayılan aktiviteler
+const defaultActivities = [
+  { id: '1', user: 'Sistem', action: 'Hoş geldiniz!', time: 'Şimdi' },
 ];
-
-interface StatsData {
-  totalCompanies: number;
-  scrapedCompanies: number;
-  withCoordinates: number;
-}
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<StatsData | null>(null);
+  const [chartData, setChartData] = useState(defaultChartData);
+  const [recentActivities, setRecentActivities] = useState(defaultActivities);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { session } = useAuth();
+  const user = session?.user;
 
   useEffect(() => {
-    const fetchStats = async () => {
+    const fetchDashboardData = async () => {
       try {
         setLoading(true);
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        if (!apiUrl) {
-          throw new Error('API URL is not configured in environment variables.');
+        
+        // İstatistikleri çek
+        const statsData = await dashboardService.getStats();
+        setStats(statsData);
+        
+        // Grafik verilerini çek
+        const chartData = await dashboardService.getChartData();
+        if (chartData.length > 0) {
+          setChartData(chartData);
         }
-
-        const response = await fetch(`${apiUrl}/stats`);
-        if (!response.ok) {
-          throw new Error(`API isteği başarısız oldu: ${response.status}`);
+        
+        // Son aktiviteleri çek
+        const activities = await dashboardService.getRecentActivities();
+        if (activities.length > 0) {
+          setRecentActivities(activities);
         }
-        const data: StatsData = await response.json();
-        setStats(data);
-      } catch (err: any) {
-        console.error('İstatistikler yüklenirken hata oluştu:', err);
-        setError(err.message);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Beklenmeyen bir hata oluştu';
+        setError(errorMessage);
+        console.error('Error fetching dashboard data:', error);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchStats();
-  }, []);
+    if (user) {
+      fetchDashboardData();
+    }
+  }, [user]);
 
   const formatNumber = (num: number | undefined) => {
     if (num === undefined || num === null) return '...';
     return new Intl.NumberFormat('tr-TR').format(num);
   };
+
+  if (error) {
+    return (
+      <div className="rounded-md bg-red-50 p-4">
+        <h3 className="text-sm font-medium text-red-800">Hata oluştu</h3>
+        <p className="mt-2 text-sm text-red-700">{error}</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="mt-2 rounded-md bg-red-100 px-3 py-1 text-sm font-medium text-red-800 hover:bg-red-200"
+        >
+          Tekrar Dene
+        </button>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex h-[70vh] flex-col items-center justify-center space-y-4">
+        <Loader2 className="h-12 w-12 animate-spin text-gray-600" />
+        <p className="text-gray-600">Yükleniyor...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -70,23 +101,7 @@ export default function DashboardPage() {
         <h1 className="text-3xl font-bold">Dashboard</h1>
       </div>
 
-      {error && (
-        <Card className="mb-8 bg-destructive/10 border-destructive">
-          <CardHeader>
-            <CardTitle className="text-destructive">Bir Hata Oluştu</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p>{`Hata: ${error}`}</p>
-          </CardContent>
-        </Card>
-      )}
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8">
-        <StatCard title="Toplam Gelir" value="₺45,231.89" icon={DollarSign} change="+20.1%" isLoading={false} />
-        <StatCard title="Taranan Şirketler" value={formatNumber(stats?.scrapedCompanies)} icon={Activity} change="Veritabanı" isLoading={loading} />
-        <StatCard title="Toplam Şirket" value={formatNumber(stats?.totalCompanies)} icon={Building2} change="Veritabanı" isLoading={loading} />
-        <StatCard title="Koordinatlı Şirket" value={formatNumber(stats?.withCoordinates)} icon={Users} change="Veritabanı" isLoading={loading} />
-      </div>
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         <Card className="lg:col-span-2">
@@ -129,11 +144,12 @@ export default function DashboardPage() {
                   <AvatarFallback>{activity.user.charAt(0)}</AvatarFallback>
                 </Avatar>
                 <div>
-                  <p className="text-sm font-medium leading-none">
-                    <span className="font-semibold text-foreground">{activity.user}</span>{' '}
-                    <span className="text-muted-foreground">{activity.action}</span>
-                  </p>
-                  <p className="text-xs text-muted-foreground pt-1">{activity.time}</p>
+                  <div className="flex-1">
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">{activity.user}</span> {activity.action}
+                    </p>
+                    <p className="text-xs text-gray-500">{activity.time}</p>
+                  </div>
                 </div>
               </div>
             ))}

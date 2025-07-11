@@ -24,7 +24,7 @@ const parsePdfApi = async (files: File[]): Promise<ParsedTable[]> => {
     throw new Error('API URL is not configured. Please set NEXT_PUBLIC_API_URL in your environment variables.');
   }
 
-  const fullUrl = `${baseUrl}/parsing/parse-pdf`;
+  const fullUrl = `${baseUrl}/api/v1/parsing/parse-pdf`;
 
   const response = await fetch(fullUrl, {
     method: 'POST',

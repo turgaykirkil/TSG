@@ -40,7 +40,7 @@ export const useCompanyUploader = () => {
           sicil_mudurluk: sicilMudurluk,
         }));
 
-                const response = await fetch(`${apiUrl}/parsing/companies/save`, {
+                const response = await fetch(`${apiUrl}/api/v1/parsing/companies/save`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

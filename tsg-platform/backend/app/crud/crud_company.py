@@ -45,6 +45,19 @@ class CRUDCompany(CRUDBase[Company, CompanyCreate, CompanyUpdate]):
             .limit(limit)
             .all()
         )
+
+    def get_multi_uncoordinated(self, db: Session, *, skip: int = 0, limit: int = 100) -> List[Company]:
+        """
+        Koordinatı olmayan şirketleri getirir.
+        koordinat alanı null olanları seçer.
+        """
+        return (
+            db.query(self.model)
+            .filter(self.model.koordinat.is_(None))
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
     
     def create(self, db: Session, *, obj_in: CompanyCreate) -> Company:
         """Yeni şirket oluşturur ve koordinatları işler."""

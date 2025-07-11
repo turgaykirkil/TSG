@@ -12,7 +12,7 @@ import {
   LogOut,
   type LucideIcon,
 } from 'lucide-react';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/contexts/AuthContext';
 import { Logo } from '@/components/ui/logo';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -37,8 +37,9 @@ const baseNavigation: NavItem[] = [
 
 export function AppSidebar({ onLinkClick }: AppSidebarProps) {
   const pathname = usePathname();
-  const { user, logout } = useAuth();
-    const isAdmin = user?.role === 'ADMIN';
+  const { session, logout } = useAuth();
+  const user = session?.user;
+  const isAdmin = user?.role === 'admin';
 
   const navigation: NavItem[] = isAdmin
     ? [...baseNavigation, { name: 'Admin', href: '/admin', icon: UploadCloud }]

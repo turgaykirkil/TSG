@@ -1,4 +1,5 @@
 from typing import Optional
+from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field
 from app.models.user import UserRole
 
@@ -21,13 +22,13 @@ class UserUpdate(UserBase):
 
 # Properties shared by models stored in DB
 class UserInDBBase(UserBase):
-    id: int
+    id: UUID
     
     model_config = {
         "from_attributes": True,
         "json_schema_extra": {
             "example": {
-                "id": 1,
+                "id": "00000000-0000-0000-0000-000000000000",
                 "email": "user@example.com",
                 "full_name": "John Doe",
                 "is_active": True,
@@ -43,3 +44,8 @@ class User(UserInDBBase):
 # Properties stored in DB
 class UserInDB(UserInDBBase):
     hashed_password: str
+
+# Properties to receive via API on password change
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=8, max_length=40)

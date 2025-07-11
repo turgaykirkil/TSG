@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Optional, Set
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import AnyHttpUrl, Field, RedisDsn, PostgresDsn, field_validator
+from pydantic import AnyHttpUrl, Field, RedisDsn, PostgresDsn, field_validator, ValidationInfo
 
 class Settings(BaseSettings):
     # Pydantic v2 config
@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "your-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
+    SECURE_COOKIE: Optional[bool] = None
+
+    @field_validator('SECURE_COOKIE', mode='before')
+    @classmethod
+    def assemble_secure_cookie(cls, v: Optional[bool], info: ValidationInfo) -> bool:
+        if isinstance(v, bool):
+            return v
+        # Set secure cookies only in production
+        return info.data.get("ENVIRONMENT", "development").lower() == "production"
     
     # File Uploads
     UPLOAD_FOLDER: str = "./data/uploads"

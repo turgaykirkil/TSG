@@ -1,25 +1,25 @@
 "use client";
 
 import Link from 'next/link';
-import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
 import { UserAuthForm } from '@/components/auth/user-auth-form';
 import AuthLayout from '@/layouts/AuthLayout';
 import { Icons } from '@/components/icons';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function RegisterPage() {
-  const { status } = useSession();
+  const { isAuthenticated, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (status === 'authenticated') {
+    if (isAuthenticated) {
       router.push('/dashboard');
     }
-  }, [status, router]);
+  }, [isAuthenticated, router]);
 
-  if (status === 'loading') {
+  if (loading) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-gray-900">
         <Icons.spinner className="h-10 w-10 animate-spin text-white" />

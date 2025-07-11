@@ -1,8 +1,12 @@
 from datetime import datetime, timedelta
 from typing import Optional, Any, Union
 
+import logging
 from jose import jwt
 from passlib.context import CryptContext
+from passlib.exc import UnknownHashError
+
+logger = logging.getLogger(__name__)
 from pydantic import ValidationError
 
 from app.core.config import settings
@@ -45,7 +49,19 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     Returns:
         bool: Şifre doğru ise True, değilse False
     """
-    return pwd_context.verify(plain_password, hashed_password)
+    logger.info(f"Parola doğrulanıyor. DB'den gelen hash'in başlangıcı: {hashed_password[:10] if hashed_password else 'Yok'}")
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except UnknownHashError:
+        logger.error(
+            f"!!! HASH FORMATI TANINAMADI !!! Veritabanındaki parola (hashed_password) "
+            f"beklenen 'bcrypt' formatında değil. Lütfen kullanıcının parolasını sıfırlayın. "
+            f"Mevcut hash: '{hashed_password}'"
+        )
+        return False
+    except Exception as e:
+        logger.error(f"Parola doğrulanırken beklenmedik bir hata oluştu: {e}")
+        return False
 
 def get_password_hash(password: str) -> str:
     """Şifre hash'leme.

@@ -1,9 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { signIn } from 'next-auth/react';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
 
@@ -11,9 +9,8 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { toast } from '@/components/ui/use-toast';
 import { Icons } from '@/components/icons';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface UserAuthFormProps extends React.HTMLAttributes<HTMLDivElement> {
   mode: 'login' | 'register';
@@ -37,69 +34,28 @@ type RegisterFormData = z.infer<typeof registerSchema>;
 type LoginFormData = z.infer<typeof loginSchema>;
 
 export function UserAuthForm({ className, mode, ...props }: UserAuthFormProps) {
-  const { register: registerUser } = useAuth();
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
+  const { login, register: registerUser, loading } = useAuth();
   const isLogin = mode === 'login';
 
-  const { 
-    register, 
-    handleSubmit, 
-    formState: { errors } 
+  const {
+    register: registerField,
+    handleSubmit,
+    formState: { errors },
   } = useForm<RegisterFormData | LoginFormData>({
-      resolver: zodResolver(isLogin ? loginSchema : registerSchema),
-      defaultValues: isLogin
-        ? { email: '', password: '' }
-        : { name: '', email: '', password: '' },
-    });
+    resolver: zodResolver(isLogin ? loginSchema : registerSchema),
+    defaultValues: isLogin
+      ? { email: '', password: '' }
+      : { name: '', email: '', password: '' },
+  });
 
-  const [isLoading, setIsLoading] = React.useState<boolean>(false);
-
-  const onSubmit = async (data: RegisterFormData | LoginFormData) => {
-    setIsLoading(true);
-
-    if (mode === 'register' && 'name' in data) {
-      try {
-        await registerUser(data.name, data.email, data.password);
-        toast({
-          title: 'Kayıt Başarılı',
-          description: 'Giriş sayfasına yönlendiriliyorsunuz.',
-        });
-        router.push('/login');
-      } catch (error) {
-        toast({
-          variant: 'destructive',
-          title: 'Kayıt Başarısız',
-          description: error instanceof Error ? error.message : 'Bir hata oluştu. Lütfen tekrar deneyin.',
-        });
-      }
-    } else if (mode === 'login') {
-      const result = await signIn('credentials', {
-        redirect: false,
-        email: data.email,
-        password: (data as LoginFormData).password,
-        callbackUrl: searchParams?.get('from') || '/dashboard',
-      });
-
-      if (result?.error) {
-        toast({
-          variant: 'destructive',
-          title: 'Giriş Başarısız',
-          description: 'E-posta veya şifreniz yanlış.',
-        });
-      } else {
-        toast({
-          title: 'Giriş Başarılı',
-          description: 'Yönlendiriliyorsunuz...',
-        });
-        // We use a full page reload to ensure the session is updated and middleware redirects correctly.
-        // This is more robust than router.push() which can cause a race condition with session updates.
-        window.location.href = searchParams?.get('from') || '/dashboard';
-      }
+  const onSubmit = async (formData: RegisterFormData | LoginFormData) => {
+    if (isLogin) {
+      const { email, password } = formData as LoginFormData;
+      await login(email, password);
+    } else {
+      const { name, email, password } = formData as RegisterFormData;
+      await registerUser({ name, email, password });
     }
-
-    setIsLoading(false);
   };
 
   return (
@@ -118,8 +74,8 @@ export function UserAuthForm({ className, mode, ...props }: UserAuthFormProps) {
                 autoCapitalize="words"
                 autoComplete="name"
                 autoCorrect="off"
-                disabled={isLoading}
-                {...register('name')}
+                disabled={loading}
+                {...registerField('name')}
               />
               {'name' in errors && errors.name && (
                 <p className="px-1 text-xs text-red-600">
@@ -130,20 +86,22 @@ export function UserAuthForm({ className, mode, ...props }: UserAuthFormProps) {
           )}
           <div className="grid gap-1">
             <Label className="sr-only" htmlFor="email">
-              E-posta
+              Email
             </Label>
             <Input
               id="email"
-              placeholder="ornek@eposta.com"
+              placeholder="name@example.com"
               type="email"
               autoCapitalize="none"
               autoComplete="email"
               autoCorrect="off"
-              disabled={isLoading}
-              {...register('email')}
+              disabled={loading}
+              {...registerField('email')}
             />
-            {errors.email && (
-              <p className="px-1 text-xs text-red-600">{errors.email.message}</p>
+            {'email' in errors && errors.email && (
+              <p className="px-1 text-xs text-red-600">
+                {errors.email.message}
+              </p>
             )}
           </div>
           <div className="grid gap-1">
@@ -152,28 +110,26 @@ export function UserAuthForm({ className, mode, ...props }: UserAuthFormProps) {
             </Label>
             <Input
               id="password"
-              placeholder="Şifre"
+              placeholder="••••••••"
               type="password"
-              autoCapitalize="none"
-              autoComplete="current-password"
-              autoCorrect="off"
-              disabled={isLoading}
-              {...register('password')}
+              autoComplete={isLogin ? 'current-password' : 'new-password'}
+              disabled={loading}
+              {...registerField('password')}
             />
-            {errors.password && (
+            {'password' in errors && errors.password && (
               <p className="px-1 text-xs text-red-600">
                 {errors.password.message}
               </p>
             )}
           </div>
-          <Button disabled={isLoading}>
-            {isLoading && <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />} 
-            {mode === 'login' ? 'Giriş Yap' : 'Kayıt Ol'}
+          <Button disabled={loading}>
+            {loading && (
+              <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+            )}
+            {isLogin ? 'Giriş Yap' : 'Kayıt Ol'}
           </Button>
         </div>
       </form>
-
-
     </div>
   );
 }

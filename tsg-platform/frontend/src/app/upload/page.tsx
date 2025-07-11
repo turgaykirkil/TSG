@@ -1,18 +1,27 @@
 'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import FileUploadSection from '@/app/admin/components/file-upload-section';
-import { useSession } from 'next-auth/react';
-import { redirect } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function UploadPage() {
-  const { data: session, status } = useSession();
+  const router = useRouter();
+  const { session, loading } = useAuth();
+  const user = session?.user;
 
-  if (status === 'loading') {
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/login?callbackUrl=/upload');
+    }
+  }, [user, loading, router]);
+
+  if (loading) {
     return <div className="flex items-center justify-center h-screen">Yükleniyor...</div>;
   }
 
-  if (!session) {
-    redirect('/login?callbackUrl=/upload');
+  if (!user) {
+    return null; // Redirect will happen in useEffect
   }
 
   return (
