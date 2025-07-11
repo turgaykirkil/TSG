@@ -36,11 +36,11 @@ class Settings(BaseSettings):
     DATABASE_URL: PostgresDsn
 
     # Supabase Client
-    tsg_supabase_url: str
-    tsg_supabase_key: str
+    supabase_url: str
+    supabase_key: str
 
     # Geocoding Services
-    tsg_locationiq_token: str
+    locationiq_token: str
 
 
 

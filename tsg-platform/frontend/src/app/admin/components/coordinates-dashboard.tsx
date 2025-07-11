@@ -1,45 +1,44 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
-import { Progress } from '@/components/ui/progress';
-import { Button } from '@/components/ui/button';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import api from '@/lib/axios';
-import { API_ENDPOINTS } from '@/config/constants';
+import { toast } from 'sonner';
+import { AnimatePresence, motion } from 'framer-motion';
+import { dashboardService } from '@/lib/api/dashboard';
+import { processingService } from '@/lib/api/processing';
 
-// Type definitions
-export type Stats = {
+interface Stats {
   coordinated: number;
   uncoordinated: number;
   conflicts: number;
-};
+}
 
 interface CoordinatesDashboardProps {
-  onStatsUpdate?: (stats: Stats) => void;
+  onStatsUpdate: (stats: Stats) => void;
 }
 
 const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
   const [stats, setStats] = useState<Stats>({ coordinated: 0, uncoordinated: 0, conflicts: 0 });
   const [isLoading, setIsLoading] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [limit, setLimit] = useState(100);
+  const [logs, setLogs] = useState<string[]>([]);
+  const [showLogs, setShowLogs] = useState(false);
+  const logContainerRef = useRef<HTMLDivElement | null>(null);
 
   const fetchStats = useCallback(async () => {
+    setIsLoading(true);
     try {
-      const response = await api.get(API_ENDPOINTS.STATS.COORDINATES);
-      if (response.status >= 400) {
-        throw new Error(response.data.detail || 'Failed to fetch stats');
-      }
-      const statsData = response.data;
-      setStats(statsData);
-      // Eğer bir onStatsUpdate fonksiyonu verildiyse, verileri yukarı iletiyoruz
-      if (onStatsUpdate) {
-        onStatsUpdate(statsData);
-      }
-    } catch (error: any) {
-      console.error('Error fetching coordinate stats:', error);
-      setMessage({ type: 'error', text: `İstatistikler yüklenemedi: ${error.message}` });
+      const fetchedStats = await dashboardService.getCoordinateStats();
+      setStats(fetchedStats);
+      onStatsUpdate(fetchedStats);
+    } catch (error) {
+      console.error('Failed to fetch coordinate stats:', error);
+      toast.error('İstatistikler yüklenemedi.');
+    } finally {
+      setIsLoading(false);
     }
   }, [onStatsUpdate]);
 
@@ -47,41 +46,52 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
     fetchStats();
   }, [fetchStats]);
 
-  const handleFetchCoordinates = useCallback(async (fetchLimit: number) => {
+  useEffect(() => {
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [logs]);
+
+  const handleFetchCoordinates = async (fetchLimit: number) => {
     if (!fetchLimit || fetchLimit <= 0) {
-      setMessage({ type: 'error', text: "Lütfen 0'dan büyük geçerli bir sayı girin." });
+      toast.error("Lütfen 0'dan büyük geçerli bir sayı girin.");
       return;
     }
-    setIsLoading(true);
-    setMessage({ type: 'info', text: `Koordinat getirme işlemi başlatıldı. Bu işlem, işlenecek firma sayısına göre uzun sürebilir...` });
+    setIsProcessing(true);
+    setLogs(['İşlem başlatılıyor... Backend yanıtı bekleniyor.']);
+    setShowLogs(true);
 
     try {
-      const response = await api.post(API_ENDPOINTS.PROCESS.COORDINATES, { limit: fetchLimit });
-      setMessage({ type: 'success', text: response.data.message || 'İşlem başarıyla tamamlandı.' });
-      fetchStats(); // Refresh stats after operation
+      const response = await processingService.startCoordinateProcessing(fetchLimit);
+      if (response.logs) {
+        setLogs(response.logs);
+      } else {
+        setLogs(prev => [...prev, 'İşlem tamamlandı ancak loglar alınamadı.']);
+      }
+      toast.success(response.message || 'Koordinat işleme tamamlandı.');
     } catch (error: any) {
-      console.error('Error triggering coordinate processing job:', error);
       const errorMessage = error.response?.data?.detail || error.message || 'Bilinmeyen bir hata oluştu.';
-      setMessage({ type: 'error', text: `Koordinat işleme başlatılamadı: ${errorMessage}` });
+      const errorLogs = error.response?.data?.logs || [];
+      setLogs(prev => [...prev, '--- HATA ---', errorMessage, ...errorLogs]);
+      toast.error(`Koordinat işleme hatası: ${errorMessage}`);
     } finally {
-      setIsLoading(false);
+      setIsProcessing(false);
+      fetchStats();
     }
-  }, [fetchStats]);
+  };
 
   const handleResolveConflicts = async () => {
     setIsLoading(true);
-    setMessage({ type: 'info', text: 'Çakışma çözme işlemi başlatıldı...' });
-
     try {
-      const response = await api.post(API_ENDPOINTS.PROCESS.CONFLICTS);
-      setMessage({ type: 'success', text: response.data.message || 'Çakışma çözme işlemi başarıyla tamamlandı.' });
-      fetchStats(); // Refresh stats after operation
+      const response = await processingService.resolveCoordinateConflicts();
+      toast.success(response.message || 'Çakışma çözme tamamlandı.');
+      console.log('Conflicts found:', response.conflicts);
     } catch (error: any) {
-      console.error('Error resolving conflicts:', error);
       const errorMessage = error.response?.data?.detail || error.message || 'Bilinmeyen bir hata oluştu.';
-      setMessage({ type: 'error', text: `Çakışmalar çözülemedi: ${errorMessage}` });
+      toast.error(`Çakışmalar çözülemedi: ${errorMessage}`);
     } finally {
       setIsLoading(false);
+      fetchStats();
     }
   };
 
@@ -111,42 +121,60 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
         <CardHeader>
           <CardTitle>Koordinat İşlemleri</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <p className="mb-2">Koordinatı olmayan firmaların adreslerini alıp koordinatlarını bulur.</p>
-            <div className="flex items-center space-x-2">
-              <Input 
-                type="number" 
-                value={limit} 
-                onChange={(e) => setLimit(parseInt(e.target.value, 10))} 
-                placeholder="İşlenecek firma sayısı"
-                className="max-w-xs"
-                disabled={isLoading}
-              />
-              <Button onClick={() => handleFetchCoordinates(limit)} disabled={isLoading}>
-                {isLoading ? 'İşleniyor...' : 'Koordinatları Getir'}
-              </Button>
+        <CardContent className="space-y-6">
+          <div className="flex items-start gap-4">
+            <div className="flex flex-col gap-2">
+              <p className="text-sm text-muted-foreground">Veritabanında koordinatı olmayan firmaların adreslerini alıp koordinatlarını günceller.</p>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  value={limit}
+                  onChange={(e) => setLimit(parseInt(e.target.value, 10))}
+                  placeholder="İşlem Limiti"
+                  className="max-w-[120px]"
+                  disabled={isProcessing}
+                />
+                <Button onClick={() => handleFetchCoordinates(limit)} disabled={isProcessing}>
+                  {isProcessing ? 'İşleniyor...' : 'Koordinatları Getir'}
+                </Button>
+              </div>
             </div>
           </div>
-          
+
+          <AnimatePresence>
+            {showLogs && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.3 }}
+                className="w-full"
+              >
+                <Card className="bg-gray-900 text-white font-mono">
+                  <CardHeader className="flex flex-row items-center justify-between py-2 px-4">
+                    <CardTitle className="text-sm font-medium">İşlem Logları</CardTitle>
+                    <Button variant="ghost" size="sm" onClick={() => setShowLogs(false)} disabled={isProcessing}>Kapat</Button>
+                  </CardHeader>
+                  <CardContent className="p-2">
+                    <div ref={logContainerRef} className="h-64 overflow-y-auto bg-black rounded-md p-4 text-xs whitespace-pre-wrap scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
+                      {logs.map((log, index) => (
+                        <p key={index}>{log}</p>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <hr />
 
           <div>
-            <p className="mb-2">Aynı koordinata sahip farklı firmaları bularak çakışmaları çözer.</p>
-            <Button onClick={handleResolveConflicts} disabled={isLoading} variant="destructive">
-              {'Çakışmaları Çöz'}
+            <p className="text-sm text-muted-foreground mb-2">Aynı koordinata sahip farklı firmaları bularak çakışmaları listeler.</p>
+            <Button onClick={handleResolveConflicts} disabled={isLoading || isProcessing} variant="secondary">
+              {isLoading ? 'Aranıyor...' : 'Çakışmaları Çöz'}
             </Button>
           </div>
-
-          {message && (
-            <div className={`p-4 rounded-md ${
-              message.type === 'success' ? 'bg-green-100 text-green-800' :
-              message.type === 'error' ? 'bg-red-100 text-red-800' :
-              'bg-blue-100 text-blue-800'
-            }`}>
-              {message.text}
-            </div>
-          )}
         </CardContent>
       </Card>
     </div>
