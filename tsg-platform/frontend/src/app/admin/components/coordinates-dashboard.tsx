@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 import { AnimatePresence, motion } from 'framer-motion';
 import { dashboardService } from '@/lib/api/dashboard';
@@ -15,6 +16,11 @@ interface Stats {
   conflicts: number;
 }
 
+interface ProcessingResult {
+  processed: number;
+  failed: number;
+}
+
 interface CoordinatesDashboardProps {
   onStatsUpdate: (stats: Stats) => void;
 }
@@ -24,9 +30,8 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [limit, setLimit] = useState(100);
-  const [logs, setLogs] = useState<string[]>([]);
-  const [showLogs, setShowLogs] = useState(false);
-  const logContainerRef = useRef<HTMLDivElement | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [processingResult, setProcessingResult] = useState<ProcessingResult | null>(null);
 
   const fetchStats = useCallback(async () => {
     setIsLoading(true);
@@ -46,37 +51,35 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
     fetchStats();
   }, [fetchStats]);
 
-  useEffect(() => {
-    if (logContainerRef.current) {
-      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
-    }
-  }, [logs]);
-
   const handleFetchCoordinates = async (fetchLimit: number) => {
     if (!fetchLimit || fetchLimit <= 0) {
       toast.error("Lütfen 0'dan büyük geçerli bir sayı girin.");
       return;
     }
     setIsProcessing(true);
-    setLogs(['İşlem başlatılıyor... Backend yanıtı bekleniyor.']);
-    setShowLogs(true);
+    setProgress(0);
+    setProcessingResult(null);
+
+    const progressInterval = setInterval(() => {
+      setProgress(prev => (prev < 95 ? prev + 5 : prev));
+    }, 500);
 
     try {
       const response = await processingService.startCoordinateProcessing(fetchLimit);
-      if (response.logs) {
-        setLogs(response.logs);
-      } else {
-        setLogs(prev => [...prev, 'İşlem tamamlandı ancak loglar alınamadı.']);
-      }
+      setProcessingResult({ processed: response.processed_count, failed: response.failed_count });
       toast.success(response.message || 'Koordinat işleme tamamlandı.');
     } catch (error: any) {
       const errorMessage = error.response?.data?.detail || error.message || 'Bilinmeyen bir hata oluştu.';
-      const errorLogs = error.response?.data?.logs || [];
-      setLogs(prev => [...prev, '--- HATA ---', errorMessage, ...errorLogs]);
       toast.error(`Koordinat işleme hatası: ${errorMessage}`);
+      setProcessingResult({ processed: 0, failed: fetchLimit });
     } finally {
-      setIsProcessing(false);
-      fetchStats();
+      clearInterval(progressInterval);
+      setProgress(100);
+      setTimeout(() => {
+        setIsProcessing(false);
+        fetchStats();
+        setProgress(0); 
+      }, 2000);
     }
   };
 
@@ -123,7 +126,7 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="flex items-start gap-4">
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2 w-full">
               <p className="text-sm text-muted-foreground">Veritabanında koordinatı olmayan firmaların adreslerini alıp koordinatlarını günceller.</p>
               <div className="flex items-center gap-2">
                 <Input
@@ -138,41 +141,45 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
                   {isProcessing ? 'İşleniyor...' : 'Koordinatları Getir'}
                 </Button>
               </div>
+              
+              <AnimatePresence>
+                {isProcessing && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="w-full pt-4"
+                  >
+                    <Progress value={progress} className="w-full" />
+                    <p className="text-sm text-center text-muted-foreground mt-2">{progress}% tamamlandı...</p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <AnimatePresence>
+                {processingResult && !isProcessing && (
+                   <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-4 p-4 border rounded-lg bg-gray-50 dark:bg-gray-800"
+                  >
+                    <h4 className="font-semibold">İşlem Sonucu:</h4>
+                    <p className="text-green-600">Başarılı: {processingResult.processed}</p>
+                    <p className="text-red-600">Başarısız: {processingResult.failed}</p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
             </div>
           </div>
-
-          <AnimatePresence>
-            {showLogs && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.3 }}
-                className="w-full"
-              >
-                <Card className="bg-gray-900 text-white font-mono">
-                  <CardHeader className="flex flex-row items-center justify-between py-2 px-4">
-                    <CardTitle className="text-sm font-medium">İşlem Logları</CardTitle>
-                    <Button variant="ghost" size="sm" onClick={() => setShowLogs(false)} disabled={isProcessing}>Kapat</Button>
-                  </CardHeader>
-                  <CardContent className="p-2">
-                    <div ref={logContainerRef} className="h-64 overflow-y-auto bg-black rounded-md p-4 text-xs whitespace-pre-wrap scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
-                      {logs.map((log, index) => (
-                        <p key={index}>{log}</p>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            )}
-          </AnimatePresence>
 
           <hr />
 
           <div>
-            <p className="text-sm text-muted-foreground mb-2">Aynı koordinata sahip farklı firmaları bularak çakışmaları listeler.</p>
-            <Button onClick={handleResolveConflicts} disabled={isLoading || isProcessing} variant="secondary">
-              {isLoading ? 'Aranıyor...' : 'Çakışmaları Çöz'}
+            <h4 className="font-semibold mb-2">Çakışmaları Çöz</h4>
+            <p className="text-sm text-muted-foreground mb-4">Aynı adrese veya koordinata sahip birden fazla şirketi bulur ve çözmek için işaretler.</p>
+            <Button onClick={handleResolveConflicts} disabled={isLoading || isProcessing}>
+              {isLoading ? 'Yükleniyor...' : 'Çakışmaları Bul ve Çöz'}
             </Button>
           </div>
         </CardContent>
