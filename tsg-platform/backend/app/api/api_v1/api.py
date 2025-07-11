@@ -16,7 +16,8 @@ from app.api.api_v1.endpoints import (
     scraping,
     search,
     stats,
-    tools
+    tools,
+    processing
 )
 
 
@@ -68,3 +69,6 @@ api_router.include_router(search.router, prefix="/search", tags=["Search"])
 
 # Tools endpoints
 api_router.include_router(tools.router, prefix="/tools", tags=["Tools"])
+
+# Processing endpoints
+api_router.include_router(processing.router, prefix="/process", tags=["Processing"])

@@ -36,8 +36,13 @@ class Settings(BaseSettings):
     DATABASE_URL: PostgresDsn
 
     # Supabase Client
-    SUPABASE_URL: Optional[AnyHttpUrl] = None
-    SUPABASE_KEY: Optional[str] = None
+    tsg_supabase_url: str
+    tsg_supabase_key: str
+
+    # Geocoding Services
+    tsg_locationiq_token: str
+
+
 
     TEST_DATABASE_URL: str = "sqlite:///./test_tsg_platform.db"
     

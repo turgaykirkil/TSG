@@ -53,26 +53,36 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
       return;
     }
     setIsLoading(true);
-    setMessage(null);
+    setMessage({ type: 'info', text: `Koordinat getirme işlemi başlatıldı. Bu işlem, işlenecek firma sayısına göre uzun sürebilir...` });
 
     try {
-      // The original logic for fetching and geocoding coordinates on the client-side
-      // was inefficient and has been moved to a backend process.
-      // For now, we just show a message that this feature is under development.
-      setMessage({ type: 'info', text: 'Bu özellik şu anda geliştirme aşamasındadır. Koordinatlar yakında backend servisi tarafından otomatik olarak işlenecektir.' });
-      // In the future, you might trigger a backend job here:
-      // await api.post('/api/v1/jobs/process-coordinates', { limit: fetchLimit });
+      const response = await api.post(API_ENDPOINTS.PROCESS.COORDINATES, { limit: fetchLimit });
+      setMessage({ type: 'success', text: response.data.message || 'İşlem başarıyla tamamlandı.' });
+      fetchStats(); // Refresh stats after operation
     } catch (error: any) {
       console.error('Error triggering coordinate processing job:', error);
-      setMessage({ type: 'error', text: `Koordinat işleme başlatılamadı: ${error.message}` });
+      const errorMessage = error.response?.data?.detail || error.message || 'Bilinmeyen bir hata oluştu.';
+      setMessage({ type: 'error', text: `Koordinat işleme başlatılamadı: ${errorMessage}` });
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [fetchStats]);
 
   const handleResolveConflicts = async () => {
-    // This should also be a backend job.
-    setMessage({ type: 'info', text: 'Bu özellik de backend tarafında geliştirme aşamasındadır.' });
+    setIsLoading(true);
+    setMessage({ type: 'info', text: 'Çakışma çözme işlemi başlatıldı...' });
+
+    try {
+      const response = await api.post(API_ENDPOINTS.PROCESS.CONFLICTS);
+      setMessage({ type: 'success', text: response.data.message || 'Çakışma çözme işlemi başarıyla tamamlandı.' });
+      fetchStats(); // Refresh stats after operation
+    } catch (error: any) {
+      console.error('Error resolving conflicts:', error);
+      const errorMessage = error.response?.data?.detail || error.message || 'Bilinmeyen bir hata oluştu.';
+      setMessage({ type: 'error', text: `Çakışmalar çözülemedi: ${errorMessage}` });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -84,15 +94,15 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
         <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="p-4 bg-green-100 rounded-lg">
             <h3 className="text-lg font-semibold text-green-800">Koordinatlı</h3>
-            <p className="text-2xl font-bold text-green-900">{stats.coordinated}</p>
+            <p className="text-2xl font-bold text-green-900">{stats.coordinated.toLocaleString('tr-TR')}</p>
           </div>
           <div className="p-4 bg-yellow-100 rounded-lg">
             <h3 className="text-lg font-semibold text-yellow-800">Koordinatsız</h3>
-            <p className="text-2xl font-bold text-yellow-900">{stats.uncoordinated}</p>
+            <p className="text-2xl font-bold text-yellow-900">{stats.uncoordinated.toLocaleString('tr-TR')}</p>
           </div>
           <div className="p-4 bg-red-100 rounded-lg">
             <h3 className="text-lg font-semibold text-red-800">Çakışmalar</h3>
-            <p className="text-2xl font-bold text-red-900">{stats.conflicts}</p>
+            <p className="text-2xl font-bold text-red-900">{stats.conflicts.toLocaleString('tr-TR')}</p>
           </div>
         </CardContent>
       </Card>
@@ -111,9 +121,9 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
                 onChange={(e) => setLimit(parseInt(e.target.value, 10))} 
                 placeholder="İşlenecek firma sayısı"
                 className="max-w-xs"
-                disabled={true} // Disabled for now
+                disabled={isLoading}
               />
-              <Button onClick={() => handleFetchCoordinates(limit)} disabled={isLoading || true}>
+              <Button onClick={() => handleFetchCoordinates(limit)} disabled={isLoading}>
                 {isLoading ? 'İşleniyor...' : 'Koordinatları Getir'}
               </Button>
             </div>
@@ -123,7 +133,7 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
 
           <div>
             <p className="mb-2">Aynı koordinata sahip farklı firmaları bularak çakışmaları çözer.</p>
-            <Button onClick={handleResolveConflicts} disabled={true} variant="destructive">
+            <Button onClick={handleResolveConflicts} disabled={isLoading} variant="destructive">
               {'Çakışmaları Çöz'}
             </Button>
           </div>

@@ -3,8 +3,8 @@ from app.core.config import settings
 
 # Use the centralized settings object to get Supabase credentials
 # Pydantic v2 returns AnyHttpUrl, which needs to be cast to a string.
-url: str = str(settings.SUPABASE_URL) if settings.SUPABASE_URL else None
-key: str = settings.SUPABASE_KEY
+url: str = settings.tsg_supabase_url
+key: str = settings.tsg_supabase_key
 
 # Ensure that the environment variables are loaded before creating the client
 if not url or not key:

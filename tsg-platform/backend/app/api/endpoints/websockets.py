@@ -12,8 +12,8 @@ async def websocket_stats_endpoint(websocket: WebSocket):
     await websocket.accept()
     logger.info("WebSocket bağlantısı kabul edildi.")
 
-    supabase_url = settings.SUPABASE_URL
-    supabase_key = settings.SUPABASE_KEY
+    supabase_url = settings.tsg_supabase_url
+    supabase_key = settings.tsg_supabase_key
 
     if not supabase_url or not supabase_key:
         logger.error("Supabase URL/KEY ayarlanmamış.")

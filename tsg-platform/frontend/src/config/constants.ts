@@ -24,6 +24,10 @@ export const API_ENDPOINTS = {
     BASE: '/api/v1/stats',
     COORDINATES: '/api/v1/stats/coordinates',
   },
+  PROCESS: {
+    COORDINATES: '/api/v1/process/process-coordinates',
+    CONFLICTS: '/api/v1/process/resolve-conflicts',
+  },
   // Add other endpoints as needed
 } as const;
 
