@@ -60,9 +60,16 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
     setProgress(0);
     setProcessingResult(null);
 
+    let processedCount = 0;
     const progressInterval = setInterval(() => {
-      setProgress(prev => (prev < 95 ? prev + 5 : prev));
-    }, 500);
+      processedCount++;
+      const newProgress = Math.min(100, (processedCount / fetchLimit) * 100);
+      setProgress(newProgress);
+
+      if (processedCount >= fetchLimit) {
+        clearInterval(progressInterval);
+      }
+    }, 1000);
 
     try {
       const response = await processingService.startCoordinateProcessing(fetchLimit);

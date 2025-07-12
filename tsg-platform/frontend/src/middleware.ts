@@ -11,15 +11,13 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
-  // Define public paths that don't require authentication
-  const publicPaths = ['/', '/login', '/register', '/about', '/contact'];
-  const isPublicPath = publicPaths.some(path => 
-    pathname === path || pathname.startsWith(`${path}/`)
-  );
+  // Define protected paths that require authentication
+  const protectedPaths = ['/dashboard', '/admin', '/profile']; // Örnek korumalı yollar
+  const isProtectedPath = protectedPaths.some(path => pathname.startsWith(path));
 
   // If there's no token and the user is trying to access a protected route,
   // redirect them to the login page.
-  if (!token && !isPublicPath) {
+  if (!token && isProtectedPath) {
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('callbackUrl', pathname);
     return NextResponse.redirect(loginUrl);

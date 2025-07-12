@@ -19,6 +19,23 @@ router = APIRouter()
 
 LOCATIONIQ_API_URL = "https://us1.locationiq.com/v1/search.php"
 
+def clean_address(address: str) -> str:
+    if not address:
+        return ""
+    # Common cleaning steps
+    address = address.strip()
+    # Remove repeated city names like / İZMİR at the end
+    parts = address.split('/')
+    if len(parts) > 1 and 'İZMİR' in parts[-1].upper():
+        # Check if the last part is just the city name (possibly with whitespace)
+        if parts[-1].strip().upper() == 'İZMİR':
+            address = '/'.join(parts[:-1]).strip()
+    
+    # Remove extra spaces
+    address = ' '.join(address.split())
+    return address
+
+
 class CoordinateProcessingRequest(BaseModel):
     limit: int = 100
 
@@ -125,17 +142,141 @@ async def process_coordinates(request: Request, request_body: CoordinateProcessi
 async def resolve_conflicts(supabase: Client = Depends(get_supabase_client)):
     """
     Finds and resolves conflicts where multiple companies share the same coordinates or addresses.
-    NOTE: This is a placeholder for a future, more complex implementation.
+    This involves two main scenarios:
+    1. Same address with multiple different coordinates.
+    2. Same coordinate with multiple different addresses.
+
+    The function re-geocodes the addresses to ensure consistency.
     """
-    logger.info("Conflict resolution process started.")
+    logs = []
+    def add_log(level: str, message: str):
+        timestamp = datetime.datetime.now().isoformat()
+        logs.append(f"[{timestamp}] [{level.upper()}] {message}")
+        logger.info(message)
+
+    add_log("info", "Starting conflict resolution process.")
+
     try:
-        # TODO: Implement the actual conflict resolution logic.
-        # This will likely involve complex SQL queries or another RPC function to:
-        # 1. Find addresses used by more than one company but with different coordinates.
-        # 2. Find coordinates used by more than one company but with different addresses.
-        # For now, we just return a success message.
-        logger.info("Conflict resolution feature is under development. No action taken.")
-        return {"message": "Conflict resolution feature is under development."}
+        # Fetch all companies with address and coordinates
+        add_log("info", "Fetching all companies with coordinate and address data.")
+        response = supabase.from_("companies").select("id, address, koordinat").not_.is_("address", "NULL").not_.is_("koordinat", "NULL").execute()
+        
+        if not response.data:
+            add_log("info", "No companies with address and coordinate data found.")
+            return {"message": "No data to process.", "logs": logs}
+
+        companies = response.data
+        add_log("info", f"Found {len(companies)} companies to analyze.")
+
+        # --- 1. Resolve Address Conflicts (Same address, different coordinates) ---
+        add_log("info", "Analyzing for address conflicts (same address, different coordinates).")
+        address_map = {}
+        for company in companies:
+            if company.get('address') and company.get('koordinat'):
+                cleaned_address = clean_address(company['address'])
+                coord_val = company['koordinat']
+                
+                # Convert GeoJSON dict to a hashable tuple, or keep as is if already hashable
+                hashable_coord = None
+                if isinstance(coord_val, dict) and 'coordinates' in coord_val and isinstance(coord_val['coordinates'], list):
+                    hashable_coord = tuple(coord_val['coordinates'])
+                elif isinstance(coord_val, str) or isinstance(coord_val, tuple):
+                    hashable_coord = coord_val
+                else:
+                    add_log("warning", f"Skipping unhashable or unexpected coordinate format for company ID {company.get('id')}: {coord_val}")
+                    continue
+
+                if cleaned_address not in address_map:
+                    address_map[cleaned_address] = []
+                address_map[cleaned_address].append(hashable_coord)
+
+        address_conflicts = {addr: coords for addr, coords in address_map.items() if len(set(coords)) > 1}
+        add_log("info", f"Found {len(address_conflicts)} addresses with conflicting coordinates.")
+
+        async with httpx.AsyncClient() as client:
+            for address, coords in address_conflicts.items():
+                add_log("info", f"Resolving conflict for address: '{address}'")
+                cleaned_address = clean_address(address)
+                try:
+                    params = {"key": settings.locationiq_token, "q": cleaned_address, "format": "json"}
+                    api_response = await client.get(LOCATIONIQ_API_URL, params=params)
+                    api_response.raise_for_status()
+                    geocoding_data = api_response.json()
+
+                    if geocoding_data:
+                        first_result = geocoding_data[0]
+                        lat, lon = float(first_result['lat']), float(first_result['lon'])
+                        correct_point_wkt = f"POINT({lon} {lat})"
+                        add_log("info", f"Standardizing address to coordinate: {correct_point_wkt}")
+                        
+                        update_response = supabase.from_("companies").update({"koordinat": correct_point_wkt}).eq("address", address).execute()
+                        if not update_response.data:
+                            add_log("error", f"Failed to update companies with address: {address}")
+                    else:
+                        add_log("warning", f"Could not re-geocode address: {address}")
+                except Exception as e:
+                    add_log("error", f"Error re-geocoding address '{address}': {e}")
+                await asyncio.sleep(1) # Rate limiting
+
+        # --- 2. Resolve Coordinate Conflicts (Same coordinate, different addresses) ---
+        add_log("info", "Analyzing for coordinate conflicts (same coordinate, different addresses).")
+        coordinate_map = {}
+        for company in companies:
+            if company.get('koordinat') and company.get('address'):
+                cleaned_address = clean_address(company['address'])
+                coord_val = company['koordinat']
+
+                hashable_coord = None
+                if isinstance(coord_val, dict) and 'coordinates' in coord_val and isinstance(coord_val['coordinates'], list):
+                    hashable_coord = tuple(coord_val['coordinates'])
+                elif isinstance(coord_val, str) or isinstance(coord_val, tuple):
+                    hashable_coord = coord_val
+                else:
+                    # Already logged in the first loop, so we can just skip
+                    continue
+
+                if hashable_coord not in coordinate_map:
+                    coordinate_map[hashable_coord] = []
+                coordinate_map[hashable_coord].append(cleaned_address)
+        
+        coordinate_conflicts = {coord: addrs for coord, addrs in coordinate_map.items() if len(set(addrs)) > 1}
+        add_log("info", f"Found {len(coordinate_conflicts)} coordinates with conflicting addresses.")
+
+        summary = {
+            "address_conflicts_found": len(address_conflicts),
+            "coordinate_conflicts_found": len(coordinate_conflicts),
+        }
+
+        async with httpx.AsyncClient() as client:
+            for coord, addresses in coordinate_conflicts.items():
+                add_log("info", f"Resolving conflict for coordinate: {coord}")
+                for address in set(addresses):
+                    cleaned_address = clean_address(address)
+                    try:
+                        params = {"key": settings.locationiq_token, "q": cleaned_address, "format": "json"}
+                        api_response = await client.get(LOCATIONIQ_API_URL, params=params)
+                        api_response.raise_for_status()
+                        geocoding_data = api_response.json()
+
+                        if geocoding_data:
+                            first_result = geocoding_data[0]
+                            lat, lon = float(first_result['lat']), float(first_result['lon'])
+                            new_point_wkt = f"POINT({lon} {lat})"
+                            add_log("info", f"Updating address '{address}' to new coordinate: {new_point_wkt}")
+                            
+                            update_response = supabase.from_("companies").update({"koordinat": new_point_wkt}).eq("address", address).execute()
+                            if not update_response.data:
+                                add_log("error", f"Failed to update company with address: {address}")
+                        else:
+                            add_log("warning", f"Could not re-geocode address for conflict resolution: {address}")
+                    except Exception as e:
+                        add_log("error", f"Error re-geocoding address '{address}' for coordinate conflict: {e}")
+                    await asyncio.sleep(1) # Rate limiting
+
+        add_log("info", "Conflict resolution process finished.")
+        return {"message": "Conflict resolution finished.", "logs": logs, "summary": summary}
+
     except Exception as e:
-        logger.error(f"An error occurred during conflict resolution placeholder: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="An error occurred during conflict resolution.")
+        error_message = f"An unexpected error occurred during conflict resolution: {e}"
+        add_log("error", error_message)
+        return {"message": "An error occurred.", "logs": logs, "error": error_message}

@@ -45,16 +45,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
+    const protectedPaths = ['/dashboard', '/admin', '/profile'];
+    const isProtectedPath = protectedPaths.some(path => pathname.startsWith(path));
+
+    // Only check authentication status if the user is on a protected path.
+    // On public paths, we don't need to make this API call.
+    if (isProtectedPath) {
+      checkAuth();
+    } else {
+      // For public paths, we can assume the user is not logged in initially.
+      // If they have a valid session from another tab, it will be handled upon navigation to a protected route.
+      setLoading(false);
+      setSession({ user: null, status: 'unauthenticated' });
+    }
+  }, [pathname, checkAuth]);
 
   useEffect(() => {
     if (loading) return;
 
-    const publicPaths = ['/login', '/register', '/forgot-password'];
-    const isPublicPath = publicPaths.some(path => pathname.startsWith(path));
+    // Define protected paths that require authentication
+    const protectedPaths = ['/dashboard', '/admin', '/profile']; // Add any other protected routes here
+    const isProtectedPath = protectedPaths.some(path => pathname.startsWith(path));
 
-    if (session.status === 'unauthenticated' && !isPublicPath) {
+    // If the user is not authenticated and is trying to access a protected route,
+    // redirect them to the login page.
+    if (session.status === 'unauthenticated' && isProtectedPath) {
       router.push('/login');
     }
   }, [session, loading, pathname, router]);
