@@ -32,8 +32,6 @@ export function AppHeader() {
   const user = session?.user;
 
   const navigation = [
-    { name: 'Genel Bakış', href: '/dashboard' },
-    { name: 'Arama', href: '/search' },
     { name: 'Raporlar', href: '/reports' },
     { name: 'Kaydedilenler', href: '/favorites' },
     { name: 'Ayarlar', href: '/settings' },

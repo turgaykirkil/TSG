@@ -10,7 +10,9 @@ import {
   Settings,
   UploadCloud,
   LogOut,
+  ArrowLeft,
   type LucideIcon,
+  ArrowRight,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Logo } from '@/components/ui/logo';
@@ -25,14 +27,16 @@ type NavItem = {
   name: string;
   href: string;
   icon: LucideIcon;
+  target?: string;
 };
 
+
+
 const baseNavigation: NavItem[] = [
-  { name: 'Genel Bakış', href: '/dashboard', icon: Home },
-  { name: 'Arama', href: '/dashboard/search', icon: Search },
-  { name: 'Raporlar', href: '/dashboard/reports', icon: BarChart3 },
-  { name: 'Kaydedilenler', href: '/dashboard/favorites', icon: Bookmark },
-  { name: 'Ayarlar', href: '/dashboard/settings', icon: Settings },
+  { name: 'Siteye Git', href: '/dashboard', icon: ArrowRight, target: '_blank' },
+  { name: 'Raporlar', href: '/admin/reports', icon: BarChart3 },
+  { name: 'Kaydedilenler', href: '/admin/favorites', icon: Bookmark },
+  { name: 'Ayarlar', href: '/admin/settings', icon: Settings },
 ];
 
 export function AppSidebar({ onLinkClick }: AppSidebarProps) {
@@ -68,6 +72,8 @@ export function AppSidebar({ onLinkClick }: AppSidebarProps) {
               key={item.name}
               href={item.href}
               onClick={onLinkClick}
+              target={item.target}
+              rel={item.target === '_blank' ? 'noopener noreferrer' : ''}
               className={cn(
                 'flex items-center gap-3 rounded-lg px-3 py-2 text-slate-700 transition-all hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-50',
                 isActive &&
