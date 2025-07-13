@@ -32,8 +32,15 @@ type NavItem = {
 
 
 
-const baseNavigation: NavItem[] = [
-  { name: 'Siteye Git', href: '/dashboard', icon: ArrowRight, target: '_blank' },
+const userNavigation: NavItem[] = [
+  { name: 'Dashboard', href: '/dashboard', icon: Home },
+  { name: 'Arama', href: '/search', icon: Search },
+  { name: 'Profil', href: '/profile', icon: Settings },
+  { name: 'Yükle', href: '/upload', icon: UploadCloud },
+];
+
+const adminNavigation: NavItem[] = [
+  { name: 'Admin Paneli', href: '/admin', icon: Home },
   { name: 'Raporlar', href: '/admin/reports', icon: BarChart3 },
   { name: 'Kaydedilenler', href: '/admin/favorites', icon: Bookmark },
   { name: 'Ayarlar', href: '/admin/settings', icon: Settings },
@@ -45,9 +52,7 @@ export function AppSidebar({ onLinkClick }: AppSidebarProps) {
   const user = session?.user;
   const isAdmin = user?.role === 'admin';
 
-  const navigation: NavItem[] = isAdmin
-    ? [...baseNavigation, { name: 'Admin', href: '/admin', icon: UploadCloud }]
-    : baseNavigation;
+  const navigation: NavItem[] = isAdmin ? adminNavigation : userNavigation;
 
   const handleLogout = () => {
     if (onLinkClick) onLinkClick();
@@ -65,8 +70,7 @@ export function AppSidebar({ onLinkClick }: AppSidebarProps) {
 
       <nav className="flex-1 space-y-1 p-4">
         {navigation.map((item) => {
-          const isActive =
-            pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+          const isActive = pathname === item.href;
           return (
             <Link
               key={item.name}
@@ -88,14 +92,15 @@ export function AppSidebar({ onLinkClick }: AppSidebarProps) {
       </nav>
 
       <div className="mt-auto border-t p-4">
-        <Button
-          variant="ghost"
-          onClick={handleLogout}
-          className="w-full justify-start gap-3 px-3 py-2 text-slate-700 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-50"
+        <Link
+          href="/dashboard"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-slate-700 transition-all hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-50"
         >
-          <LogOut className="h-5 w-5" />
-          <span className="text-sm font-medium">Çıkış Yap</span>
-        </Button>
+          <ArrowRight className="h-5 w-5" />
+          <span className="text-sm font-medium">Siteye Git</span>
+        </Link>
       </div>
     </div>
   );

@@ -10,7 +10,7 @@ import FileUploadSection from './components/file-upload-section';
 import ScrapingDashboard from './components/scraping-dashboard';
 import OCRProcessing from './components/ocr-processing';
 import JobHistory from './components/job-history';
-import CoordinatesDashboard from '@/app/admin/components/coordinates-dashboard';
+import CoordinatesDashboard from './components/coordinates-dashboard';
 import { useAuth } from '@/contexts/AuthContext';
 import { StatCard } from './components/StatCard';
 import { useRealtimeStats } from '@/hooks/useRealtimeStats';
