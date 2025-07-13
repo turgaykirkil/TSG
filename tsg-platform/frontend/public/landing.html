@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sicilius - Veri Analiz Gücünüzü Ortaya Çıkarın</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+        :root {
+            --background-color: #f5f5f7;
+            --text-color: #1d1d1f;
+            --primary-blue: #007AFF;
+            --header-height: 60px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Header */
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: var(--header-height);
+            background-color: rgba(255, 255, 255, 0.8);
+            backdrop-filter: saturate(180%) blur(20px);
+            -webkit-backdrop-filter: saturate(180%) blur(20px);
+            z-index: 1000;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        .nav-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 100%;
+        }
+
+        .logo {
+            font-weight: 700;
+            font-size: 20px;
+            text-decoration: none;
+            color: var(--text-color);
+        }
+
+        .nav-links a {
+            margin: 0 15px;
+            text-decoration: none;
+            color: var(--text-color);
+            font-size: 14px;
+            transition: color 0.3s ease;
+        }
+
+        .nav-links a:hover {
+            color: var(--primary-blue);
+        }
+
+        .nav-buttons .btn {
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .nav-buttons .btn-login {
+            color: var(--text-color);
+        }
+
+        .nav-buttons .btn-signup {
+            background-color: var(--primary-blue);
+            color: #fff;
+            margin-left: 10px;
+        }
+
+        .nav-buttons .btn-signup:hover {
+            opacity: 0.9;
+        }
+
+        /* Hero Section */
+        .hero {
+            padding-top: calc(var(--header-height) + 80px);
+            text-align: center;
+            min-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: url('https://www.transparenttextures.com/patterns/clean-gray-paper.png');
+        }
+
+        .hero h1 {
+            font-size: 56px;
+            font-weight: 700;
+            letter-spacing: -1px;
+            margin-bottom: 20px;
+            max-width: 700px;
+        }
+
+        .hero h2 {
+            font-size: 24px;
+            font-weight: 400;
+            max-width: 700px;
+            line-height: 1.5;
+            color: #6e6e73;
+            margin-bottom: 30px;
+        }
+
+        .hero .btn-cta {
+            background-color: var(--primary-blue);
+            color: #fff;
+            padding: 15px 30px;
+            border-radius: 30px;
+            text-decoration: none;
+            font-size: 18px;
+            font-weight: 600;
+            transition: transform 0.3s ease;
+        }
+
+        .hero .btn-cta:hover {
+            transform: scale(1.05);
+        }
+
+        /* Sections */
+        .section {
+            padding: 120px 0;
+            text-align: center;
+        }
+
+        .section-title {
+            font-size: 48px;
+            font-weight: 700;
+            margin-bottom: 20px;
+        }
+
+        .section-subtitle {
+            font-size: 22px;
+            max-width: 650px;
+            margin: 0 auto 60px auto;
+            line-height: 1.6;
+            color: #6e6e73;
+        }
+
+        .feature-content {
+            display: flex;
+            gap: 40px;
+            align-items: center;
+            text-align: left;
+            margin-top: 80px;
+        }
+
+        .feature-content.reverse {
+            flex-direction: row-reverse;
+        }
+
+        .feature-text {
+            flex: 1;
+        }
+
+        .feature-text h3 {
+            font-size: 32px;
+            margin-bottom: 15px;
+        }
+
+        .feature-text p {
+            font-size: 18px;
+            line-height: 1.7;
+            color: #6e6e73;
+        }
+
+        .feature-visual {
+            flex: 1;
+            background-color: #fff;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.05);
+            height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: #ccc;
+        }
+
+        /* CTA Section */
+        .cta-section {
+            background-color: #fff;
+        }
+
+        /* Footer */
+        .footer {
+            background-color: #fff;
+            padding: 60px 0;
+            font-size: 14px;
+            color: #6e6e73;
+        }
+
+        .footer-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .footer-links a {
+            color: #6e6e73;
+            text-decoration: none;
+            margin: 0 10px;
+        }
+
+        .footer-links a:hover {
+            color: var(--primary-blue);
+        }
+
+        /* Animation */
+        .fade-in {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: opacity 0.8s ease, transform 0.8s ease;
+        }
+
+        .fade-in.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+    </style>
+</head>
+<body>
+
+    <header class="header">
+        <div class="container nav-container">
+            <a href="#" class="logo">Sicilius</a>
+            <nav class="nav-links">
+                <a href="#features">Özellikler</a>
+                <a href="#why-tsg">Neden TSG?</a>
+                <a href="#pricing">Fiyatlandırma</a>
+            </nav>
+            <div class="nav-buttons">
+                <a href="/login" class="btn btn-login">Giriş Yap</a>
+                <a href="/signup" class="btn btn-signup">Kayıt Ol</a>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="container">
+                <h1 class="fade-in">Veri Analiz Gücünüzü Ortaya Çıkarın</h1>
+                <h2 class="fade-in" style="transition-delay: 0.2s;">Sicilius, karmaşık verileri anlaşılır içgörülere dönüştürür. Akıllı otomasyon ve güçlü analiz araçlarıyla iş süreçlerinizi optimize edin.</h2>
+                <div class="hero-buttons fade-in" style="transition-delay: 0.4s;">
+                    <a href="/signup" class="btn btn-cta">Kayıt Ol</a>
+                </div>
+            </div>
+        </section>
+
+        <section id="why-tsg" class="section">
+            <div class="container">
+                <div class="section-tag fade-in">Temel Özellikler</div>
+                <h2 class="section-title fade-in">İş Akışınızı Hızlandırın</h2>
+                <p class="section-subtitle fade-in">Platformumuz, veri toplama, analiz ve raporlama süreçlerinizi otomatikleştirmek için tasarlanmıştır.</p>
+            </div>
+        </section>
+
+        <section id="features" class="section" style="background-color: #fff;">
+            <div class="container">
+                <div class="features-grid fade-in">
+                    <div class="feature-card">
+                        <h3>Akıllı Veri Çıkarımı</h3>
+                        <p>PDF ve Excel dosyalarından otomatik olarak veri çekin ve yapılandırın.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Coğrafi Veri Zenginleştirme</h3>
+                        <p>Adres verilerinizi otomatik olarak coğrafi koordinatlarla zenginleştirin.</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>Güvenli Veri Yönetimi</h3>
+                        <p>Tüm verileriniz, Supabase'in güçlü güvenlik altyapısıyla korunur.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="section cta-section">
+            <div class="container">
+                <h2 class="section-title fade-in">Veri Analiz Gücünüzü Ortaya Çıkarın</h2>
+                <p class="section-subtitle fade-in">Sicilius ile karar süreçlerinizi hızlandırın, risklerinizi yönetin ve pazarınıza hakim olun.</p>
+                <a href="/signup" class="btn btn-cta fade-in">Kayıt Ol</a>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="container footer-container">
+            <p>&copy; 2025 Sicilius. Tüm hakları saklıdır.</p>
+            <div class="footer-links">
+                <a href="#">Hakkımızda</a>
+                <a href="#">İletişim</a>
+                <a href="#">Kullanım Koşulları</a>
+                <a href="#">Gizlilik Politikası</a>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const animatedElements = document.querySelectorAll('.fade-in');
+
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('visible');
+                    }
+                });
+            }, {
+                threshold: 0.1
+            });
+
+            animatedElements.forEach(el => {
+                observer.observe(el);
+            });
+        });
+    </script>
+
+</body>
+</html>
