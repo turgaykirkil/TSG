@@ -15,11 +15,28 @@ const navItems = [
   { href: '/dashboard/settings', label: 'Ayarlar', icon: Settings },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  isOpen?: boolean;
+  onClose?: () => void;
+}
+
+export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname();
 
   return (
-    <div className="hidden border-r bg-muted/40 md:block">
+    <div 
+      className={cn(
+        'fixed inset-y-0 left-0 z-30 w-64 border-r bg-muted/40 transition-transform duration-300 ease-in-out md:relative md:translate-x-0',
+        isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+        'md:block',
+        !isOpen && 'hidden'
+      )}
+    >
+      {/* Overlay for mobile */}
+      <div 
+        className="fixed inset-0 z-10 bg-black/50 md:hidden"
+        onClick={onClose}
+      />
       <div className="flex h-full max-h-screen flex-col gap-2">
         <div className="flex h-14 items-center border-b px-4 lg:h-[60px] lg:px-6">
           <Link href="/" className="flex items-center gap-2 font-semibold">
