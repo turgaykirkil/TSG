@@ -10,14 +10,18 @@ import { Icons } from '@/components/icons';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function RegisterPage() {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, session } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (isAuthenticated) {
-      router.push('/dashboard');
+      if (session?.user?.role === 'admin') {
+        router.push('/admin');
+      } else {
+        router.push('/dashboard');
+      }
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, router, session]);
 
   if (loading) {
     return (
