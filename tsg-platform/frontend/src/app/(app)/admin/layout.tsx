@@ -4,8 +4,8 @@ import type { ReactNode } from 'react';
 import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { AppHeader } from '@/components/layout/AppHeader';
-import { AppSidebar } from '@/components/layout/AppSidebar';
+import { AppSidebar } from '@/app/(app)/admin/components/layout/AdminSidebar';
+import { AppHeader } from '@/app/(app)/admin/components/layout/AdminHeader';
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
