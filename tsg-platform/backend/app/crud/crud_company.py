@@ -46,6 +46,22 @@ class CRUDCompany(CRUDBase[Company, CompanyCreate, CompanyUpdate]):
             .all()
         )
 
+    def get_unscraped_with_sicil_info(self, db: Session, *, limit: int = 10) -> List[Company]:
+        """
+        Henüz scrape edilmemiş ve sicil bilgileri (no ve müdürlük) dolu olan şirketleri getirir.
+        """
+        return (
+            db.query(Company)
+            .filter(
+                Company.scraped_at.is_(None),
+                Company.sicil_no.isnot(None),
+                Company.sicil_mudurluk.isnot(None)
+            )
+            .order_by(Company.created_at)  # En eski kayıtlardan başla
+            .limit(limit)
+            .all()
+        )
+
     def get_multi_uncoordinated(self, db: Session, *, skip: int = 0, limit: int = 100) -> List[Company]:
         """
         Koordinatı olmayan şirketleri getirir.

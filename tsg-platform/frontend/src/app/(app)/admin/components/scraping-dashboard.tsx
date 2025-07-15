@@ -21,7 +21,7 @@ export default function ScrapingDashboard() {
       toast.error(errorMessage);
       throw new Error(errorMessage);
     }
-    return apiUrl;
+    return `${apiUrl}/api/v1`;
   }, []);
 
   const handleOpenBrowser = async () => {
@@ -75,6 +75,7 @@ export default function ScrapingDashboard() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ count: scrapeCount }),
+        credentials: 'include', // Send cookies for authentication
       });
 
       if (!response.ok) {

@@ -304,57 +304,72 @@ browser_manager = BrowserManager()
 
 
 async def start_enhanced_scraping_process(count: int):
-    """Enhanced scraping process that automatically fills forms and extracts data."""
-    db: Optional[Session] = None
+    """
+    Fetches unscraped companies from the DB, fills the form on the website,
+    scrapes the results, and logs them without updating the DB.
+    """
+    logger.info(f"Starting enhanced scraping process for {count} companies.")
+    db: Session = SessionLocal()
+    page = await browser_manager.get_page()
+
+    if not page:
+        logger.error("Could not get a page from the browser manager.")
+        db.close()
+        return
+
     try:
-        scraping_state.start(total_count=count)
-        scraping_state.add_log("ENHANCED_SCRAPING_STARTED: Enhanced scraping process initiated.")
-
-        if not browser_manager.get_status()["is_open"]:
-            error_msg = "Browser is not open. Please open it first to log in."
-            scraping_state.add_log(f"SCRAPING_ERROR: {error_msg}")
-            scraping_state.set_error(error_msg)
+        # Assuming crud.company.get_unscraped_with_sicil_info exists
+        companies = crud.company.get_unscraped_with_sicil_info(db, limit=count)
+        if not companies:
+            logger.info("No unscraped companies with sicil info found.")
             return
 
-        page = await browser_manager.get_page()
-        if not page:
-            error_msg = "Failed to get a browser page."
-            scraping_state.add_log(f"SCRAPING_ERROR: {error_msg}")
-            scraping_state.set_error(error_msg)
-            return
+        logger.info(f"Found {len(companies)} companies to scrape.")
 
-        db = SessionLocal()
-        scraping_state.add_log("DB_SESSION_CREATED: Database session opened.")
+        search_url = "https://www.ticaretsicil.gov.tr/view/hizlierisim/ilangoruntuleme.php"
 
-        # Get companies to scrape from Supabase
-        companies_to_scrape = await get_companies_for_scraping(db, limit=count)
-        if not companies_to_scrape:
-            scraping_state.add_log("INFO: No companies to scrape.")
-            return
+        for company in companies:
+            try:
+                logger.info(f"Processing company: {company.unvan} (Sicil No: {company.sicil_no}) in {company.sicil_mudurluk}")
+                await page.goto(search_url, wait_until="domcontentloaded")
 
-        scraping_state.add_log(f"DB_FETCH_SUCCESS: Found {len(companies_to_scrape)} companies to scrape.")
-        
-        # Navigate to the search page
-        await page.goto("https://www.ticaretsicil.gov.tr/view/hizlierisim/ilangoruntuleme.php", wait_until="domcontentloaded")
-        scraping_state.add_log("PAGE_LOADED: Navigated to search page.")
+                city_name = normalize_city_name(company.sicil_mudurluk)
+                if not city_name:
+                    logger.warning(f"Skipping company {company.unvan} due to unmatchable city name: {company.sicil_mudurluk}")
+                    continue
 
-        for company in companies_to_scrape:
-            if scraping_state.should_stop:
-                scraping_state.add_log("STOP_SIGNAL_RECEIVED: Stopping task.")
-                break
-            await scrape_company_enhanced(page, db, company)
+                await page.select_option('select#SicilMudurluguId', label=city_name)
+                logger.info(f"Selected city: {city_name}")
 
-    except Exception as e:
-        error_message = f"An unexpected error occurred during enhanced scraping: {traceback.format_exc()}"
-        logger.error(error_message)
-        scraping_state.add_log(error_message)
-        scraping_state.set_error(str(e))
+                await page.fill('input#TicSicNo', str(company.sicil_no))
+                logger.info(f"Filled sicil no: {company.sicil_no}")
+
+                # Click the correct search button as requested by the user
+                search_button_selector = 'button[data-message="İlan Ara"]'
+                await page.click(search_button_selector)
+                logger.info("Search button clicked. Waiting for results...")
+
+                await page.wait_for_selector('table#tblIlanGoruntuleme tbody tr', timeout=15000)
+                logger.info("Results table found.")
+
+                rows = await page.query_selector_all('table#tblIlanGoruntuleme tbody tr')
+                logger.info(f"--- SCRAPED DATA for {company.unvan} ---")
+                for i, row in enumerate(rows):
+                    cols = await row.query_selector_all('td')
+                    row_data = [await col.inner_text() for col in cols]
+                    logger.info(f"  Row {i+1}: {row_data}")
+                logger.info(f"--- END OF DATA for {company.unvan} ---")
+
+            except PlaywrightTimeoutError:
+                logger.error(f"Timeout error while processing {company.unvan}. Maybe no results found or page is slow.")
+            except Exception as e:
+                logger.error(f"An error occurred processing {company.unvan}: {e}", exc_info=True)
+            
+            await asyncio.sleep(3) # Be nice to the server
+
     finally:
-        if db:
-            db.close()
-            scraping_state.add_log("DB_CLOSED: Database session closed.")
-        scraping_state.finish()
-        logger.info("Enhanced scraping task finished.")
+        db.close()
+        logger.info("Enhanced scraping process finished.")
 
 
 async def get_companies_for_scraping(db: Session, limit: int = 10):
