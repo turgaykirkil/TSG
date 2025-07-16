@@ -352,12 +352,59 @@ async def start_enhanced_scraping_process(count: int):
                 await page.wait_for_selector('table#tblIlanGoruntuleme tbody tr', timeout=15000)
                 logger.info("Results table found.")
 
-                rows = await page.query_selector_all('table#tblIlanGoruntuleme tbody tr')
-                logger.info(f"--- SCRAPED DATA for {company.unvan} ---")
-                for i, row in enumerate(rows):
-                    cols = await row.query_selector_all('td')
-                    row_data = [await col.inner_text() for col in cols]
-                    logger.info(f"  Row {i+1}: {row_data}")
+                # Set page length to 100
+                try:
+                    await page.select_option('select[name="tblIlanGoruntuleme_length"]', '100')
+                    logger.info("Set page length to 100. Waiting for table to reload...")
+                    await page.wait_for_timeout(3000) # Wait for reload
+                except Exception as e:
+                    logger.warning(f"Could not set page length to 100, proceeding with default. Error: {e}")
+
+                page_number = 1
+                while True:
+                    logger.info(f"--- SCRAPING PAGE {page_number} for {company.unvan} ---")
+                    rows = await page.query_selector_all('table#tblIlanGoruntuleme tbody tr')
+                    
+                    if not rows or await rows[0].inner_text() == "Eşleşen kayıt bulunamadı":
+                        logger.info(f"No results found on page {page_number}.")
+                        break
+
+                    logger.info(f"Found {len(rows)} results on page {page_number}.")
+
+                    for i, row in enumerate(rows):
+                        cols = await row.query_selector_all('td')
+                        if len(cols) > 7:
+                            pdf_link_element = await cols[7].query_selector('a')
+                            pdf_link = 'No PDF Link'
+                            if pdf_link_element:
+                                href = await pdf_link_element.get_attribute('href')
+                                if href:
+                                    pdf_link = f"https://www.ticaretsicil.gov.tr/view/hizlierisim/{href}"
+
+                            row_data = {
+                                'Müdürlük': await cols[0].inner_text(),
+                                'Sicil No': await cols[1].inner_text(),
+                                'Unvan': await cols[2].inner_text(),
+                                'Yayın Tarihi': await cols[3].inner_text(),
+                                'Sayı': await cols[4].inner_text(),
+                                'Sayfa': await cols[5].inner_text(),
+                                'İlan Türü': await cols[6].inner_text(),
+                                'PDF Link': pdf_link
+                            }
+                            logger.info(f"  - Page {page_number}, Row {i+1}: {row_data}")
+                        else:
+                            logger.warning(f"Row {i+1} on page {page_number} has fewer than 8 columns, skipping.")
+
+                    # Pagination logic
+                    next_button = await page.query_selector('a.paginate_button.next:not(.disabled)')
+                    if next_button:
+                        logger.info("Next page button found, clicking...")
+                        await next_button.click()
+                        page_number += 1
+                        await page.wait_for_timeout(3000) # Wait for next page to load
+                    else:
+                        logger.info("No more pages to scrape for this company.")
+                        break
                 logger.info(f"--- END OF DATA for {company.unvan} ---")
 
             except PlaywrightTimeoutError:
@@ -488,165 +535,6 @@ async def fill_search_form(page, city_name: str, sicil_no: str):
     except Exception as e:
         scraping_state.add_log(f"FORM_ERROR: Error filling form: {e}")
         raise
-
-
-async def set_table_rows_to_100(page):
-    """Set the DataTable to show 100 rows per page."""
-    try:
-        # Wait for DataTable to load
-        await page.wait_for_selector("select[name='tblIlanGoruntuleme_length']", timeout=10000)
-        
-        # Select 100 rows
-        await page.select_option("select[name='tblIlanGoruntuleme_length']", value="100")
-        await page.wait_for_load_state("domcontentloaded")
-        scraping_state.add_log("TABLE_SETTINGS: Set table to show 100 rows")
-        
-    except Exception as e:
-        scraping_state.add_log(f"TABLE_ERROR: Could not set table rows: {e}")
-        # Continue anyway
-
-
-async def extract_and_save_announcements(page, db: Session, company_id: str, company_name: str):
-    """Extract announcements from the table and save to database."""
-    try:
-        # Wait for table to load
-        await page.wait_for_selector("table#tblIlanGoruntuleme tbody tr", timeout=10000)
-        
-        rows = await page.locator("table#tblIlanGoruntuleme tbody tr").all()
-        scraping_state.add_log(f"TABLE_DATA: Found {len(rows)} announcement rows")
-        
-        for row in rows:
-            try:
-                cells = await row.locator("td").all()
-                if len(cells) < 8:
-                    continue
-                
-                # Extract data from cells based on HTML structure
-                trade_registry_name = await cells[0].inner_text()
-                trade_registry_number = await cells[1].inner_text() 
-                title = await cells[2].inner_text()
-                publication_date_str = await cells[3].inner_text()
-                issue_number_str = await cells[4].inner_text()
-                page_number_str = await cells[5].inner_text()
-                announcement_type = await cells[6].inner_text()
-                
-                # Parse publication date
-                try:
-                    publication_date = datetime.strptime(publication_date_str.strip(), '%d.%m.%Y').date()
-                except:
-                    publication_date = None
-                
-                # Parse numbers
-                try:
-                    issue_number = int(issue_number_str.strip()) if issue_number_str.strip().isdigit() else None
-                except:
-                    issue_number = None
-                    
-                try:
-                    page_number = int(page_number_str.strip()) if page_number_str.strip().isdigit() else None
-                except:
-                    page_number = None
-                
-                # Handle PDF download
-                pdf_url = None
-                try:
-                    pdf_link = await cells[7].locator("a").first
-                    if pdf_link:
-                        pdf_href = await pdf_link.get_attribute("href")
-                        if pdf_href:
-                            pdf_url = await download_and_upload_pdf(page, pdf_href, company_id, title)
-                except Exception as pdf_error:
-                    scraping_state.add_log(f"PDF_ERROR: Could not process PDF: {pdf_error}")
-                
-                # Save to Supabase announcements table
-                await save_announcement_to_supabase(
-                    company_id=company_id,
-                    trade_registry_name=trade_registry_name.strip(),
-                    trade_registry_number=trade_registry_number.strip(),
-                    title=title.strip(),
-                    publication_date=publication_date,
-                    issue_number=issue_number,
-                    page_number=page_number,
-                    announcement_type=announcement_type.strip(),
-                    pdf_url=pdf_url
-                )
-                
-                scraping_state.add_log(f"ANNOUNCEMENT_SAVED: Saved announcement '{title}' for {company_name}")
-                
-            except Exception as row_error:
-                scraping_state.add_log(f"ROW_ERROR: Error processing row: {row_error}")
-                continue
-                
-    except Exception as e:
-        scraping_state.add_log(f"EXTRACT_ERROR: Error extracting announcements: {e}")
-        raise
-
-
-async def download_and_upload_pdf(page, pdf_href: str, company_id: str, title: str) -> str:
-    """Download PDF and upload to Supabase storage."""
-    try:
-        # Create download handler
-        async with page.expect_download() as download_info:
-            await page.goto(pdf_href)
-        
-        download = await download_info.value
-        pdf_content = await download.read()
-        
-        # Generate unique filename
-        import uuid
-        file_name = f"announcements/{company_id}_{uuid.uuid4()}.pdf"
-        
-        # Upload to Supabase storage
-        from app.core.supabase_client import supabase
-        bucket_name = "gazette-pdfs"
-        
-        upload_response = supabase.storage.from_(bucket_name).upload(
-            file_name, pdf_content, {"contentType": "application/pdf"}
-        )
-        
-        if upload_response.status_code == 200:
-            public_url = supabase.storage.from_(bucket_name).get_public_url(file_name)
-            scraping_state.add_log(f"PDF_UPLOADED: PDF uploaded to Supabase: {file_name}")
-            return public_url
-        else:
-            scraping_state.add_log(f"PDF_UPLOAD_ERROR: Failed to upload PDF: {upload_response.text}")
-            return None
-            
-    except Exception as e:
-        scraping_state.add_log(f"PDF_DOWNLOAD_ERROR: Error downloading PDF: {e}")
-        return None
-
-
-async def save_announcement_to_supabase(company_id: str, trade_registry_name: str, 
-                                      trade_registry_number: str, title: str,
-                                      publication_date, issue_number: int, 
-                                      page_number: int, announcement_type: str,
-                                      pdf_url: str):
-    """Save announcement data to Supabase announcements table."""
-    try:
-        from app.core.supabase_client import supabase
-        
-        announcement_data = {
-            "company_id": company_id,
-            "trade_registry_name": trade_registry_name,
-            "trade_registry_number": trade_registry_number,
-            "title": title,
-            "publication_date": publication_date.isoformat() if publication_date else None,
-            "issue_number": issue_number,
-            "page_number": page_number,
-            "announcement_type": announcement_type,
-            "pdf_url": pdf_url
-        }
-        
-        result = supabase.table("announcements").insert(announcement_data).execute()
-        
-        if result.data:
-            scraping_state.add_log(f"SUPABASE_INSERT: Successfully saved announcement to Supabase")
-        else:
-            scraping_state.add_log(f"SUPABASE_ERROR: Failed to save announcement: {result}")
-            
-    except Exception as e:
-        scraping_state.add_log(f"SUPABASE_SAVE_ERROR: Error saving to Supabase: {e}")
 
 
 async def mark_company_as_scraped(db: Session, company_id: str):
