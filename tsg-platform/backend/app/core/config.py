@@ -37,7 +37,8 @@ class Settings(BaseSettings):
 
     # Supabase Client
     supabase_url: str
-    supabase_key: str
+    supabase_key: str  # Public anon key
+    supabase_service_role_key: str  # Service role key for admin operations
 
     # Geocoding Services
     locationiq_token: str

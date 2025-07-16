@@ -1,30 +1,31 @@
 import asyncio
 import logging
+from storage3.exceptions import StorageApiError
 import os
+import re
 import traceback
 import uuid
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 from playwright.async_api import (
-    async_playwright,
     Browser,
     BrowserContext,
+    Error as PlaywrightError,
     Page,
     Playwright,
     TimeoutError as PlaywrightTimeoutError,
-    Error as PlaywrightError
+    async_playwright,
 )
 from sqlalchemy.orm import Session
 
 from app import crud
 from app.core.config import settings
+from app.db.session import SessionLocal
 from app.core.supabase_client import supabase
 from app.schemas.announcement import AnnouncementCreate
-from app.db.session import SessionLocal
 from app.scraping_state import scraping_state
-from datetime import datetime
-import re
+# from app.services.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -314,119 +315,63 @@ browser_manager = BrowserManager()
 
 async def start_enhanced_scraping_process(count: int):
     """
-    Fetches unscraped companies from the DB, fills the form on the website,
-    scrapes the results, and logs them without updating the DB.
+    Fetches unscraped companies, scrapes their announcements, and saves them to the database.
+    This function is intended for robust, production-like scraping.
     """
-    logger.info(f"Starting enhanced scraping process for {count} companies.")
+    logger.info(f"Starting scraping process for up to {count} companies with DB saving.")
     await browser_manager.stop_periodic_save()
     db: Session = SessionLocal()
     page = await browser_manager.get_page()
 
     if not page:
-        logger.error("Could not get a page from the browser manager.")
+        error_msg = "Could not get a page from the browser manager."
+        logger.error(error_msg)
+        scraping_state.set_error(error_msg)
         db.close()
         return
 
     try:
-        # Assuming crud.company.get_unscraped_with_sicil_info exists
         companies = crud.company.get_unscraped_with_sicil_info(db, limit=count)
+        scraping_state.start(total_count=len(companies))
+
         if not companies:
             logger.info("No unscraped companies with sicil info found.")
+            scraping_state.add_log("INFO: No new companies to scrape.")
             return
 
         logger.info(f"Found {len(companies)} companies to scrape.")
 
-        search_url = "https://www.ticaretsicil.gov.tr/view/hizlierisim/ilangoruntuleme.php"
+        # Ensure the Supabase bucket exists before starting to scrape
+        bucket_name = "gazette-pdfs"
+        try:
+            buckets = supabase.storage.list_buckets()
+            if not any(b.name == bucket_name for b in buckets):
+                logger.info(f"Bucket '{bucket_name}' not found. Creating it...")
+                supabase.storage.create_bucket(id=bucket_name, name=bucket_name, options={"public": True})
+                logger.info(f"Bucket '{bucket_name}' created successfully.")
+            else:
+                logger.info(f"Bucket '{bucket_name}' already exists.")
+        except StorageApiError as e:
+            logger.error(f"An error occurred while checking or creating bucket '{bucket_name}': {e}")
+            # RLS hatası gibi kritik bir durumda işlemi durdurmak için hatayı yükselt
+            raise e
 
         for company in companies:
-            try:
-                logger.info(f"Processing company: {company.unvan} (Sicil No: {company.sicil_no}) in {company.sicil_mudurluk}")
-                await page.goto(search_url, wait_until="domcontentloaded")
+            if scraping_state.should_stop:
+                scraping_state.add_log("STOP_SIGNAL_RECEIVED: Stopping task.")
+                break
+            # We use the main, robust scrape_company function which handles all logic including DB operations.
+            await scrape_company(page, db, company)
 
-                city_name = normalize_city_name(company.sicil_mudurluk)
-                if not city_name:
-                    logger.warning(f"Skipping company {company.unvan} due to unmatchable city name: {company.sicil_mudurluk}")
-                    continue
-
-                await page.select_option('select#SicilMudurluguId', label=city_name)
-                logger.info(f"Selected city: {city_name}")
-
-                await page.fill('input#TicSicNo', str(company.sicil_no))
-                logger.info(f"Filled sicil no: {company.sicil_no}")
-
-                # Click the correct search button as requested by the user
-                search_button_selector = 'button[data-message="İlan Ara"]'
-                await page.click(search_button_selector)
-                logger.info("Search button clicked. Waiting for results...")
-
-                await page.wait_for_selector('table#tblIlanGoruntuleme tbody tr', timeout=15000)
-                logger.info("Results table found.")
-
-                # Set page length to 100
-                try:
-                    await page.select_option('select[name="tblIlanGoruntuleme_length"]', '100')
-                    logger.info("Set page length to 100. Waiting for table to reload...")
-                    await page.wait_for_timeout(3000) # Wait for reload
-                except Exception as e:
-                    logger.warning(f"Could not set page length to 100, proceeding with default. Error: {e}")
-
-                page_number = 1
-                while True:
-                    logger.info(f"--- SCRAPING PAGE {page_number} for {company.unvan} ---")
-                    rows = await page.query_selector_all('table#tblIlanGoruntuleme tbody tr')
-                    
-                    if not rows or await rows[0].inner_text() == "Eşleşen kayıt bulunamadı":
-                        logger.info(f"No results found on page {page_number}.")
-                        break
-
-                    logger.info(f"Found {len(rows)} results on page {page_number}.")
-
-                    for i, row in enumerate(rows):
-                        cols = await row.query_selector_all('td')
-                        if len(cols) > 7:
-                            pdf_link_element = await cols[7].query_selector('a')
-                            pdf_link = 'No PDF Link'
-                            if pdf_link_element:
-                                href = await pdf_link_element.get_attribute('href')
-                                if href:
-                                    pdf_link = f"https://www.ticaretsicil.gov.tr/view/hizlierisim/{href}"
-
-                            row_data = {
-                                'Müdürlük': await cols[0].inner_text(),
-                                'Sicil No': await cols[1].inner_text(),
-                                'Unvan': await cols[2].inner_text(),
-                                'Yayın Tarihi': await cols[3].inner_text(),
-                                'Sayı': await cols[4].inner_text(),
-                                'Sayfa': await cols[5].inner_text(),
-                                'İlan Türü': await cols[6].inner_text(),
-                                'PDF Link': pdf_link
-                            }
-                            logger.info(f"  - Page {page_number}, Row {i+1}: {row_data}")
-                        else:
-                            logger.warning(f"Row {i+1} on page {page_number} has fewer than 8 columns, skipping.")
-
-                    # Pagination logic
-                    next_button = await page.query_selector('a.paginate_button.next:not(.disabled)')
-                    if next_button:
-                        logger.info("Next page button found, clicking...")
-                        await next_button.click()
-                        page_number += 1
-                        await page.wait_for_timeout(3000) # Wait for next page to load
-                    else:
-                        logger.info("No more pages to scrape for this company.")
-                        break
-                logger.info(f"--- END OF DATA for {company.unvan} ---")
-
-            except PlaywrightTimeoutError:
-                logger.error(f"Timeout error while processing {company.unvan}. Maybe no results found or page is slow.")
-            except Exception as e:
-                logger.error(f"An error occurred processing {company.unvan}: {e}", exc_info=True)
-            
-            await asyncio.sleep(3) # Be nice to the server
-
+    except Exception as e:
+        error_message = f"An unexpected error occurred during the main scraping loop: {traceback.format_exc()}"
+        logger.error(error_message)
+        scraping_state.add_log(error_message)
+        scraping_state.set_error(str(e))
     finally:
         db.close()
-        logger.info("Enhanced scraping process finished.")
+        scraping_state.finish()
+        logger.info("Scraping process with DB saving has finished.")
 
 
 async def get_companies_for_scraping(db: Session, limit: int = 10):
@@ -616,33 +561,32 @@ async def start_scraping_process(count: int):
 
 
 async def scrape_company(page: Page, db: Session, company):
-    """Scrapes a single company's announcements for a given company."""
-    scraping_state.add_log(f"PROCESSING_COMPANY: Start processing '{company.unvan}' (ID: {company.id}).")
-    
-    normalized_city = normalize_city_name(company.sicil_mudurluk)
-    if not normalized_city:
-        error_msg = f"Could not normalize trade registry: '{company.sicil_mudurluk}' for company '{company.unvan}'."
-        scraping_state.add_log(f"COMPANY_ERROR: {error_msg}")
-        crud.company.mark_as_scraped(db=db, company_id=company.id)
-        return
-
-    scraping_state.add_log(f"NORMALIZED_CITY: Using '{normalized_city}' for city selection.")
+    """
+    Scrapes a single company's announcements using its trade registry number (sicil_no).
+    This is the primary, robust scraping function.
+    """
+    scraping_state.add_log(f"PROCESSING_COMPANY: Start processing '{company.unvan}' (Sicil No: {company.sicil_no}, Mudurluk: {company.sicil_mudurluk}).")
 
     try:
+        # 1. Normalize city name
+        city_name = normalize_city_name(company.sicil_mudurluk)
+        if not city_name:
+            error_msg = f"Could not normalize city name: '{company.sicil_mudurluk}' for company '{company.unvan}'."
+            scraping_state.add_log(f"COMPANY_ERROR: {error_msg}")
+            crud.company.mark_as_scraped(db=db, company_id=company.id)
+            return
+
+        # 2. Navigate and fill the form
         await page.goto("https://www.ticaretsicil.gov.tr/view/hizlierisim/ilangoruntuleme.php", wait_until="domcontentloaded")
-
-        dropdown_selector = "select[name='sicilMudurIli']"
-        await page.wait_for_selector(dropdown_selector, state="visible", timeout=15000)
-        scraping_state.add_log(f"DROPDOWN_VISIBLE: The city dropdown is visible.")
-
-        await page.select_option(dropdown_selector, value=normalized_city)
-        await page.fill("input[name='unvan']", company.unvan)
+        await page.select_option('select#SicilMudurluguId', label=city_name)
+        await page.fill('input#TicSicNo', str(company.sicil_no))
         
-        async with page.expect_response("**/ilan/ilanlar"):
-            await page.click("input[type='submit'][value='Sorgula']")
-        
-        scraping_state.add_log(f"FORM_SUBMITTED: Search form submitted for '{company.unvan}'.")
+        # 3. Click search and wait for results
+        search_button_selector = 'button[data-message="İlan Ara"]'
+        await page.click(search_button_selector)
+        scraping_state.add_log("FORM_SUBMITTED: Search form submitted.")
 
+        # 4. Process results page by page
         page_number = 1
         while True:
             if scraping_state.should_stop:
@@ -651,106 +595,124 @@ async def scrape_company(page: Page, db: Session, company):
 
             scraping_state.add_log(f"PROCESSING_PAGE: Scraping page {page_number} for '{company.unvan}'.")
 
-            no_results_locator = page.locator("text='İlan kaydı bulunamadı'")
-            if await no_results_locator.is_visible():
+            try:
+                await page.wait_for_selector('table#tblIlanGoruntuleme tbody tr', timeout=20000)
+            except PlaywrightTimeoutError:
+                scraping_state.add_log(f"NO_RESULTS_TABLE: No results table found on page {page_number}. Assuming no results.")
+                break
+
+            rows = await page.query_selector_all('table#tblIlanGoruntuleme tbody tr')
+            if not rows or "Eşleşen kayıt bulunamadı" in await rows[0].inner_text():
                 if page_number == 1:
                     scraping_state.add_log(f"NO_RESULTS: No announcements found for '{company.unvan}'.")
                 else:
                     scraping_state.add_log(f"PAGINATION_END: Reached end of results on page {page_number}.")
                 break
 
-            try:
-                await page.wait_for_selector("table.ilan-list > tbody > tr", timeout=15000)
-            except PlaywrightTimeoutError:
-                scraping_state.add_log(f"TIMEOUT_ERROR: Timed out waiting for results table on page {page_number}.")
-                break
-
-            rows = await page.locator("table.ilan-list > tbody > tr").all()
             scraping_state.add_log(f"RESULTS_FOUND: Found {len(rows)} announcements on page {page_number}.")
 
             for row in rows:
-                cells = await row.locator("td").all()
-                if len(cells) < 8:
-                    scraping_state.add_log(f"ROW_SKIP: Skipping row with insufficient columns ({len(cells)}).")
-                    continue
-
                 try:
-                    # Extract all data from the table cells based on the correct order
-                    trade_registry_name = await cells[0].inner_text()
-                    trade_registry_number = await cells[1].inner_text()
-                    title = await cells[2].inner_text()
+                    cells = await row.query_selector_all('td')
+                    if len(cells) < 8:
+                        scraping_state.add_log(f"ROW_SKIP: Skipping row with insufficient columns ({len(cells)}).")
+                        continue
+
+                    # Extract data from cells
                     publication_date_str = await cells[3].inner_text()
-                    issue_number_str = await cells[4].inner_text()
-                    page_number_str = await cells[5].inner_text()
-                    announcement_type = await cells[6].inner_text()
+                    title = await cells[2].inner_text()
+                    publication_date = datetime.strptime(publication_date_str, '%d.%m.%Y').date()
 
-                    # Data cleaning and type conversion
-                    publication_date = datetime.strptime(publication_date_str, '%d-%m-%Y').date()
-                    issue_number = int(issue_number_str) if issue_number_str.strip().isdigit() else None
-                    page_number = int(page_number_str) if page_number_str.strip().isdigit() else None
-
-                    # Check for duplicates using the corrected CRUD method
+                    # Check for duplicates before proceeding
                     if crud.announcement.get_by_details(db, company_id=company.id, publication_date=publication_date, title=title):
                         scraping_state.add_log(f"DUPLICATE_SKIP: Skipping existing announcement from {publication_date_str} for '{company.unvan}'.")
                         continue
 
+                    # Extract remaining data
+                    trade_registry_name = await cells[0].inner_text()
+                    trade_registry_number = await cells[1].inner_text()
+                    issue_number_str = await cells[4].inner_text()
+                    page_number_str = await cells[5].inner_text()
+                    announcement_type = await cells[6].inner_text()
+                    newspaper_name = await cells[7].inner_text()
+                    
                     pdf_url = None
-                    pdf_link_locator = cells[7].locator("a")
-                    if await pdf_link_locator.count() > 0:
-                        async with page.expect_download() as download_info:
-                            await pdf_link_locator.click()
-                        
-                        download = await download_info.value
-                        pdf_content = await download.read()
-                        
-                        file_name = f"announcement_{company.id}_{uuid.uuid4()}.pdf"
-                        bucket_name = "gazette-pdfs"
-                        
-                        upload_response = supabase.storage.from_(bucket_name).upload(file_name, pdf_content, {"contentType": "application/pdf"})
-                        
-                        if upload_response.status_code == 200:
-                            pdf_url = supabase.storage.from_(bucket_name).get_public_url(file_name)
-                            scraping_state.add_log(f"PDF_UPLOADED: PDF uploaded to Supabase: {pdf_url}")
-                        else:
-                            scraping_state.add_log(f"SUPABASE_UPLOAD_ERROR: Failed to upload PDF for '{company.unvan}'. Error: {upload_response.text}")
+                    pdf_link_element = await cells[7].query_selector('a')
+                    if pdf_link_element:
+                        try:
+                            # Start waiting for the download before clicking
+                            async with page.expect_download() as download_info:
+                                await pdf_link_element.click()
+                            
+                            download = await download_info.value
+                            temp_pdf_path = await download.path()
+                            with open(temp_pdf_path, 'rb') as f:
+                                pdf_content = f.read()
+                            await download.delete()  # Clean up the downloaded file
+                            
+                            file_name = f"announcement_{company.id}_{uuid.uuid4()}.pdf"
+                            bucket_name = "gazette-pdfs"
+                            
+                            # Upload to Supabase Storage
+                            upload_response = supabase.storage.from_(bucket_name).upload(
+                                file=pdf_content, 
+                                path=file_name, 
+                                file_options={"content-type": "application/pdf"}
+                            )
+                            
+                            # Get public URL
+                            res = supabase.storage.from_(bucket_name).get_public_url(file_name)
+                            pdf_url = res
 
-                    # Create announcement object with correct field names
-                    announcement_data = {
-                        "company_id": company.id,
-                        "trade_registry_name": trade_registry_name,
-                        "trade_registry_number": trade_registry_number,
-                        "title": title,
-                        "publication_date": publication_date,
-                        "issue_number": issue_number,
-                        "page_number": page_number,
-                        "announcement_type": announcement_type,
-                        "pdf_url": pdf_url
-                    }
-                    announcement_in = AnnouncementCreate(**announcement_data)
+                            scraping_state.add_log(f"PDF_UPLOADED: PDF for '{title}' uploaded to Supabase.")
+
+                        except Exception as pdf_error:
+                            scraping_state.add_log(f"PDF_ERROR: Failed to download/upload PDF for '{title}'. Error: {pdf_error}")
+                            logger.error(f"PDF download/upload error for company {company.id}", exc_info=True)
+                            pdf_url = None # Ensure pdf_url is None on failure
+
+                    # Create announcement object
+                    announcement_in = AnnouncementCreate(
+                        company_id=company.id,
+                        trade_registry_name=trade_registry_name,
+                        trade_registry_number=trade_registry_number,
+                        title=title,
+                        publication_date=publication_date,
+                        issue_number=int(issue_number_str) if issue_number_str.strip().isdigit() else None,
+                        page_number=int(page_number_str) if page_number_str.strip().isdigit() else None,
+                        announcement_type=announcement_type,
+                        newspaper_name=newspaper_name,
+                        pdf_url=pdf_url
+                    )
+                    
+                    # Save to DB
                     crud.announcement.create(db, obj_in=announcement_in)
-                    scraping_state.add_log(f"DB_INSERT_SUCCESS: Saved announcement from {publication_date_str} for '{company.unvan}'.")
+                    scraping_state.add_log(f"SUCCESS: Saved announcement from {publication_date_str} for '{company.unvan}'.")
 
                 except Exception as e:
-                    error_message = f"Failed to process a row for company '{company.unvan}': {traceback.format_exc()}"
-                    logger.error(error_message)
-                    scraping_state.add_log(f"ROW_PROCESSING_ERROR: {error_message}")
-                    continue
-
-            next_page_locator = page.locator("a.ui-paginator-next")
-            if await next_page_locator.is_disabled():
-                scraping_state.add_log("PAGINATION_END: No more pages to scrape.")
+                    db.rollback()
+                    error_msg = f"ROW_ERROR: Failed to process a row for '{company.unvan}'. Error: {e}"
+                    logger.error(error_msg, exc_info=True)
+                    scraping_state.add_log(error_msg)
+                    continue # Continue to the next row
+            
+            # 5. Handle pagination
+            next_button = await page.query_selector('a.paginate_button.next:not(.disabled)')
+            if not next_button:
+                scraping_state.add_log("PAGINATION_END: No 'next' button found.")
                 break
             
-            await next_page_locator.click()
-            await page.wait_for_load_state("domcontentloaded")
+            await next_button.click()
             page_number += 1
+            await page.wait_for_timeout(2000) # Wait for next page to load
 
+        # 6. Mark company as scraped after processing all pages
         crud.company.mark_as_scraped(db=db, company_id=company.id)
         scraping_state.add_log(f"COMPANY_SCRAPED_SUCCESS: Successfully finished scraping '{company.unvan}'.")
 
     except Exception as e:
-        error_message = f"Failed to process company '{company.unvan}': {traceback.format_exc()}"
+        error_message = f"COMPANY_ERROR: Failed to process company '{company.unvan}'. Error: {traceback.format_exc()}"
         logger.error(error_message)
-        scraping_state.add_log(f"COMPANY_ERROR: {error_message}")
+        scraping_state.add_log(error_message)
+        # Mark as scraped even on critical failure to avoid retrying a broken company
         crud.company.mark_as_scraped(db=db, company_id=company.id)
-
