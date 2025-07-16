@@ -290,6 +290,15 @@ class BrowserManager:
                     logger.error(f"Periodic save failed: {e}")
         logger.info("Periodic save task finished.")
 
+    async def stop_periodic_save(self):
+        """Stops the periodic saving of the browser session state."""
+        if self._save_task and not self._save_task.done():
+            self._save_task.cancel()
+            self._save_task = None
+            logger.info("Periodic session saving has been stopped.")
+        else:
+            logger.info("Periodic session saving was not running or was already stopped.")
+
     async def _handle_close(self):
         """Callback function for when the browser context is closed."""
         logger.warning("Browser context was closed, possibly by the user.")
@@ -309,6 +318,7 @@ async def start_enhanced_scraping_process(count: int):
     scrapes the results, and logs them without updating the DB.
     """
     logger.info(f"Starting enhanced scraping process for {count} companies.")
+    await browser_manager.stop_periodic_save()
     db: Session = SessionLocal()
     page = await browser_manager.get_page()
 
