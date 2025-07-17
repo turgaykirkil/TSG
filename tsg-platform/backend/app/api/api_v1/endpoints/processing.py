@@ -8,7 +8,9 @@ from pydantic import BaseModel
 from supabase import Client
 from typing import List, Dict, Any
 
-from app.core.dependencies import get_supabase_client
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+from app.core.dependencies import get_db, get_supabase_client
 from app.core.config import settings
 
 # Configure logging
@@ -40,102 +42,80 @@ class CoordinateProcessingRequest(BaseModel):
     limit: int = 100
 
 @router.post("/process-coordinates", summary="Fetch and update coordinates for companies")
-async def process_coordinates(request: Request, request_body: CoordinateProcessingRequest = Body(...), supabase: Client = Depends(get_supabase_client)):
+async def process_coordinates(request: Request, request_body: CoordinateProcessingRequest = Body(...), db: Session = Depends(get_db)):
     """
-    Fetches companies with missing coordinates, geocodes their addresses using LocationIQ,
-    and updates the database. Returns a log of operations.
+    Fetches companies without coordinates, geocodes their addresses using LocationIQ API,
+    and updates the database with the real coordinates.
     """
     limit = request_body.limit
-    logs = []
+    logger.info(f"Initiating coordinate processing for up to {limit} companies...")
 
-    def add_log(level: str, message: str):
-        timestamp = datetime.datetime.now().isoformat()
-        logs.append(f"[{timestamp}] [{level.upper()}] {message}")
-        # Also log to server console for debugging
-        if level == 'error':
-            logger.error(message)
-        elif level == 'warning':
-            logger.warning(message)
-        else:
-            logger.info(message)
+    processed_count = 0
+    failed_count = 0
+    processed_details = []
 
     try:
-        add_log("info", f"Starting coordinate processing job for up to {limit} companies.")
+        # 1. Fetch companies that need geocoding
+        fetch_query = text("SELECT id, address FROM public.companies WHERE address IS NOT NULL AND koordinat IS NULL LIMIT :limit")
+        companies_to_process = db.execute(fetch_query, {"limit": limit}).mappings().all()
 
-        if not settings.locationiq_token or settings.locationiq_token == 'YOUR_TOKEN_HERE':
-            add_log("error", "LocationIQ token is not configured in the .env file.")
-            raise HTTPException(status_code=500, detail="Geocoding service is not configured.")
-
-        processed_count = 0
-        failed_count = 0
-
-        add_log("info", f"Fetching up to {limit} companies with null coordinates.")
-        response = supabase.from_("companies").select("id, address").is_("koordinat", "NULL").limit(limit).execute()
-
-        if not response.data:
-            add_log("info", "No companies found without coordinates.")
-            return {"message": "No companies to process.", "processed_count": 0, "failed_count": 0, "logs": logs}
-
-        companies_to_process = response.data
-        add_log("info", f"Found {len(companies_to_process)} companies to process.")
+        if not companies_to_process:
+            logger.info("No companies found that require coordinate processing.")
+            return {"message": "No companies to process.", "processed_count": 0}
 
         async with httpx.AsyncClient() as client:
             for company in companies_to_process:
-                address = company.get('address')
-                company_id = company.get('id')
+                company_id = company['id']
+                original_address = company['address']
+                cleaned_address = clean_address(original_address)
 
-                if not address:
-                    add_log("warning", f"Company ID {company_id} has no address, skipping.")
+                if not cleaned_address:
                     failed_count += 1
                     continue
 
                 try:
-                    add_log("info", f"Geocoding address for company ID {company_id}: {address}")
-                    api_response = await client.get(
-                        LOCATIONIQ_API_URL,
-                        params={"key": settings.locationiq_token, "q": address, "format": "json"}
-                    )
+                    # 2. Call LocationIQ API
+                    params = {"key": settings.locationiq_token, "q": cleaned_address, "format": "json"}
+                    api_response = await client.get(LOCATIONIQ_API_URL, params=params)
                     api_response.raise_for_status()
-                    
                     geocoding_data = api_response.json()
-                    if not geocoding_data:
-                        raise ValueError("No geocoding data returned")
 
-                    first_result = geocoding_data[0]
-                    lat, lon = float(first_result['lat']), float(first_result['lon'])
-                    point_wkt = f"POINT({lon} {lat})"
-                    
-                    add_log("info", f"Updating company ID {company_id} with geometry coordinates: {point_wkt}")
-                    update_response = supabase.from_("companies").update({"koordinat": point_wkt}).eq("id", company_id).execute()
-
-                    if update_response.data:
+                    if geocoding_data:
+                        first_result = geocoding_data[0]
+                        lat, lon = float(first_result['lat']), float(first_result['lon'])
+                        
+                        # 3. Update company with new coordinates
+                        update_query = text("UPDATE public.companies SET koordinat = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326) WHERE id = :id")
+                        db.execute(update_query, {"lon": lon, "lat": lat, "id": company_id})
+                        
                         processed_count += 1
-                        add_log("info", f"Successfully updated company ID {company_id}.")
+                        processed_details.append({"id": company_id, "address": original_address, "coordinate": f"POINT({lon} {lat})"})
+                        logger.info(f"Successfully processed company {company_id}")
                     else:
-                        raise Exception(f"Failed to update company ID {company_id} in database.")
+                        logger.warning(f"Could not geocode address for company {company_id}: '{cleaned_address}'")
+                        failed_count += 1
 
-                except httpx.HTTPStatusError as e:
-                    failed_count += 1
-                    if e.response.status_code == 429:
-                        add_log("warning", f"Rate limit hit. Pausing for 10 seconds.")
-                        await asyncio.sleep(10)
-                    add_log("error", f"HTTP error for company ID {company_id}. Status: {e.response.status_code}. Reason: {e}")
                 except Exception as e:
+                    logger.error(f"Error processing company {company_id}: {e}", exc_info=True)
                     failed_count += 1
-                    add_log("error", f"Failed to process company ID {company_id}. Reason: {e}")
+                
+                await asyncio.sleep(1) # Rate limit to avoid overwhelming the API
 
-                await asyncio.sleep(1)
+        db.commit()
+        logger.info(f"Coordinate processing job finished. Processed: {processed_count}, Failed: {failed_count}")
 
-        add_log("info", f"Coordinate processing job finished. Processed: {processed_count}, Failed: {failed_count}")
-        return {"message": "Coordinate processing finished.", "processed_count": processed_count, "failed_count": failed_count, "logs": logs}
+        return {
+            "message": f"Successfully processed {processed_count} companies. Failed to process {failed_count}.",
+            "processed_count": processed_count,
+            "failed_count": failed_count,
+            "details": processed_details
+        }
 
     except Exception as e:
-        error_message = f"An unexpected error occurred during coordinate processing: {e}"
-        add_log("error", error_message)
-        # Do not raise HTTPException here to ensure logs are returned
+        # The logger is already available in the function's scope.
+        logger.error(f"An unexpected error occurred during coordinate processing: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"An unexpected server error occurred: {str(e)}")
         return {"message": "An error occurred.", "processed_count": 0, "failed_count": limit, "logs": logs, "error": error_message}
-    finally:
-        add_log("info", "Coordinate processing job function finished.")
 
 
 @router.post("/resolve-conflicts", summary="Find and resolve coordinate conflicts")
