@@ -1,4 +1,4 @@
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions
 from app.core.config import settings
 
 # Use the centralized settings object to get Supabase credentials
@@ -11,4 +11,10 @@ key: str = settings.supabase_service_role_key
 if not url or not key:
     raise ValueError("Supabase URL and/or Key not found in settings. Please check your .env file and config.py.")
 
-supabase: Client = create_client(url, key)
+# Set a longer timeout for storage operations to prevent ConnectTimeout errors.
+# The library expects a simple float for the timeout in seconds.
+opts: ClientOptions = ClientOptions(
+    storage_client_timeout=60.0
+)
+
+supabase: Client = create_client(url, key, options=opts)
