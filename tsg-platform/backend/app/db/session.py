@@ -14,6 +14,9 @@ DATABASE_URL_STR = str(settings.DATABASE_URL)
 engine = create_engine(
     DATABASE_URL_STR,
     pool_pre_ping=True,
+    pool_recycle=1800,  # Recycle connections every 30 minutes
+    pool_size=10,         # Default is 5
+    max_overflow=20,      # Default is 10
     connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL_STR else {}
 )
 
