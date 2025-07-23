@@ -65,7 +65,8 @@ api_router.include_router(stats.router, prefix="/stats", tags=["Stats"])
 # Parsing endpoints
 api_router.include_router(parsing.router, prefix="/parsing", tags=["Parsing"])
 api_router.include_router(ocr.router, prefix="/ocr", tags=["OCR"])
-api_router.include_router(batch_ocr.router, prefix="/ocr", tags=["OCR"]) # Add batch processing under the same tag
+api_router.include_router(batch_ocr.router, prefix="/batch_ocr", tags=["Batch OCR"])
+
 
 # Scraping endpoints
 api_router.include_router(scraping.router, prefix="/scraping", tags=["Scraping"])

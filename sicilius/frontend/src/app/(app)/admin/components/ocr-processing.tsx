@@ -3,6 +3,7 @@ import { Icons } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { MoreHorizontal } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 export default function OCRProcessing() {
@@ -37,7 +38,7 @@ export default function OCRProcessing() {
 
   return (
     <div className="space-y-6">
-      <Card>
+            <Card>
         <CardHeader>
           <CardTitle>OCR İşlemi</CardTitle>
         </CardHeader>
@@ -98,21 +99,19 @@ export default function OCRProcessing() {
                   <TableCell className="font-medium">{item.fileName}</TableCell>
                   <TableCell>{item.date}</TableCell>
                   <TableCell>
-                    <span className={`px-2 py-1 rounded-full text-xs ${item.status === 'Tamamlandı' ? 'bg-green-100 text-green-800' : item.status === 'Başarısız' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                    <span
+                      className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                        item.status === 'Bekliyor' ? 'bg-yellow-100 text-yellow-800' :
+                        item.status === 'Tamamlandı' ? 'bg-green-100 text-green-800' :
+                        'bg-red-100 text-red-800'
+                      }`}>
                       {item.status}
                     </span>
                   </TableCell>
                   <TableCell>
-                    {item.status === 'Tamamlandı' && (
-                      <Button variant="outline" size="sm">
-                        <Icons.fileText className="mr-1 h-4 w-4" /> Görüntüle
-                      </Button>
-                    )}
-                    {item.status === 'Başarısız' && (
-                      <Button variant="outline" size="sm">
-                        <Icons.refreshCw className="mr-1 h-4 w-4" /> Yeniden Dene
-                      </Button>
-                    )}
+                    <Button variant="ghost" size="sm">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -120,6 +119,8 @@ export default function OCRProcessing() {
           </Table>
         </CardContent>
       </Card>
+
+
     </div>
   );
 }

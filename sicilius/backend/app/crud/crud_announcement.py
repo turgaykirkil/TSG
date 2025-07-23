@@ -2,6 +2,7 @@ from app.crud.base import CRUDBase
 from app.models.announcement import Announcement
 from app.schemas.announcement import AnnouncementCreate, AnnouncementUpdate
 from sqlalchemy.orm import Session
+from app.models.ocr_result import OcrResult
 from typing import Any, Dict, Optional, Union, List
 from sqlalchemy import and_
 from datetime import date
@@ -24,8 +25,8 @@ class CRUDAnnouncement(CRUDBase[Announcement, AnnouncementCreate, AnnouncementUp
         """
         return (
             db.query(self.model)
-            .outerjoin(models.OcrResult, self.model.id == models.OcrResult.announcement_id)
-            .filter(models.OcrResult.id == None)
+            .outerjoin(OcrResult, self.model.id == OcrResult.announcement_id)
+            .filter(OcrResult.id == None)
             .order_by(self.model.id.desc())
             .limit(limit)
             .all()
