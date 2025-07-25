@@ -2,30 +2,32 @@
 TSG Araştırma Platformu - API v1 Router
 """
 from fastapi import APIRouter
+import logging
 
 from app.api.api_v1.endpoints import (
+    storage,
     auth,
     users,
-    batch_ocr,
     announcements,
     companies,
     gazettes,
     persons,
     file_uploads,
     jobs,
+    batch_ocr,
     utils,
+    stats,
     parsing,
+    ocr,
     scraping,
     search,
-    stats,
     tools,
-    processing,
-    ocr,
-    announcements
+    processing
 )
 
 
 api_router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Auth endpoints
 api_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
@@ -66,6 +68,7 @@ api_router.include_router(stats.router, prefix="/stats", tags=["Stats"])
 api_router.include_router(parsing.router, prefix="/parsing", tags=["Parsing"])
 api_router.include_router(ocr.router, prefix="/ocr", tags=["OCR"])
 api_router.include_router(batch_ocr.router, prefix="/batch_ocr", tags=["Batch OCR"])
+logger.info("Included batch_ocr router with prefix /batch_ocr")
 
 
 # Scraping endpoints
@@ -79,6 +82,8 @@ api_router.include_router(search.router, prefix="/search", tags=["Search"])
 
 # Tools endpoints
 api_router.include_router(tools.router, prefix="/tools", tags=["Tools"])
+api_router.include_router(storage.router, prefix="/storage", tags=["Storage"])
 
 # Processing endpoints
-api_router.include_router(processing.router, prefix="/process", tags=["Processing"])
+api_router.include_router(processing.router, prefix="/process", tags=["Process"])
+api_router.include_router(file_uploads.router, prefix="/file-uploads", tags=["File Uploads"]) # Ön ek düzeltildi

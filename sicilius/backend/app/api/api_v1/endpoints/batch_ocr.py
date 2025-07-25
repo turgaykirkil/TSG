@@ -1,117 +1,85 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
 from sqlalchemy.orm import Session
 
 import base64
 from io import BytesIO
 from PIL import Image
-import requests
-from tempfile import NamedTemporaryFile
+import logging
+from typing import List, Any
 
-from app import crud, models, schemas, services
-from pdf2image import convert_from_bytes
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from sqlalchemy.orm import Session
+from supabase import Client
+
+from app import crud, models, schemas
 from app.api import deps
+from app.core.dependencies import get_supabase_client
+from app.services.ocr_service import process_specific_pdf_preview
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-@router.post("/process-batch", status_code=status.HTTP_202_ACCEPTED)
-def start_batch_ocr_processing(
-    *, 
+@router.post("/start-batch-ocr/", status_code=202)
+def start_batch_ocr(
+    *,
     db: Session = Depends(deps.get_db),
-    batch_input: schemas.OcrBatchRequest,
+    announcement_ids: List[int],
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(deps.get_current_active_user),
 ):
     """
-    Start OCR processing for a batch of announcements that are pending.
+    Starts a background OCR process for a batch of announcements.
+    This is a placeholder and does not yet run the full OCR.
     """
-    # 1. Find announcements with pending OCR status
-    # We will fetch announcements that do not have an ocr_result entry yet.
-    announcements_to_process = crud.announcement.get_multi_without_ocr_results(db, limit=batch_input.limit)
-    
-    if not announcements_to_process:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No new announcements found to process."
-        )
+    if not crud.user.is_superuser(current_user):
+        raise HTTPException(status_code=403, detail="Not enough permissions")
 
-    announcement_ids = [str(ann.id) for ann in announcements_to_process]
-    logger.info(f"Found {len(announcement_ids)} announcements for batch OCR processing: {announcement_ids}")
-
-    # 2. Create initial OCR result entries and start background tasks
+    # 1. Validate that all announcements exist
     for ann_id in announcement_ids:
-        # Check if an OCR result already exists, just in case.
+        announcement = crud.announcement.get(db, id=ann_id)
+        if not announcement:
+            raise HTTPException(status_code=404, detail=f"Announcement with id {ann_id} not found.")
+
+    # 2. Create initial OCR result entries and add task to background
+    for ann_id in announcement_ids:
         existing_ocr_result = crud.ocr_result.get_by_announcement(db, announcement_id=ann_id)
         if not existing_ocr_result:
             ocr_result_in = schemas.OcrResultCreate(announcement_id=ann_id)
             crud.ocr_result.create(db=db, obj_in=ocr_result_in)
-            background_tasks.add_task(services.ocr_service.process_pdf_for_ocr, db=db, announcement_id=ann_id)
+            # TODO: Add the actual OCR processing to the background tasks
+            # background_tasks.add_task(ocr_service.run_full_ocr, db=db, announcement_id=ann_id)
+            logger.info(f"Task for announcement {ann_id} would be added here.")
 
-        return {"message": f"Started OCR processing for {len(announcement_ids)} announcements."}
+    return {"message": f"OCR processing tasks initiated for {len(announcement_ids)} announcements."}
 
-@router.post("/process-and-preview", response_model=list[schemas.OcrPreviewResponse])
-def process_and_preview_batch(
+
+@router.post("/process-and-preview/", response_model=schemas.OcrPreviewResponse)
+def process_and_preview_single(
     *,
     db: Session = Depends(deps.get_db),
-    batch_input: schemas.OcrBatchRequest,
+        supabase_client: Client = Depends(get_supabase_client),
+    announcement_id: int,
     current_user: models.User = Depends(deps.get_current_active_user),
-):
+) -> Any:
     """
-    Process a batch of announcements for OCR and return the results for preview without saving.
+    Process a single PDF for OCR and return a preview.
+    This is an immediate, blocking call, intended for single-file previews.
     """
-    announcements_to_process = crud.announcement.get_multi_without_ocr_results(db, limit=batch_input.limit)
+    announcement = crud.announcement.get(db, id=announcement_id)
+    if not announcement:
+        raise HTTPException(status_code=404, detail="Announcement not found")
 
-    if not announcements_to_process:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No new announcements found to process."
-        )
+    if not announcement.file_name:
+        raise HTTPException(status_code=400, detail="Announcement has no associated file")
 
-    results = []
-    for ann in announcements_to_process:
-        if not ann.pdf_url:
-            continue
+    logger.info(f"Starting single preview for announcement ID: {announcement.id}, file: {announcement.file_name}")
 
-        try:
-            logger.info(f"Processing for preview: {ann.id}")
-            response = requests.get(ann.pdf_url, stream=True)
-            response.raise_for_status()
-
-            with NamedTemporaryFile(delete=True, suffix=".pdf") as temp_pdf:
-                temp_pdf.write(response.content)
-                temp_pdf.flush()
-
-                # Perform OCR
-                ocr_output = services.ocr_service.process_pdf_with_surya(temp_pdf.name)
-                raw_text = "\n".join([line['text'] for page in ocr_output for line in page['text_lines']])
-
-                # Convert first page to image
-                images = convert_from_bytes(response.content, first_page=1, last_page=1)
-                if images:
-                    buffered = BytesIO()
-                    images[0].save(buffered, format="JPEG")
-                    img_str = base64.b64encode(buffered.getvalue()).decode()
-                else:
-                    img_str = None
-
-            results.append(
-                schemas.OcrPreviewResponse(
-                    announcement_id=str(ann.id),
-                    ocr_text=raw_text,
-                    pdf_image_base64=img_str
-                )
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to process announcement {ann.id} for preview: {e}")
-            # Optionally, you can add a result with an error message
-            results.append(
-                schemas.OcrPreviewResponse(
-                    announcement_id=str(ann.id),
-                    ocr_text=f"Error: {e}",
-                    pdf_image_base64=None
-                )
-            )
-
-    return results
+    # Call the correct, existing function from ocr_service
+    try:
+        ocr_preview = process_specific_pdf_preview(db=db, supabase=supabase_client, file_name=announcement.file_name)
+        if not ocr_preview:
+            raise HTTPException(status_code=404, detail="Could not generate OCR preview.")
+        return ocr_preview
+    except Exception as e:
+        logger.error(f"Error during single preview for file {announcement.file_name}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")

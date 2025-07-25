@@ -1,14 +1,18 @@
 'use client';
 
+import React from 'react';
 import OcrTechnicalPreview from './components/OcrTechnicalPreview';
 
-const OcrPage = () => {
+const OcrAdminPage = () => {
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-8">Teknik OCR Önizleme</h1>
-      <OcrTechnicalPreview />
+    <div className="space-y-4 p-8">
+        <h1 className="text-2xl font-bold">OCR Teknik Önizleme</h1>
+        <p className="text-muted-foreground">
+            Bu sayfa, OCR motorunun PDF belgelerinden metinleri ve konumlarını ne kadar doğru çıkardığını görsel olarak incelemek için bir geliştirici aracıdır.
+        </p>
+        <OcrTechnicalPreview />
     </div>
   );
 };
 
-export default OcrPage;
+export default OcrAdminPage;

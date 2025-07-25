@@ -1,96 +1,144 @@
 'use client';
 
 import { useState } from 'react';
-import axios from 'axios';
-import { Icons } from '@/components/icons';
-import { Button } from '@/components/ui/button';
+import api from '@/lib/axios';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Loader2 } from 'lucide-react';
+import SupabaseFileSelector from './SupabaseFileSelector';
 
-interface OcrResult {
-  announcement_id: string;
-  ocr_text: string;
-  pdf_image_base64: string | null;
+// Defines the structure for a single OCR text line
+interface OcrLine {
+  bbox: [number, number, number, number];
+  text: string;
 }
 
-export default function OcrTechnicalPreview() {
-  const [batchSize, setBatchSize] = useState(10);
-  const [results, setResults] = useState<OcrResult[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+// Defines the structure for a single page of OCR results
+interface OcrPage {
+  lines: OcrLine[];
+}
 
-  const startOCR = async () => {
-    setIsLoading(true);
+// Defines the structure for the entire OCR API result
+interface OcrResult {
+  announcement_id: number;
+  pdf_image_base64: string;
+  ocr_data: OcrPage[];
+  ocr_text: string;
+}
+
+const OcrTechnicalPreview = () => {
+  const [result, setResult] = useState<OcrResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [activeLine, setActiveLine] = useState<OcrLine | null>(null);
+  const [currentFile, setCurrentFile] = useState<string | null>(null);
+
+  const processDocument = async (fileName: string) => {
+    setLoading(true);
     setError(null);
+    setResult(null);
+    setCurrentFile(fileName);
+
     try {
-      const response = await axios.post('/api/v1/batch_ocr/process-and-preview', { limit: batchSize });
-      setResults(response.data);
-    } catch (err) {
-      setError('OCR işlemi sırasında bir hata oluştu.');
+      const response = await api.post(`/api/v1/batch_ocr/process-specific-preview/${fileName}`);
+      setResult(response.data);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || `"${fileName}" dosyası işlenemedi.`);
       console.error(err);
+    } finally {
+      setLoading(false);
     }
-    setIsLoading(false);
   };
 
-  return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Teknik OCR Önizleme</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="batch-size" className="block text-sm font-medium text-gray-700">İşlenecek İlan Sayısı</label>
-              <input
-                type="number"
-                id="batch-size"
-                value={batchSize}
-                onChange={(e) => setBatchSize(parseInt(e.target.value, 10))}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              />
-            </div>
-            <Button onClick={startOCR} disabled={isLoading}>
-              {isLoading ? (
-                <>
-                  <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
-                  İşleniyor...
-                </>
-              ) : 'Önizlemeyi Başlat'}
-            </Button>
-            {error && <p className="text-sm text-red-600">{error}</p>}
-          </div>
-        </CardContent>
-      </Card>
+  const renderContent = () => {
+    if (loading) {
+      return (
+        <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-lg h-96">
+          <Loader2 className="h-12 w-12 animate-spin text-primary" />
+          <span className="mt-4 text-lg font-semibold">'{currentFile}' işleniyor...</span>
+          <p className="text-muted-foreground">Bu işlem birkaç dakika sürebilir.</p>
+        </div>
+      );
+    }
 
-      {results.length > 0 && (
+    if (error) {
+      return (
+        <Alert variant="destructive">
+          <AlertTitle>Analiz Başarısız</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      );
+    }
+
+    if (result) {
+      return (
         <Card>
           <CardHeader>
-            <CardTitle>OCR Sonuçları</CardTitle>
+            <CardTitle>Duyuru ID: {result.announcement_id}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {results.map((result) => (
-                <div key={result.announcement_id} className="grid grid-cols-1 md:grid-cols-2 gap-6 border-b pb-4 last:border-b-0">
-                  <div>
-                    <h4 className="font-bold mb-2">PDF Görüntüsü (İlk Sayfa)</h4>
-                    {result.pdf_image_base64 ? (
-                      <img src={`data:image/jpeg;base64,${result.pdf_image_base64}`} alt={`PDF preview for ${result.announcement_id}`} className="rounded-md border" />
-                    ) : (
-                      <div className="flex items-center justify-center h-48 bg-gray-100 rounded-md">
-                        <p className="text-gray-500">Görüntü oluşturulamadı.</p>
-                      </div>
-                    )}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Image and Bounding Boxes Column */}
+              <div className="relative border rounded-md overflow-hidden bg-gray-50">
+                {result.pdf_image_base64 ? (
+                  <>
+                    <img
+                      src={`data:image/jpeg;base64,${result.pdf_image_base64}`}
+                      alt={`PDF Sayfa 1 - ${result.announcement_id}`}
+                      className="w-full h-auto"
+                    />
+                    {result.ocr_data?.[0]?.lines.map((line: OcrLine, index: number) => {
+                      const [x1, y1, x2, y2] = line.bbox;
+                      return (
+                        <div
+                          key={index}
+                          className="absolute border-2 border-blue-500 bg-blue-500 bg-opacity-20 hover:bg-opacity-40 cursor-pointer transition-all duration-150"
+                          style={{
+                            left: `${x1}px`,
+                            top: `${y1}px`,
+                            width: `${x2 - x1}px`,
+                            height: `${y2 - y1}px`,
+                          }}
+                          onMouseEnter={() => setActiveLine(line)}
+                          onMouseLeave={() => setActiveLine(null)}
+                        />
+                      );
+                    })}
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <p>Görüntü oluşturulamadı.</p>
                   </div>
-                  <div>
-                    <h4 className="font-bold mb-2">OCR Metni</h4>
-                    <pre className="whitespace-pre-wrap text-sm bg-gray-50 p-3 rounded-md h-48 overflow-auto">{result.ocr_text || 'Metin bulunamadı.'}</pre>
-                  </div>
+                )}
+              </div>
+
+              {/* Recognized Text Column */}
+              <div className="p-4 border rounded-md bg-gray-50 flex flex-col">
+                <h4 className="font-bold mb-4">Vurgulanan Metin</h4>
+                <div className="p-4 bg-blue-100 border border-blue-200 rounded-md min-h-[80px] flex items-center justify-center">
+                  {activeLine ? (
+                    <p className="font-mono text-sm text-center">{activeLine.text}</p>
+                  ) : (
+                    <p className="text-muted-foreground text-center">Bir metin kutusunun üzerine gelin.</p>
+                  )}
                 </div>
-              ))}
+                <hr className="my-4" />
+                <h5 className="font-semibold mb-2">Tüm Metin (Ham)</h5>
+                <pre className="text-xs whitespace-pre-wrap font-mono bg-white p-2 rounded-md flex-grow overflow-y-auto">
+                  {result.ocr_text}
+                </pre>
+              </div>
             </div>
           </CardContent>
         </Card>
-      )}
-    </div>
-  );
-}
+      );
+    }
+
+    // Default view: show the file selector
+    return <SupabaseFileSelector onFileSelect={processDocument} isProcessing={loading} />;
+  };
+
+  return <div className="space-y-6">{renderContent()}</div>;
+};
+
+export default OcrTechnicalPreview;

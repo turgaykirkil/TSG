@@ -1,5 +1,5 @@
 // API Base URL
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api';
 
 // API Endpoints
 export const API_ENDPOINTS = {
@@ -27,6 +27,9 @@ export const API_ENDPOINTS = {
   PROCESS: {
     COORDINATES: '/api/v1/process/process-coordinates',
     CONFLICTS: '/api/v1/process/resolve-conflicts',
+  },
+  OCR: {
+    PROCESS_AND_PREVIEW: '/api/v1/batch_ocr/process-and-preview/',
   },
   // Add other endpoints as needed
 } as const;

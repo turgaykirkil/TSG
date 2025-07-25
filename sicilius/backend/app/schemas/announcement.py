@@ -28,7 +28,7 @@ class AnnouncementInDBBase(AnnouncementBase):
     id: uuid.UUID
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # Properties to return to client
 class Announcement(AnnouncementInDBBase):

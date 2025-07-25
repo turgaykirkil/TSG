@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 from urllib.parse import urljoin
 
-from storage3.exceptions import StorageApiError
+from storage3.utils import StorageException
 
 from playwright.async_api import (
     Browser,
@@ -355,7 +355,7 @@ async def start_enhanced_scraping_process(count: int):
                 logger.info(f"Bucket '{bucket_name}' created successfully.")
             else:
                 logger.info(f"Bucket '{bucket_name}' already exists.")
-        except StorageApiError as e:
+        except StorageException as e:
             logger.error(f"An error occurred while checking or creating bucket '{bucket_name}': {e}")
             # RLS hatası gibi kritik bir durumda işlemi durdurmak için hatayı yükselt
             raise e

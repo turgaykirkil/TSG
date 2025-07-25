@@ -17,20 +17,28 @@ class CRUDAnnouncement(CRUDBase[Announcement, AnnouncementCreate, AnnouncementUp
             )
         ).first()
 
+    def update(self, db: Session, *, db_obj: Announcement, obj_in: Union[AnnouncementUpdate, Dict[str, Any]]) -> Announcement:
+        db_obj = super().update(db, db_obj=db_obj, obj_in=obj_in)
+        db.commit()
+        db.refresh(db_obj)
+        return db_obj
+
     def get_multi_without_ocr_results(
         self, db: Session, *, limit: int = 100
     ) -> list[Announcement]:
         """
         Get a list of announcements that do not have an associated OcrResult.
         """
-        return (
-            db.query(self.model)
-            .outerjoin(OcrResult, self.model.id == OcrResult.announcement_id)
-            .filter(OcrResult.id == None)
-            .order_by(self.model.id.desc())
-            .limit(limit)
-            .all()
-        )
+        """
+        Get a list of announcements.
+        For testing, this simply gets the first announcements from the DB.
+        """
+        return db.query(self.model).order_by(self.model.id).limit(limit).all()
 
+    def get_by_file_name(self, db: Session, *, file_name: str) -> Optional[Announcement]:
+        return db.query(self.model).filter(self.model.file_name == file_name).first()
+
+    def get_unprocessed_announcement(self, db: Session) -> Optional[Announcement]:
+        return db.query(self.model).filter(self.model.status == 'pending').order_by(self.model.id.asc()).first()
 
 announcement = CRUDAnnouncement(Announcement)

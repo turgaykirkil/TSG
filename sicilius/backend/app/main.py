@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.api_v1.api import api_router
 from app.core.config import settings
 from app.db.session import engine, Base
+from app import models  # Bütün modelleri Base'e kaydetmek için
 from app.api import upload_api
 
 # --- Logging Configuration ---
@@ -62,6 +63,14 @@ app = FastAPI(
     on_shutdown=[shutdown_event],
 )
 
+# --- Logging Middleware ---
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info(f"--> Incoming request: {request.method} {request.url.path}")
+    response = await call_next(request)
+    logger.info(f"<-- Response status: {response.status_code} for path: {request.url.path}")
+    return response
+
 # --- Exception Handlers ---
 
 @app.exception_handler(RequestValidationError)
@@ -105,9 +114,11 @@ app.add_middleware(
 )
 
 # --- API Routers ---
-
+logger.info("Attempting to include main API router with prefix: %s", settings.API_V1_STR)
 app.include_router(api_router, prefix=settings.API_V1_STR)
-app.include_router(upload_api.router, prefix=settings.API_V1_STR)
+logger.info("Main API router included successfully.")
+
+
 
 # --- Static Files ---
 

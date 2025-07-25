@@ -37,11 +37,16 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
     setIsLoading(true);
     try {
       const fetchedStats = await dashboardService.getCoordinateStats();
-      setStats(fetchedStats);
-      onStatsUpdate(fetchedStats);
+      if (fetchedStats) {
+        setStats(fetchedStats);
+        onStatsUpdate(fetchedStats);
+      } else {
+        throw new Error('Fetched stats are undefined');
+      }
     } catch (error) {
       console.error('Failed to fetch coordinate stats:', error);
       toast.error('İstatistikler yüklenemedi.');
+      setStats({ coordinated: 0, uncoordinated: 0, conflicts: 0 });
     } finally {
       setIsLoading(false);
     }
@@ -114,15 +119,15 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
         <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="p-4 bg-green-100 rounded-lg">
             <h3 className="text-lg font-semibold text-green-800">Koordinatlı</h3>
-            <p className="text-2xl font-bold text-green-900">{stats.coordinated.toLocaleString('tr-TR')}</p>
+            <p className="text-2xl font-bold text-green-900">{(stats?.coordinated ?? 0).toLocaleString('tr-TR')}</p>
           </div>
           <div className="p-4 bg-yellow-100 rounded-lg">
             <h3 className="text-lg font-semibold text-yellow-800">Koordinatsız</h3>
-            <p className="text-2xl font-bold text-yellow-900">{stats.uncoordinated.toLocaleString('tr-TR')}</p>
+            <p className="text-2xl font-bold text-yellow-900">{(stats?.uncoordinated ?? 0).toLocaleString('tr-TR')}</p>
           </div>
           <div className="p-4 bg-red-100 rounded-lg">
             <h3 className="text-lg font-semibold text-red-800">Çakışmalar</h3>
-            <p className="text-2xl font-bold text-red-900">{stats.conflicts.toLocaleString('tr-TR')}</p>
+            <p className="text-2xl font-bold text-red-900">{(stats?.conflicts ?? 0).toLocaleString('tr-TR')}</p>
           </div>
         </CardContent>
       </Card>
