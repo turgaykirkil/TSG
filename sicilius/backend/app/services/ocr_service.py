@@ -1,200 +1,175 @@
-import logging
-from datetime import datetime
-from pathlib import Path
-from io import BytesIO
-import base64
-import pdf2image
-
-from sqlalchemy.orm import Session
-from supabase import Client
-from app.crud.crud_announcement import announcement as crud_announcement
-from app.schemas.announcement import AnnouncementUpdate
-from app.schemas.ocr_result import OcrResultUpdate
-from app.core.config import settings
 from PIL import Image
+from typing import List
+import torch
+from pdf2image import convert_from_bytes
 
 from surya.recognition import RecognitionPredictor
 from surya.detection import DetectionPredictor
+from surya.settings import settings
+from supabase import Client
+from app import schemas
+from io import BytesIO
+import base64
 
+import logging
 logger = logging.getLogger(__name__)
 
-# Global variables to hold the predictors
-detection_predictor = None
-recognition_predictor = None
-
-def load_ocr_models():
-    """Load the OCR predictors into memory."""
-    global detection_predictor, recognition_predictor
-    if not detection_predictor:
-        logger.info("Loading detection model...")
-        detection_predictor = DetectionPredictor()
-    if not recognition_predictor:
-        logger.info("Loading recognition model...")
-        recognition_predictor = RecognitionPredictor()
-    logger.info("OCR models loaded successfully.")
-
-def process_images_with_surya(images: list[Image.Image]) -> list:
-    """Processes a list of images using Surya OCR and returns structured data."""
-    load_ocr_models() # Ensure models are loaded
-    predictions = recognition_predictor(images, det_predictor=detection_predictor)
-    return predictions
-
-def process_specific_pdf_preview(db: Session, supabase: Client, file_name: str):
+class OcrService:
     """
-    Finds an announcement by file_name, downloads the PDF from Supabase, 
-    runs OCR, generates a preview image, and returns the combined data.
+    A singleton service for handling OCR tasks using the Surya library.
+    It initializes the detection and recognition models once and provides a method to run OCR on images.
     """
-    logger.info(f"Starting specific OCR preview process for: {file_name}")
+    _instance = None
+    _initialized = False
 
-    announcement = crud_announcement.get_by_file_name(db, file_name=file_name)
-    if not announcement or not announcement.file_path:
-        logger.warning(f"Announcement not found or has no file path for: {file_name}")
-        return None
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super(OcrService, cls).__new__(cls)
+        return cls._instance
 
-    # Use a temporary directory for safety
-    with NamedTemporaryFile(delete=True, suffix=".pdf") as temp_pdf_file:
-        local_pdf_path = Path(temp_pdf_file.name)
-        try:
-            logger.info(f"Downloading {announcement.file_path} from Supabase...")
-            response = supabase.storage.from_("announcements").download(announcement.file_path)
-            with open(local_pdf_path, "wb+") as f:
-                f.write(response)
-            logger.info(f"Successfully downloaded to {local_pdf_path}")
-        except Exception as e:
-            logger.error(f"Failed to download {announcement.file_path}: {e}")
-            return None
-
-        try:
-            images = pdf2image.convert_from_path(local_pdf_path, first_page=1, last_page=1)
-            if not images:
-                raise ValueError("PDF conversion returned no images.")
-            image = images[0]
-
-            # Use the new process_images_with_surya function
-            predictions = process_images_with_surya([image])
-            ocr_results = predictions[0] # We process only one page
-
-            # Reconstruct the data structure for the database and response
-            page_data = {
-                "page": 1,
-                "lines": [
-                    {
-                        "text": line.text,
-                        "bbox": [round(coord, 2) for coord in line.bbox],
-                        "polygon": [[round(p[0], 2), round(p[1], 2)] for p in line.polygon]
-                    }
-                    for line in ocr_results.text_lines
-                ]
-            }
-            ocr_data_for_db = {"pages": [page_data]}
-            ocr_text_content = "\n".join([line.text for line in ocr_results.text_lines])
-
-            # Generate base64 image for preview
-            buffered = BytesIO()
-            image.save(buffered, format="JPEG")
-            img_str = base64.b64encode(buffered.getvalue()).decode()
-
-        except Exception as e:
-            logger.error(f"Error during OCR processing for {local_pdf_path}: {e}", exc_info=True)
-            return None
-
-    update_data = AnnouncementUpdate(
-        ocr_text=ocr_text_content,
-        ocr_data=ocr_data_for_db,
-        status="processed",
-        processed_at=datetime.utcnow()
-    )
-    crud_announcement.update(db, db_obj=announcement, obj_in=update_data)
-
-    local_pdf_path.unlink(missing_ok=True)
-    logger.info(f"Successfully processed and cleaned up {file_name}")
-
-    return {
-        "announcement_id": announcement.id,
-        "ocr_text": ocr_text_content,
-        "ocr_data": ocr_data_for_db.get("pages", []),
-        "pdf_image_base64": img_str
-    }
-
-
-
-def process_pdf_with_surya(pdf_path: str, lang: str = 'tr') -> list[dict]:
-    """Processes a PDF file using Surya OCR and returns the structured output."""
-    try:
-        # Use pdf2image to convert PDF to a list of PIL images
-        images = convert_from_path(pdf_path)
-        logger.info(f"Successfully converted {len(images)} pages from PDF: {pdf_path}")
-    except Exception as e:
-        logger.error(f"Failed to convert PDF to images: {pdf_path}. Error: {e}")
-        return []
-
-    # Prepare languages for each image. Surya expects a list of lists.
-    langs = [lang] * len(images)
-    logger.info(f"Running OCR on {len(images)} pages with language: {lang}")
-
-    # Run the OCR process
-    predictions = run_ocr(images, [langs], det_model, det_processor, rec_model, rec_processor)
-
-    # Structure the output
-    output = []
-    for i, page_preds in enumerate(predictions):
-        lines_data = []
-        for line in page_preds.text_lines:
-            line_dict = {
-                "text": line.text,
-                "bbox": [round(coord, 2) for coord in line.bbox],
-                "polygon": [[round(p[0], 2), round(p[1], 2)] for p in line.polygon]
-            }
-            lines_data.append(line_dict)
+    def __init__(self):
+        if self._initialized:
+            return
         
-        page_data = {
-            "page": i + 1,
-            "lines": lines_data
-        }
-        output.append(page_data)
+        logger.info("Initializing OCR service...")
+        try:
+            # Set device based on availability for torch
+            if torch.cuda.is_available():
+                self.device = "cuda"
+            elif torch.backends.mps.is_available():
+                self.device = "mps"
+            else:
+                self.device = "cpu"
+            
+            # Set device for surya models
+            import surya.settings as surya_settings
+            surya_settings.TORCH_DEVICE_MODEL = self.device
+            logger.info(f"OCR service will use device: {self.device}")
 
-    logger.info(f"OCR processing completed. Found text in {len(output)} pages.")
-    return output
+            # Initialize detection and recognition predictors
+            self.det_predictor = DetectionPredictor()
+            self.rec_predictor = RecognitionPredictor()
+            
+            self._initialized = True
+            logger.info("OCR service initialized successfully.")
+        except Exception as e:
+            logger.error(f"Failed to initialize OCR service: {e}", exc_info=True)
+            # Re-raise to prevent the application from starting with a broken service
+            raise
 
-def process_pdf_for_ocr(db: Session, *, announcement_id: str):
-    """Processes a PDF for a given announcement, performs OCR with Surya, and saves the results."""
-    logger.info(f"Starting Surya OCR process for announcement_id: {announcement_id}")
+    def run_ocr(self, pdf_content: bytes, tasks: list[str] = None) -> list:
+        """
+        Run OCR on a PDF document.
+        
+        Args:
+            pdf_content: Binary content of the PDF file
+            tasks: List of tasks to perform (e.g., ['ocr_with_boxes'])
+            
+        Returns:
+            List of OCR results for each page
+        """
+        if not self._initialized:
+            logger.error("OCR service called before initialization.")
+            raise RuntimeError("OCR service is not initialized.")
+        
+        try:
+            # Convert PDF to images
+            logger.info("Converting PDF to images...")
+            images = convert_from_bytes(pdf_content)
+            logger.info(f"Successfully converted PDF to {len(images)} images.")
+            
+            if not images:
+                logger.error("No images were generated from the PDF.")
+                return []
+                
+            # Set default task if none provided
+            if not tasks:
+                tasks = ['ocr_with_boxes']
+                
+            logger.info(f"Running OCR on {len(images)} pages with tasks: {tasks}")
+            
+            # Process each image
+            all_results = []
+            
+            for i, image in enumerate(images, 1):
+                try:
+                    logger.info(f"Processing page {i}/{len(images)}...")
+                    
+                    # Run detection - use PIL Image directly as Surya expects
+                    detections = self.det_predictor([image])
+                    
+                    # Check if we have detections
+                    if detections and len(detections) > 0:
+                        detection_result = detections[0]
+                        
+                        # Run recognition with proper Surya API
+                        # We need to pass images, task_names, and detections
+                        predictions = self.rec_predictor([image], [tasks[0]], [detection_result])
+                        
+                        if predictions and len(predictions) > 0:
+                            all_results.extend(predictions)
+                            logger.info(f"Page {i}: Found {len(predictions[0].lines)} text lines")
+                        else:
+                            logger.warning(f"Page {i}: No text detected")
+                            all_results.append([])
+                    else:
+                        logger.warning(f"Page {i}: No text detected")
+                        all_results.append([])
+                        
+                except Exception as page_error:
+                    logger.error(f"Error processing page {i}: {str(page_error)}", exc_info=True)
+                    all_results.append([])  # Add empty result for this page
+            
+            logger.info(f"OCR processing completed. Processed {len(all_results)} pages.")
+            return all_results
+            
+        except Exception as e:
+            logger.error(f"Critical error in run_ocr: {str(e)}", exc_info=True)
+            return []
 
-    announcement = crud.announcement.get(db=db, id=announcement_id)
-    if not announcement or not announcement.ocr_result:
-        logger.error(f"Announcement or its OcrResult entry not found for id {announcement_id}.")
-        return
 
-    ocr_result = announcement.ocr_result
-    crud.ocr_result.update(db=db, db_obj=ocr_result, obj_in=OcrResultUpdate(status='processing'))
-    logger.info(f"OCR status for announcement {announcement_id} updated to 'processing'.")
-
+def process_specific_pdf_preview(supabase: Client, file_name: str) -> schemas.OcrPreviewResponse:
+    logger.info(f"Processing specific PDF preview for file: {file_name}")
     try:
-        if not announcement.pdf_url:
-            raise ValueError("PDF URL is missing.")
+        # 1. Download file from Supabase
+        response = supabase.storage.from_("announcements").download(file_name)
+        pdf_content = response
+        logger.info(f"Successfully downloaded {len(pdf_content)} bytes for {file_name}")
 
-        logger.info(f"Downloading PDF from {announcement.pdf_url}")
-        response = requests.get(announcement.pdf_url, stream=True)
-        response.raise_for_status()
+        # 2. Get OCR service instance and run OCR
+        ocr_service = OcrService()
+        ocr_results = ocr_service.run_ocr(pdf_content=pdf_content)
 
-        with NamedTemporaryFile(delete=True, suffix=".pdf") as temp_pdf:
-            temp_pdf.write(response.content)
-            temp_pdf.flush()
-            logger.info(f"PDF downloaded to temporary file: {temp_pdf.name}")
+        if not ocr_results:
+            logger.warning(f"OCR service returned no results for {file_name}")
+            return schemas.OcrPreviewResponse(pages=[])
 
-            # Perform OCR using Surya
-            ocr_output = process_pdf_with_surya(temp_pdf.name)
+        # 3. Convert results to OcrPreviewResponse schema
+        preview_pages = []
+        images = convert_from_bytes(pdf_content)
 
-        # Save results
-        update_data = OcrResultUpdate(
-            status='completed',
-            result_text=json.dumps(ocr_output, ensure_ascii=False, indent=2),
-            raw_text="\n".join([line['text'] for page in ocr_output for line in page['text_lines']])
-        )
-        crud.ocr_result.update(db=db, db_obj=ocr_result, obj_in=update_data)
-        logger.info(f"Successfully completed Surya OCR for announcement {announcement_id}.")
+        for i, (page_result, pil_image) in enumerate(zip(ocr_results, images)):
+            # Convert PIL image to base64
+            buffered = BytesIO()
+            pil_image.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+            # Extract text lines
+            text_lines = []
+            if page_result and hasattr(page_result, 'lines') and page_result.lines:
+                for line in page_result.lines:
+                    text_lines.append(schemas.OcrTextLine(text=line.text, bbox=line.bbox))
+            
+            preview_pages.append(schemas.OcrPagePreview(
+                page_number=i + 1,
+                image_base64=f"data:image/png;base64,{img_str}",
+                lines=text_lines
+            ))
+        
+        logger.info(f"Successfully created preview for {len(preview_pages)} pages.")
+        return schemas.OcrPreviewResponse(pages=preview_pages)
 
     except Exception as e:
-        logger.error(f"An error occurred during Surya OCR processing for announcement {announcement_id}: {e}", exc_info=True)
-        # Update status to 'failed'
-        crud.ocr_result.update(db=db, db_obj=ocr_result, obj_in=OcrResultUpdate(status='failed', result_text=json.dumps({'error': str(e)})))
+        logger.error(f"Failed to process preview for {file_name}: {e}", exc_info=True)
+        raise
+

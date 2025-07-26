@@ -76,7 +76,7 @@ def process_and_preview_single(
 
     # Call the correct, existing function from ocr_service
     try:
-        ocr_preview = process_specific_pdf_preview(db=db, supabase=supabase_client, file_name=announcement.file_name)
+        ocr_preview = process_specific_pdf_preview(supabase=supabase_client, file_name=announcement.file_name)
         if not ocr_preview:
             raise HTTPException(status_code=404, detail="Could not generate OCR preview.")
         return ocr_preview

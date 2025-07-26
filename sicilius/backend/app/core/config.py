@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Optional, Set
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import AnyHttpUrl, Field, RedisDsn, PostgresDsn, field_validator, ValidationInfo
+from pydantic import AnyHttpUrl, Field, PostgresDsn, RedisDsn, ValidationInfo, field_validator
 
 class Settings(BaseSettings):
     # Pydantic v2 config
@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     # Server
     HOST: str = "0.0.0.0"
     PORT: int = 5001
-    CORS_ORIGINS: str
+    CORS_ORIGINS: List[AnyHttpUrl] = []
     
     # Database (SQLAlchemy connection)
     DATABASE_URL: PostgresDsn

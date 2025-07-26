@@ -99,19 +99,21 @@ app.add_middleware(
     same_site="none",
 )
 
-# Geliştirme ortamı için localhost:3000'i her zaman ekle
-# Ortam değişkeninden gelen origin'leri al ve boş olanları filtrele
-origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()] if settings.CORS_ORIGINS else []
+# CORS Middleware Configuration
+logger.info(f"CORS ayarları kontrol ediliyor. Yüklenen originler: {settings.CORS_ORIGINS}")
+origins = [str(origin) for origin in settings.CORS_ORIGINS]
+# Add frontend origin as a fallback to ensure it's always allowed.
 if "http://localhost:3000" not in origins:
     origins.append("http://localhost:3000")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"]
-)
+if origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # --- API Routers ---
 logger.info("Attempting to include main API router with prefix: %s", settings.API_V1_STR)
