@@ -6,7 +6,7 @@ import logging
 router = APIRouter()
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 @router.get("/search", summary="Search for companies")

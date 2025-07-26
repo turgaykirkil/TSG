@@ -8,7 +8,7 @@ from app.core.dependencies import get_supabase_client
 router = APIRouter()
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 @router.get("/coordinates", summary="Get coordinate statistics")

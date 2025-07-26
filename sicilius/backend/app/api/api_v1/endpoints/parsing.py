@@ -42,7 +42,7 @@ class SaveResponse(BaseModel):
 
 # --- Router Definition ---
 router = APIRouter()
-logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 # --- Helper Functions ---

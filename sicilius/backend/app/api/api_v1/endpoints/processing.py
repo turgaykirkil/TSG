@@ -14,7 +14,7 @@ from app.core.dependencies import get_db, get_supabase_client
 from app.core.config import settings
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()

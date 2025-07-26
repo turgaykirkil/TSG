@@ -20,7 +20,7 @@ from app.api import upload_api
 
 # --- Logging Configuration ---
 logging.basicConfig(
-    level=settings.LOG_LEVEL.upper(),
+    level=logging.DEBUG,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler()]
 )

@@ -20,6 +20,7 @@ from app.api.api_v1.endpoints import (
     storage,
     tools,
     processing,
+    parsing,
     utils
 )
 
@@ -38,6 +39,7 @@ api_router.include_router(persons.router, prefix="/persons", tags=["Persons"])
 
 # Functionality
 api_router.include_router(ocr.router, prefix="/parsing", tags=["OCR & Parsing"])
+api_router.include_router(parsing.router, prefix="/parsing", tags=["Parsing"])
 api_router.include_router(scraping.router, prefix="/scraping", tags=["Scraping"])
 api_router.include_router(search.router, prefix="/search", tags=["Search"])
 api_router.include_router(processing.router, prefix="/process", tags=["Processing"])
