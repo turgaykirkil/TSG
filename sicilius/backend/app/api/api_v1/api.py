@@ -5,7 +5,6 @@ from fastapi import APIRouter
 import logging
 
 from app.api.api_v1.endpoints import (
-    storage,
     auth,
     users,
     announcements,
@@ -14,76 +13,41 @@ from app.api.api_v1.endpoints import (
     persons,
     file_uploads,
     jobs,
-    batch_ocr,
-    utils,
-    stats,
-    parsing,
     ocr,
     scraping,
     search,
+    stats,
+    storage,
     tools,
-    processing
+    processing,
+    utils
 )
-
 
 api_router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Auth endpoints
+# Core
 api_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
-
-# User endpoints
 api_router.include_router(users.router, prefix="/users", tags=["Users"])
 
-# Announcement endpoints
+# Data Models
 api_router.include_router(announcements.router, prefix="/announcements", tags=["Announcements"])
-
-# Company endpoints
 api_router.include_router(companies.router, prefix="/companies", tags=["Companies"])
-
-# Gazette endpoints
 api_router.include_router(gazettes.router, prefix="/gazettes", tags=["Gazettes"])
-
-# Person endpoints
 api_router.include_router(persons.router, prefix="/persons", tags=["Persons"])
 
-# File upload endpoints
-api_router.include_router(file_uploads.router, prefix="/file-uploads", tags=["File Uploads"])
+# Functionality
+api_router.include_router(ocr.router, prefix="/parsing", tags=["OCR & Parsing"])
+api_router.include_router(scraping.router, prefix="/scraping", tags=["Scraping"])
+api_router.include_router(search.router, prefix="/search", tags=["Search"])
+api_router.include_router(processing.router, prefix="/process", tags=["Processing"])
 
-# Company scrape endpoints
-
-
-# Job endpoints
+# File & Job Handling
+api_router.include_router(file_uploads.router, prefix="/files", tags=["File Handling"])
+api_router.include_router(storage.router, prefix="/storage", tags=["Storage"])
 api_router.include_router(jobs.router, prefix="/jobs", tags=["Jobs"])
 
-# Utility endpoints
-api_router.include_router(utils.router, prefix="/utils", tags=["Utilities"])
-
-# Stats endpoints
-api_router.include_router(stats.router, prefix="/stats", tags=["Stats"])
-
-
-
-# Parsing endpoints
-api_router.include_router(parsing.router, prefix="/parsing", tags=["Parsing"])
-api_router.include_router(ocr.router, prefix="/ocr", tags=["OCR"])
-api_router.include_router(batch_ocr.router, prefix="/batch_ocr", tags=["Batch OCR"])
-logger.info("Included batch_ocr router with prefix /batch_ocr")
-
-
-# Scraping endpoints
-api_router.include_router(scraping.router, prefix="/scraping", tags=["Scraping"])
-
-# Search endpoints
-api_router.include_router(search.router, prefix="/search", tags=["Search"])
-
-# Stats endpoints
-
-
-# Tools endpoints
+# Supporting
+api_router.include_router(stats.router, prefix="/stats", tags=["Statistics"])
 api_router.include_router(tools.router, prefix="/tools", tags=["Tools"])
-api_router.include_router(storage.router, prefix="/storage", tags=["Storage"])
-
-# Processing endpoints
-api_router.include_router(processing.router, prefix="/process", tags=["Process"])
-api_router.include_router(file_uploads.router, prefix="/file-uploads", tags=["File Uploads"]) # Ön ek düzeltildi
+api_router.include_router(utils.router, prefix="/utils", tags=["Utilities"])

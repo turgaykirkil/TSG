@@ -1,6 +1,7 @@
 # Core
 fastapi
 uvicorn[standard]
+websockets<11.0
 pydantic
 pydantic-settings
 python-dotenv
@@ -23,7 +24,6 @@ passlib[bcrypt]
 supabase
 
 # OCR & Data Processing
-git+https://github.com/datalab-to/surya.git#egg=surya-ocr
 torch==2.7.1
 torchvision==0.22.1
 timm
@@ -51,4 +51,3 @@ pytest
 pytest-cov
 pytest-asyncio
 pytest-mock
-storage3-py

@@ -36,7 +36,7 @@ class CRUDAnnouncement(CRUDBase[Announcement, AnnouncementCreate, AnnouncementUp
         return db.query(self.model).order_by(self.model.id).limit(limit).all()
 
     def get_by_file_name(self, db: Session, *, file_name: str) -> Optional[Announcement]:
-        return db.query(self.model).filter(self.model.file_name == file_name).first()
+        return db.query(self.model).filter(self.model.pdf_url.like(f"%{file_name}%")).first()
 
     def get_unprocessed_announcement(self, db: Session) -> Optional[Announcement]:
         return db.query(self.model).filter(self.model.status == 'pending').order_by(self.model.id.asc()).first()

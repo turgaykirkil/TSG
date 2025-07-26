@@ -37,3 +37,7 @@ class Announcement(AnnouncementInDBBase):
 # Properties stored in DB
 class AnnouncementInDB(AnnouncementInDBBase):
     pass
+
+# Properties for requests that only need a file name
+class FileNameRequest(BaseModel):
+    file_name: str

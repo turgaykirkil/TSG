@@ -14,6 +14,7 @@ from app import crud, models, schemas
 from app.core import security
 from app.core.config import settings
 from app.db.session import SessionLocal
+from supabase.client import Client, create_client
 
 reusable_oauth2 = OAuth2PasswordBearer(
     tokenUrl=f"{settings.API_V1_STR}/auth/login", auto_error=False
@@ -92,3 +93,18 @@ def get_current_active_user(
     if not crud.user.is_active(current_user):
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
+
+
+def get_supabase_client() -> Generator[Client, None, None]:
+    """
+    Get a Supabase client.
+    """
+    try:
+        supabase_client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+        yield supabase_client
+    except Exception as e:
+        logging.error(f"Failed to create Supabase client: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not connect to Supabase service."
+        )

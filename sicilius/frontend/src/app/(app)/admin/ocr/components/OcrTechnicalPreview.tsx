@@ -1,144 +1,103 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import api from '@/lib/axios';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2 } from 'lucide-react';
-import SupabaseFileSelector from './SupabaseFileSelector';
+import React from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ZoomIn, ZoomOut, Expand, Search } from 'lucide-react';
+import { Button } from "@/components/ui/button";
+import { OcrPagePreview, OcrPreviewResponse, OcrTextLine } from "@/lib/types";
 
-// Defines the structure for a single OCR text line
-interface OcrLine {
-  bbox: [number, number, number, number];
-  text: string;
+interface OcrTechnicalPreviewProps {
+  preview: OcrPreviewResponse | null;
 }
 
-// Defines the structure for a single page of OCR results
-interface OcrPage {
-  lines: OcrLine[];
-}
+const OcrTechnicalPreview: React.FC<OcrTechnicalPreviewProps> = ({ preview }) => {
 
-// Defines the structure for the entire OCR API result
-interface OcrResult {
-  announcement_id: number;
-  pdf_image_base64: string;
-  ocr_data: OcrPage[];
-  ocr_text: string;
-}
+  if (!preview) {
+    return null; // Or a placeholder/message when no preview data is available
+  }
 
-const OcrTechnicalPreview = () => {
-  const [result, setResult] = useState<OcrResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [activeLine, setActiveLine] = useState<OcrLine | null>(null);
-  const [currentFile, setCurrentFile] = useState<string | null>(null);
-
-  const processDocument = async (fileName: string) => {
-    setLoading(true);
-    setError(null);
-    setResult(null);
-    setCurrentFile(fileName);
-
-    try {
-      const response = await api.post(`/api/v1/batch_ocr/process-specific-preview/${fileName}`);
-      setResult(response.data);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || `"${fileName}" dosyası işlenemedi.`);
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const renderContent = () => {
-    if (loading) {
-      return (
-        <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-lg h-96">
-          <Loader2 className="h-12 w-12 animate-spin text-primary" />
-          <span className="mt-4 text-lg font-semibold">'{currentFile}' işleniyor...</span>
-          <p className="text-muted-foreground">Bu işlem birkaç dakika sürebilir.</p>
-        </div>
-      );
-    }
-
-    if (error) {
-      return (
-        <Alert variant="destructive">
-          <AlertTitle>Analiz Başarısız</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      );
-    }
-
-    if (result) {
-      return (
-        <Card>
+  return (
+    <div className="space-y-8">
+      {preview.pages.map((page: OcrPagePreview) => (
+        <Card key={page.page_number} className="overflow-hidden shadow-lg rounded-lg">
           <CardHeader>
-            <CardTitle>Duyuru ID: {result.announcement_id}</CardTitle>
+            <CardTitle>Sayfa {page.page_number}</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Image and Bounding Boxes Column */}
-              <div className="relative border rounded-md overflow-hidden bg-gray-50">
-                {result.pdf_image_base64 ? (
-                  <>
-                    <img
-                      src={`data:image/jpeg;base64,${result.pdf_image_base64}`}
-                      alt={`PDF Sayfa 1 - ${result.announcement_id}`}
-                      className="w-full h-auto"
-                    />
-                    {result.ocr_data?.[0]?.lines.map((line: OcrLine, index: number) => {
-                      const [x1, y1, x2, y2] = line.bbox;
-                      return (
-                        <div
-                          key={index}
-                          className="absolute border-2 border-blue-500 bg-blue-500 bg-opacity-20 hover:bg-opacity-40 cursor-pointer transition-all duration-150"
-                          style={{
-                            left: `${x1}px`,
-                            top: `${y1}px`,
-                            width: `${x2 - x1}px`,
-                            height: `${y2 - y1}px`,
-                          }}
-                          onMouseEnter={() => setActiveLine(line)}
-                          onMouseLeave={() => setActiveLine(null)}
-                        />
-                      );
-                    })}
-                  </>
-                ) : (
-                  <div className="flex items-center justify-center h-full">
-                    <p>Görüntü oluşturulamadı.</p>
+          <CardContent className="p-0">
+            <TooltipProvider delayDuration={100}>
+              <div className="flex h-[calc(100vh-300px)] bg-gray-50 dark:bg-gray-900">
+                {/* Left Panel: Image Viewer */}
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  <div className="flex items-center justify-between p-2 border-b bg-white dark:bg-gray-800">
+                    <h5 className="font-semibold text-sm">Sayfa {page.page_number} / {preview.pages.length}</h5>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="icon" className="h-8 w-8"><ZoomIn className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8"><ZoomOut className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8"><Expand className="h-4 w-4" /></Button>
+                    </div>
                   </div>
-                )}
-              </div>
-
-              {/* Recognized Text Column */}
-              <div className="p-4 border rounded-md bg-gray-50 flex flex-col">
-                <h4 className="font-bold mb-4">Vurgulanan Metin</h4>
-                <div className="p-4 bg-blue-100 border border-blue-200 rounded-md min-h-[80px] flex items-center justify-center">
-                  {activeLine ? (
-                    <p className="font-mono text-sm text-center">{activeLine.text}</p>
-                  ) : (
-                    <p className="text-muted-foreground text-center">Bir metin kutusunun üzerine gelin.</p>
-                  )}
+                  <div className="flex-1 overflow-auto p-4 bg-gray-200 dark:bg-gray-700">
+                    <div
+                      className="relative mx-auto shadow-2xl"
+                      style={{ width: 'fit-content' }}
+                    >
+                      <img
+                        src={page.image_base64}
+                        alt={`Sayfa ${page.page_number}`}
+                        className="select-none border border-gray-300 dark:border-gray-600"
+                      />
+                      {page.lines.map((line: OcrTextLine, index: number) => {
+                        const [x1, y1, x2, y2] = line.bbox;
+                        return (
+                          <Tooltip key={`box-tooltip-${index}`}>
+                            <TooltipTrigger asChild>
+                              <div
+                                className="absolute border-2 border-primary/70 bg-primary/20 hover:bg-primary/40 hover:border-primary cursor-pointer transition-colors duration-150 rounded-sm"
+                                style={{
+                                  left: `${x1}px`,
+                                  top: `${y1}px`,
+                                  width: `${x2 - x1}px`,
+                                  height: `${y2 - y1}px`,
+                                }}
+                              />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" align="center" className="max-w-xs text-center bg-gray-900 text-white rounded-md p-2 text-xs shadow-lg">
+                              <p>{line.text}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
-                <hr className="my-4" />
-                <h5 className="font-semibold mb-2">Tüm Metin (Ham)</h5>
-                <pre className="text-xs whitespace-pre-wrap font-mono bg-white p-2 rounded-md flex-grow overflow-y-auto">
-                  {result.ocr_text}
-                </pre>
+
+                {/* Right Panel: Recognized Text */}
+                <div className="w-1/3 max-w-md border-l flex flex-col bg-white dark:bg-gray-800">
+                  <div className="p-3 border-b flex items-center gap-2 sticky top-0 bg-white dark:bg-gray-800 z-10">
+                    <Search className="h-4 w-4 text-muted-foreground" />
+                    <h4 className="font-semibold tracking-tight">Tanınan Metin</h4>
+                  </div>
+                  <div className="flex-grow overflow-y-auto p-1">
+                     <ul className="space-y-1 p-2">
+                      {page.lines.map((line: OcrTextLine, index: number) => (
+                        <li 
+                          key={`text-${index}`}
+                          className="p-2 rounded-md font-mono text-xs hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer transition-colors duration-150"
+                        >
+                          {line.text}
+                        </li>
+                      ))}
+                    </ul> 
+                  </div>
+                </div>
               </div>
-            </div>
+            </TooltipProvider>
           </CardContent>
         </Card>
-      );
-    }
-
-    // Default view: show the file selector
-    return <SupabaseFileSelector onFileSelect={processDocument} isProcessing={loading} />;
-  };
-
-  return <div className="space-y-6">{renderContent()}</div>;
+      ))}
+    </div>
+  );
 };
 
 export default OcrTechnicalPreview;
