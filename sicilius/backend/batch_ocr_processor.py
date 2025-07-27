@@ -1,19 +1,23 @@
 import argparse
 import os
-import time
 from pathlib import Path
+import time
+import gc
+import torch
+import sys
 from tqdm import tqdm
+from pdf2image import convert_from_bytes
+from app.services.ocr_service import OcrService
+
+# FAZ 1: MPS için ortam değişkenlerini ayarla
+# Olası çökme durumlarında işlemlerin CPU'ya düşmesini sağlar.
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 # Proje kök dizinini sys.path'e ekleyerek app modülünün bulunmasını sağla
-import sys
-# Bu betiğin bulunduğu dizinden iki üst dizine çıkarak proje kökünü bul
 project_root = Path(__file__).resolve().parent.parent
 sys.path.append(str(project_root))
 
-from app.services.ocr_service import get_surya_ocr_preview
-
-
-def process_batch(input_dir: Path, output_dir: Path):
+def process_batch(input_dir: Path, output_dir: Path, delay: int):
     """
     Belirtilen bir klasördeki tüm PDF dosyalarını işler ve sonuçları
     başka bir klasöre metin dosyaları olarak kaydeder.
@@ -33,37 +37,64 @@ def process_batch(input_dir: Path, output_dir: Path):
 
     print(f"Toplam {len(pdf_files)} adet PDF dosyası bulundu. İşlem başlıyor...")
 
-    # OCR servisi bir kereliğine (singleton) başlatılacağı için ilk başlatma biraz sürebilir.
-    # Bu yüzden ilk dosyadan önce bir uyarı verelim.
-    print("OCR modelleri yükleniyor... Bu işlem ilk çalıştırmada biraz zaman alabilir.")
     start_time_total = time.time()
 
+    print(f"Döngüye girmeden önce {len(pdf_files)} dosya işlenmek üzere hazır.")
     # Dosyaları tqdm ile bir ilerleme çubuğu göstererek işle
     for pdf_path in tqdm(pdf_files, desc="PDF'ler işleniyor"):
+        ocr_service = None
         try:
-            # PDF dosyasını byte olarak oku
+            pdf_file_name = pdf_path.name
+            tqdm.write(f"\n{pdf_file_name} için OCR servisi başlatılıyor...")
+            # FAZ 1: Stabilite ayarlarıyla MPS'i tekrar etkinleştir
+            ocr_service = OcrService(device="mps")
+
             with open(pdf_path, "rb") as f:
                 pdf_content = f.read()
+            
+            images = convert_from_bytes(pdf_content)
+            tqdm.write(f"{len(images)} sayfa bulundu ve görüntülere dönüştürüldü.")
 
-            # OCR işlemini gerçekleştir
-            preview_response = get_surya_ocr_preview(
-                pdf_content=pdf_content, file_name=pdf_path.name
-            )
+            ocr_predictions = ocr_service.run_ocr(images=images)
 
-            # Sonuçları birleştirerek metin içeriği oluştur
+            if not ocr_predictions:
+                tqdm.write(f"UYARI: {pdf_path.name} için OCR sonucu bulunamadı.")
+                continue
+
             full_text = ""
-            for page in preview_response.pages:
-                for line in page.lines:
-                    full_text += line.text + "\n"
+            for page_result in ocr_predictions:
+                if page_result and hasattr(page_result, 'text_lines') and page_result.text_lines:
+                    for line in page_result.text_lines:
+                        full_text += line.text + "\n"
                 full_text += "\n--- Sayfa Sonu ---\n\n"
 
-            # Sonucu bir .txt dosyasına yaz
             output_txt_path = output_dir / f"{pdf_path.stem}.txt"
             with open(output_txt_path, "w", encoding="utf-8") as f:
                 f.write(full_text)
+            
+            tqdm.write(f"{pdf_path.name} başarıyla işlendi ve kaydedildi.")
 
         except Exception as e:
             tqdm.write(f"HATA: '{pdf_path.name}' dosyası işlenemedi. Sebep: {e}")
+        finally:
+            tqdm.write("Kaynaklar temizleniyor...")
+            if 'ocr_service' in locals() and ocr_service is not None:
+                del ocr_service
+            if 'images' in locals() and images is not None:
+                del images
+            if 'ocr_predictions' in locals() and ocr_predictions is not None:
+                del ocr_predictions
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            # FAZ 1: MPS belleğini temizle
+            if torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+            gc.collect()
+            tqdm.write("Temizlik tamamlandı.")
+            if delay > 0:
+                tqdm.write(f"{delay} saniye bekleniyor...")
+                time.sleep(delay)
 
     end_time_total = time.time()
     print("\n" + "-" * 50)
@@ -84,7 +115,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "output_dir",
         type=str,
-        help="OCR sonuçlarının metin dosyaları olarak kaydedileceği klasörün yolu."
+        nargs='?', 
+        default="test_output",
+        help="OCR sonuçlarının metin dosyaları olarak kaydedileceği klasörün yolu. (Varsayılan: test_output)"
+    )
+    parser.add_argument(
+        "--delay",
+        type=int,
+        default=0,
+        help="Dosyalar arasında beklenecek saniye cinsinden süre. (Varsayılan: 0)"
     )
 
     args = parser.parse_args()
@@ -93,6 +132,6 @@ if __name__ == "__main__":
     output_path = Path(args.output_dir)
 
     if not input_path.is_dir():
-        print(f"Hata: Giriş yolu '{input_path}' geçerli bir klasör değil.")
+        print(f"Hata: Giriş yolu '{input_path}' ({input_path.resolve()}) geçerli bir klasör değil.")
     else:
-        process_batch(input_path, output_path)
+        process_batch(input_path, output_path, args.delay)

@@ -21,29 +21,44 @@ class OcrService:
     _initialized = False
 
     def __new__(cls, *args, **kwargs):
-        if not cls._instance:
+        if cls._instance is None:
             cls._instance = super(OcrService, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self):
-        if self._initialized:
+    def __init__(self, device: str = None):
+        if self._initialized and hasattr(self, 'device') and self.device == device:
             return
-        
-        logger.info("Initializing Surya OCR service...")
-        try:
-            # Use MPS if available for Apple Silicon, otherwise fallback to CPU
-            self.device = "mps" if torch.backends.mps.is_available() else "cpu"
-            logger.info(f"Surya OCR service will use device: {self.device.upper()}")
 
-            # Initialize predictors with the correct method (passing device to constructor)
+        try:
+            if device:
+                self.device = device
+            elif torch.backends.mps.is_available():
+                self.device = "mps"
+            elif torch.cuda.is_available():
+                self.device = "cuda"
+            else:
+                self.device = "cpu"
+
+            # Cihazı logla
+            logger.info(f"Surya OCR service will use device: {self.device}")
+
+            # Modelleri yükle
             self.det_predictor = DetectionPredictor(device=self.device)
             self.rec_predictor = RecognitionPredictor(device=self.device)
             self.layout_predictor = LayoutPredictor(device=self.device)
 
+            self.det_predictor.model.to(self.device)
+            self.rec_predictor.model.to(self.device)
+
+            # FAZ 1: Modelleri inference moduna al
+            self.det_predictor.model.eval()
+            self.rec_predictor.model.eval()
+
             self._initialized = True
             logger.info("Surya OCR service initialized successfully.")
         except Exception as e:
-            logger.error(f"Failed to initialize Surya OCR service: {e}", exc_info=True)
+            logger.error(f"Failed to initialize Surya OCR service: {e}")
+            self._initialized = False
             raise
 
     def _calculate_iou(self, box1, box2):
@@ -70,8 +85,10 @@ class OcrService:
 
         logger.info(f"Running full OCR pipeline on {len(images)} image(s)...")
         try:
-            # We get text predictions first, which gives us a flat list of text lines.
-            text_predictions = self.rec_predictor(images, det_predictor=self.det_predictor)
+            # FAZ 1: Gradyan hesaplamalarını devre dışı bırakarak bellek ve hız optimizasyonu sağla
+            with torch.no_grad():
+                # We get text predictions first, which gives us a flat list of text lines.
+                text_predictions = self.rec_predictor(images, det_predictor=self.det_predictor)
 
             if not any(p.text_lines for p in text_predictions):
                 logger.error("Recognition Predictor did not find any text lines.")
