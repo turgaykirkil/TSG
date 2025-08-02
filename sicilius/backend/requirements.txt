@@ -32,7 +32,6 @@ pypdf
 pandas
 pdf2image
 pdfplumber
-pytesseract
 spacy
 python-magic
 
@@ -51,4 +50,7 @@ pytest
 pytest-cov
 pytest-asyncio
 pytest-mock
-psutil
+psutilpytesseract==0.3.10
+opencv-python==4.8.1.78
+pytesseract==0.3.10
+opencv-python==4.11.0.86
