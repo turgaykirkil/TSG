@@ -1,0 +1,11 @@
+# Swift/macOS
+.build/
+*.xcodeproj
+.swiftpm/
+
+# Hassas Bilgiler
+# Supabase anahtarlarını içeren yapılandırma dosyasını dışarıda bırak.
+Sources/ocr_app/Resources/Config.plist
+
+# macOS
+.DS_Store
