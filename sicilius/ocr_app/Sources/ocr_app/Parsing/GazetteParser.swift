@@ -1,182 +1,118 @@
 import Foundation
 
-// MARK: - Data Models
-
-/// Bir ilanın dinamik analizinin sonucunu temsil eder.
-struct AnalysisResult {
-    let type: String
-    let data: [String: Any]
-}
-
-/// Bir ilandan çıkarılan temel, standart verileri temsil eder.
-struct CoreMetadata {
-    let ilanSiraNo: String?
-    let mersisNo: String?
-    let sicilNo: String?
-    let unvan: String?
-}
-
-/// Tamamen işlenmiş tek bir ilanı temsil eder.
-struct Announcement: Identifiable {
+// Represents a single announcement parsed from the gazette.
+struct Announcement: Identifiable, Hashable {
     let id = UUID()
-    let rawText: String
-    let metadata: CoreMetadata
-    let analysisResult: AnalysisResult
+    var rawText: String
+    var title: String
+    var registrationNumber: String
+    var mersisNumber: String
 }
 
-// MARK: - Gazette Parser
+struct GazetteParser {
 
-// MARK: - Dynamic Parser Engine
-
-/// Tüm dinamik ayrıştırıcı fonksiyonlar için standart tip.
-/// - Parameter textBlock: Analiz edilecek ilan metni.
-/// - Returns: Çıkarılan özel verileri içeren bir sözlük.
-typealias ParserFunction = (String) -> [String: Any]
-
-/// Bir ayrıştırıcı kuralını tanımlar: anahtar kelimeler ve ilgili ayrıştırıcı fonksiyon.
-struct ParserRule {
-    let keywords: [String]
-    let parser: ParserFunction
-}
-
-class GazetteParser {
-    
-    private var parserRegistry: [ParserRule] = []
-
-    init() {
-        setupParserRegistry()
-    }
-
-    private func setupParserRegistry() {
-        parserRegistry = [
-            ParserRule(keywords: ["hisse devri", "pay devri"], parser: self.parseShareTransfer)
-            // Gelecekteki diğer kurallar buraya eklenecek
-        ]
-    }
-    
-    /// Ham gazete sayfası metnini alır ve içindeki tüm ilanları işleyerek bir `Announcement` dizisi döndürür.
-    /// - Parameter pageText: OCR'dan gelen tam sayfa metni.
-    /// - Returns: İşlenmiş ilanların bir dizisi.
-    func parse(pageText: String) -> [Announcement] {
-        let announcementTexts = splitIntoAnnouncements(fullText: pageText)
+    // Main parsing function
+    func parse(fullText: String) -> [Announcement] {
+        let announcementTexts = splitAnnouncements(from: fullText)
         
-        return announcementTexts.map { textBlock -> Announcement in
-            let metadata = extractCoreMetadata(from: textBlock)
-            let analysisResult = analyzeAnnouncementType(from: textBlock)
-            return Announcement(rawText: textBlock, metadata: metadata, analysisResult: analysisResult)
-        }
-    }
-
-    /// Verilen metin için uygun ayrıştırıcıyı bulur ve çalıştırır.
-    private func analyzeAnnouncementType(from textBlock: String) -> AnalysisResult {
-        for rule in parserRegistry {
-            for keyword in rule.keywords {
-                if textBlock.localizedCaseInsensitiveContains(keyword) {
-                    // Eşleşme bulundu, ilgili ayrıştırıcıyı çalıştır ve sonucu döndür.
-                    let data = rule.parser(textBlock)
-                    // 'analysis_type' anahtarını veriden çıkarıp, AnalysisResult'ın type'ı olarak kullanıyoruz.
-                    let type = data["analysis_type"] as? String ?? "unknown"
-                    return AnalysisResult(type: type, data: data)
-                }
+        let announcements = announcementTexts.compactMap { textBlock -> Announcement? in
+            let title = extractTitle(from: textBlock) ?? "Unvan Bulunamadı"
+            let regNo = extractRegistrationNumber(from: textBlock) ?? "Sicil No Bulunamadı"
+            let mersis = extractMersisNumber(from: textBlock) ?? "MERSIS Bulunamadı"
+            
+            // Only return announcements that seem to have content
+            if title == "Unvan Bulunamadı" && regNo == "Sicil No Bulunamadı" {
+                return nil
             }
-        }
-        // Uygun bir ayrıştırıcı bulunamazsa 'unknown' tipinde boş veri döndür.
-        return AnalysisResult(type: "unknown", data: [:])
-    }
-    
-    // MARK: - Dynamic Parsers
-
-    /// Hisse devri ilanlarını ayrıştıran fonksiyon.
-    private func parseShareTransfer(textBlock: String) -> [String: Any] {
-        // TODO: Hisse devri mantığı burada detaylı olarak implemente edilecek.
-        // Örnek: Devreden, devralan, hisse adedi gibi bilgiler regex ile çıkarılabilir.
-        var data: [String: Any] = ["analysis_type": "share_transfer"]
-        
-        // Örnek bir veri çıkarma denemesi:
-        if let devreden = extractValue(for: "devreden\\s*[:;]\\s*([A-ZÇĞİÖŞÜa-zçğıöşü\\s]+)", in: textBlock) {
-            data["transferor"] = devreden.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            return Announcement(
+                rawText: textBlock,
+                title: title,
+                registrationNumber: regNo,
+                mersisNumber: mersis
+            )
         }
         
-        return data
+        return announcements
     }
-    
-    /// Bir metin bloğunu 'Sicil Müdürlüğü' başlıklarına göre bireysel ilan metinlerine böler.
-    private func splitIntoAnnouncements(fullText: String) -> [String] {
-        // Ayraç deseni: (S/A)(...) veya (10/A)(...) gibi görünen kod blokları.
-        // Bu desen bir ilanın bittiğini ve yenisinin başladığını gösterir.
-        // Regex'i Swift String'i içinde doğru yazmak için backslash'lar escape edilmelidir.
-        let separatorPattern = "\\(\\S+\\)\\(\\S+\\)"
 
+    // Splits the entire OCR text into individual announcement blocks.
+    private func splitAnnouncements(from fullText: String) -> [String] {
+        // Correctly escaped regex for Swift strings.
+        let separatorPattern = "(?:\n|\\A)\\s*T\\.C\\.\\s+[A-ZĞÜŞİÖÇ]+\\s+TİCARET\\s+SİCİLİ\\s+MÜDÜRLÜĞÜ'NDEN"
+        
         guard let regex = try? NSRegularExpression(pattern: separatorPattern, options: []) else {
-            return [fullText] // Regex oluşturulamazsa, tüm metni tek parça döndür.
+            return [fullText]
         }
-
-        let range = NSRange(fullText.startIndex..., in: fullText)
-        let matches = regex.matches(in: fullText, options: [], range: range)
-
+        
+        let nsRange = NSRange(fullText.startIndex..<fullText.endIndex, in: fullText)
+        let matches = regex.matches(in: fullText, options: [], range: nsRange)
+        
         if matches.isEmpty {
-            // Eğer ayraç bulunamazsa, tüm metni tek bir ilan olarak kabul et.
-            // Bu, tek ilanlı sayfalar için bir geri dönüş (fallback) sağlar.
-            return [fullText.trimmingCharacters(in: .whitespacesAndNewlines)]
+            return [fullText] // Return as one block if no separators are found
         }
 
         var announcements: [String] = []
-        var lastEnd: String.Index = fullText.startIndex
+        var lastEndIndex = fullText.startIndex
 
         for match in matches {
             guard let matchRange = Range(match.range, in: fullText) else { continue }
-            
-            // Bir önceki ayraçtan bu ayraca kadar olan metni al.
-            let announcementText = String(fullText[lastEnd..<matchRange.lowerBound])
-            if !announcementText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                announcements.append(announcementText)
+            let announcementBlock = fullText[lastEndIndex..<matchRange.lowerBound]
+            if !announcementBlock.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                 announcements.append(String(announcementBlock))
             }
-            lastEnd = matchRange.lowerBound
+            lastEndIndex = matchRange.lowerBound
+        }
+        
+        // Append the final announcement (the one that starts with the last separator found)
+        let finalBlock = fullText[lastEndIndex..<fullText.endIndex]
+        announcements.append(String(finalBlock))
+        
+        // The first element is often page header/footer garbage before the first real announcement header.
+        if let first = announcements.first, !first.contains("T.C.") {
+            return Array(announcements.dropFirst())
         }
 
-        // Son ayraçtan metnin sonuna kadar olan kısmı da ekle.
-        let lastAnnouncementText = String(fullText[lastEnd...])
-        if !lastAnnouncementText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            announcements.append(lastAnnouncementText)
-        }
-
-        // İlk eleman genellikle sayfa başlığı gibi istenmeyen metinler içerir.
-        // Bunu temizleyelim.
-        if let first = announcements.first, first.contains("ilan Sira No") == false {
-             announcements.removeFirst()
-        }
-
-        return announcements.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return announcements
     }
     
-    /// Tek bir ilan metninden temel meta verileri (MERSİS vb.) çıkarır.
-    private func extractCoreMetadata(from textBlock: String) -> CoreMetadata {
-        // OCR hatalarına karşı daha toleranslı regex'ler
-        let ilanSiraNo = extractValue(for: "[İI]lan S[ıi]ra No\\s*:\\s*([\\w-]+)", in: textBlock)
-        let mersisNo = extractValue(for: "Mersis No\\s*:\\s*([\\w-]+)", in: textBlock)
-        let sicilNo = extractValue(for: "Ticaret Sicil(?:/Dosya)? No\\s*:\\s*([\\w\\s-]+)", in: textBlock)
-        let unvan = extractValue(for: "Ticaret Unvan[ıi]\\s*:\\s*(.*?)(?=\\nAdres:|$)", in: textBlock, options: .dotMatchesLineSeparators)
-
-        return CoreMetadata(
-            ilanSiraNo: ilanSiraNo,
-            mersisNo: mersisNo,
-            sicilNo: sicilNo,
-            unvan: unvan?.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
+    // Extracts the company title (Ticaret Unvanı).
+    private func extractTitle(from text: String) -> String? {
+        let pattern = "(?:Ticaret|Tiearet|Tlearet)\\s+Unvanı\\s*[:>]?\\s*([\\s\\S]+?)(?:Adres\\s*:|Tescil\\s+Edilen|Yukarıda\\s+bilgileri|Müdürler|Yönetim|İşletme\\s+Konusu|$)"
+        return extractFirstMatch(with: pattern, from: text)
     }
 
-    /// Belirli bir regex kalıbı için bir metinden ilk eşleşen grubu çıkaran yardımcı fonksiyon.
-    private func extractValue(for pattern: String, in text: String, options: NSRegularExpression.Options = []) -> String? {
-        let baseOptions: NSRegularExpression.Options = .caseInsensitive
-        let finalOptions = baseOptions.union(options)
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: finalOptions) else {
-            return nil
-        }
-        let range = NSRange(text.startIndex..., in: text)
-        if let match = regex.firstMatch(in: text, options: [], range: range) {
-            if let swiftRange = Range(match.range(at: 1), in: text) {
-                return String(text[swiftRange])
+    // Extracts the Trade Registry Number (Ticaret Sicil No).
+    private func extractRegistrationNumber(from text: String) -> String? {
+        let pattern = "Ticaret\\s+Sicil(?:/Dosya)?\\s+No\\s*:\\s*([\\w-]+)"
+        return extractFirstMatch(with: pattern, from: text)
+    }
+    
+    // Extracts the MERSIS Number.
+    private func extractMersisNumber(from text: String) -> String? {
+        let pattern = "MERSIS\\s+No\\s*:\\s*(\\d+)"
+        return extractFirstMatch(with: pattern, from: text)
+    }
+
+    // A helper function to execute a regex and return the first capture group.
+    private func extractFirstMatch(with pattern: String, from text: String) -> String? {
+        do {
+            let regex = try NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators])
+            let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+            
+            if let match = regex.firstMatch(in: text, options: [], range: nsRange) {
+                if let range = Range(match.range(at: 1), in: text) {
+                    // Clean up the result: remove HTML tags, extra spaces, and newlines.
+                    var extractedText = String(text[range])
+                    extractedText = extractedText.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                    extractedText = extractedText.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                    // Condense multiple spaces into one.
+                    extractedText = extractedText.replacingOccurrences(of: "\\\\s{2,}", with: " ", options: .regularExpression)
+                    return extractedText
+                }
             }
+        } catch {
+            print("Regex error: \(error.localizedDescription)")
         }
         return nil
     }

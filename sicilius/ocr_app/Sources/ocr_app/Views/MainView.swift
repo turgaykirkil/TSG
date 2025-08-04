@@ -113,31 +113,20 @@ struct MainView: View {
                 if !viewModel.announcements.isEmpty {
                     List(viewModel.announcements) { announcement in
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(announcement.metadata.unvan ?? "Unvan Bulunamadı")
+                            Text(announcement.title)
                                 .font(.headline)
                                 .fontWeight(.bold)
                             
                             HStack {
                                 Text("Sicil No:")
                                     .fontWeight(.semibold)
-                                Text(announcement.metadata.sicilNo ?? "-")
+                                Text(announcement.registrationNumber)
                             }
                             
                             HStack {
                                 Text("MERSIS No:")
                                     .fontWeight(.semibold)
-                                Text(announcement.metadata.mersisNo ?? "-")
-                            }
-                            
-                            if announcement.analysisResult.type != "unknown" {
-                                HStack {
-                                    Text("Analiz Türü:")
-                                        .fontWeight(.semibold)
-                                    Text(announcement.analysisResult.type.capitalized.replacingOccurrences(of: "_", with: " "))
-                                        .padding(4)
-                                        .background(Color.blue.opacity(0.2))
-                                        .cornerRadius(4)
-                                }
+                                Text(announcement.mersisNumber)
                             }
                         }
                         .padding(.vertical, 8)

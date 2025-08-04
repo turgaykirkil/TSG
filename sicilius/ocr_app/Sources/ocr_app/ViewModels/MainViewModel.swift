@@ -89,7 +89,7 @@ class MainViewModel: ObservableObject {
             do {
                 let text = try await ocrService.performOCR(on: pdfData)
                 // OCR metnini parser ile işle
-                let parsedAnnouncements = parser.parse(pageText: text)
+                let parsedAnnouncements = parser.parse(fullText: text)
         
         // --- HATA AYIKLAMA BAŞLANGICI ---
         print("\n--- PARSER AYIKLAMA SONUÇLARI ---")
