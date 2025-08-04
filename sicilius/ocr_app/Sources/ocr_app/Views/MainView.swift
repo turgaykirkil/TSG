@@ -107,20 +107,65 @@ struct MainView: View {
 
             Divider()
 
-            // PDF Önizleme Alanı
-            VStack {
-                if let pdfData = viewModel.selectedPDF {
-                    PDFKitView(data: pdfData)
+            // Sonuçlar ve PDF Önizleme Alanı
+            HSplitView {
+                // Sol Taraf: Ayrıştırılmış İlan Listesi
+                if !viewModel.announcements.isEmpty {
+                    List(viewModel.announcements) { announcement in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(announcement.metadata.unvan ?? "Unvan Bulunamadı")
+                                .font(.headline)
+                                .fontWeight(.bold)
+                            
+                            HStack {
+                                Text("Sicil No:")
+                                    .fontWeight(.semibold)
+                                Text(announcement.metadata.sicilNo ?? "-")
+                            }
+                            
+                            HStack {
+                                Text("MERSIS No:")
+                                    .fontWeight(.semibold)
+                                Text(announcement.metadata.mersisNo ?? "-")
+                            }
+                            
+                            if announcement.analysisResult.type != "unknown" {
+                                HStack {
+                                    Text("Analiz Türü:")
+                                        .fontWeight(.semibold)
+                                    Text(announcement.analysisResult.type.capitalized.replacingOccurrences(of: "_", with: " "))
+                                        .padding(4)
+                                        .background(Color.blue.opacity(0.2))
+                                        .cornerRadius(4)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 8)
+                    }
                 } else {
-                    ZStack {
+                     ZStack {
                         Color(NSColor.controlBackgroundColor)
-                        Text("Başlamak için bir PDF getirin.")
-                            .font(.title)
+                        Text("Ayrıştırılmış veri burada görünecek.")
+                            .font(.title2)
                             .foregroundColor(.secondary)
                     }
                 }
+
+                // Sağ Taraf: PDF Önizleme
+                VStack {
+                    if let pdfData = viewModel.selectedPDF {
+                        PDFKitView(data: pdfData)
+                    } else {
+                        ZStack {
+                            Color(NSColor.controlBackgroundColor)
+                            Text("Başlamak için bir PDF getirin.")
+                                .font(.title)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }

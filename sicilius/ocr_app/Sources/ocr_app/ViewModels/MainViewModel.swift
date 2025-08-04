@@ -1,16 +1,19 @@
 import SwiftUI
 import Combine
 import Supabase
+import Vision
 
 @MainActor
 class MainViewModel: ObservableObject {
     @Published var selectedPDF: Data?
     @Published var ocrResult: String = "Henüz OCR işlemi yapılmadı."
+    @Published var announcements: [Announcement] = []
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
     private let ocrService: OCRService
     private let supabase: SupabaseClient
     private let pdfBucket = "gazette-pdfs"
+    private let parser = GazetteParser()
 
     init() {
         // AuthViewModel'deki gibi, güvenli yapılandırmadan Supabase istemcisini oluşturuyoruz.
@@ -22,7 +25,7 @@ class MainViewModel: ObservableObject {
                 fatalError("Geçersiz Supabase URL'si. Config.plist dosyasını kontrol edin.")
             }
             
-                        self.supabase = SupabaseClient(supabaseURL: supabaseURL, supabaseKey: supabaseKey)
+            self.supabase = SupabaseClient(supabaseURL: supabaseURL, supabaseKey: supabaseKey)
 
         do {
             self.ocrService = try OCRService()
@@ -84,8 +87,24 @@ class MainViewModel: ObservableObject {
         
         Task {
             do {
-                let successMessage = try await ocrService.performOCR(on: pdfData)
-                self.ocrResult = successMessage
+                let text = try await ocrService.performOCR(on: pdfData)
+                // OCR metnini parser ile işle
+                let parsedAnnouncements = parser.parse(pageText: text)
+        
+        // --- HATA AYIKLAMA BAŞLANGICI ---
+        print("\n--- PARSER AYIKLAMA SONUÇLARI ---")
+        print("Toplam \(parsedAnnouncements.count) adet ilan bloğu bulundu.")
+        for (index, announcement) in parsedAnnouncements.enumerated() {
+            print("\n------------------------------------")
+            print("--- BLOK \(index + 1) ---")
+            print(announcement.rawText)
+            print("------------------------------------\n")
+        }
+        print("--- PARSER AYIKLAMA SONUÇLARI BİTTİ ---\n")
+        // --- HATA AYIKLAMA SONU ---
+        
+                self.announcements = parsedAnnouncements
+                self.ocrResult = "\(parsedAnnouncements.count) adet ilan bulundu ve başarıyla işlendi."
             } catch {
                 self.errorMessage = "OCR işlemi sırasında bir hata oluştu: \(error.localizedDescription)"
                 self.ocrResult = "İşlem başarısız oldu."

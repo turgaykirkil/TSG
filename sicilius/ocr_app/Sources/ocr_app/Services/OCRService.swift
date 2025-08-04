@@ -94,7 +94,7 @@ struct OCRService {
             throw OCRError.noTextFound
         }
 
-        return "\(imageSaveCount) sayfa resmi ve 1 metin dosyası başarıyla '\(outputFolderURL.path)' klasörüne kaydedildi."
+        return fullRecognizedText
     }
 }
 
