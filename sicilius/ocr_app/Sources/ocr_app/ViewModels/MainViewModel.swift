@@ -104,7 +104,7 @@ class MainViewModel: ObservableObject {
         // --- HATA AYIKLAMA SONU ---
         
                 self.announcements = parsedAnnouncements
-                self.ocrResult = "\(parsedAnnouncements.count) adet ilan bulundu ve başarıyla işlendi."
+                self.ocrResult = text // Ham metni doğrudan ata
             } catch {
                 self.errorMessage = "OCR işlemi sırasında bir hata oluştu: \(error.localizedDescription)"
                 self.ocrResult = "İşlem başarısız oldu."

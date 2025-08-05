@@ -86,15 +86,29 @@ struct MainView: View {
                 }
 
                 // Durum Mesajları
-                if let errorMessage = viewModel.errorMessage {
+                if viewModel.isLoading {
+                    Text("İşlem sürüyor...")
+                        .foregroundColor(.secondary)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, minHeight: 30)
+                        .background(Color.primary.opacity(0.05))
+                        .cornerRadius(8)
+                } else if let errorMessage = viewModel.errorMessage {
                     Text(errorMessage)
                         .foregroundColor(.red)
                         .padding(8)
                         .frame(maxWidth: .infinity)
                         .background(Color.red.opacity(0.15))
                         .cornerRadius(8)
+                } else if viewModel.selectedPDF != nil {
+                    Text("PDF indirildi. Tara butonuna basın.")
+                        .foregroundColor(.secondary)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, minHeight: 30)
+                        .background(Color.primary.opacity(0.05))
+                        .cornerRadius(8)
                 } else {
-                    Text(viewModel.ocrResult)
+                    Text("Henüz OCR işlemi yapılmadı.")
                         .foregroundColor(.secondary)
                         .padding(8)
                         .frame(maxWidth: .infinity, minHeight: 30)
@@ -109,38 +123,7 @@ struct MainView: View {
 
             // Sonuçlar ve PDF Önizleme Alanı
             HSplitView {
-                // Sol Taraf: Ayrıştırılmış İlan Listesi
-                if !viewModel.announcements.isEmpty {
-                    List(viewModel.announcements) { announcement in
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(announcement.title)
-                                .font(.headline)
-                                .fontWeight(.bold)
-                            
-                            HStack {
-                                Text("Sicil No:")
-                                    .fontWeight(.semibold)
-                                Text(announcement.registrationNumber)
-                            }
-                            
-                            HStack {
-                                Text("MERSIS No:")
-                                    .fontWeight(.semibold)
-                                Text(announcement.mersisNumber)
-                            }
-                        }
-                        .padding(.vertical, 8)
-                    }
-                } else {
-                     ZStack {
-                        Color(NSColor.controlBackgroundColor)
-                        Text("Ayrıştırılmış veri burada görünecek.")
-                            .font(.title2)
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                // Sağ Taraf: PDF Önizleme
+                // Sol Taraf: PDF Önizleme
                 VStack {
                     if let pdfData = viewModel.selectedPDF {
                         PDFKitView(data: pdfData)
@@ -154,6 +137,20 @@ struct MainView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                // Sağ Taraf: Ham Metin Çıktısı
+                VStack {
+                    Text("Ham Metin Çıktısı")
+                        .font(.headline)
+                        .padding(.bottom, 5)
+                    
+                    TextEditor(text: $viewModel.ocrResult)
+                        .font(.system(.body, design: .monospaced))
+                        .padding(4)
+                        .border(Color.gray.opacity(0.2), width: 1)
+                        .textSelection(.enabled)
+                }
+                .padding()
             }
         }
     }
