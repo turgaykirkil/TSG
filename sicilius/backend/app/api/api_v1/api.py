@@ -21,7 +21,8 @@ from app.api.api_v1.endpoints import (
     tools,
     processing,
     parsing,
-    utils
+    utils,
+    nlp
 )
 
 api_router = APIRouter()
@@ -48,6 +49,9 @@ api_router.include_router(processing.router, prefix="/process", tags=["Processin
 api_router.include_router(file_uploads.router, prefix="/files", tags=["File Handling"])
 api_router.include_router(storage.router, prefix="/storage", tags=["Storage"])
 api_router.include_router(jobs.router, prefix="/jobs", tags=["Jobs"])
+
+# NLP
+api_router.include_router(nlp.router, prefix="/nlp", tags=["NLP"])
 
 # Supporting
 api_router.include_router(stats.router, prefix="/stats", tags=["Statistics"])
