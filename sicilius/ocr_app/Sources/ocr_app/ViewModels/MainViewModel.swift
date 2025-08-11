@@ -65,6 +65,16 @@ class MainViewModel: ObservableObject {
     @Published var ocrOutputFolder: URL?
     @Published var ocrBaseFilename: String?
     @Published var nlpRawJson: String?
+    // İşlem modu ve toplu/otomatik akış durumları
+    enum ProcessingMode: String, CaseIterable, Identifiable {
+        case manual = "Manuel"
+        case automatic = "Otomatik"
+        var id: String { rawValue }
+    }
+    @Published var processingMode: ProcessingMode = .manual
+    @Published var manualCount: Int = 1
+    @Published var isAutoRunning: Bool = false
+    private var processingTask: Task<Void, Never>?
     private let ocrService: OCRService
     private let supabase: SupabaseClient
     private let pdfBucket = "gazette-pdfs"
@@ -160,6 +170,93 @@ class MainViewModel: ObservableObject {
             }
             // Final state update on the main thread
             self.isLoading = false
+        }
+    }
+    
+    // Async varyant: akış içi ardışık kullanım için
+    func performOCRAsync(data: Data) async {
+        isLoading = true
+        errorMessage = nil
+        ocrResult = "OCR işlemi başlatıldı, lütfen bekleyin..."
+        do {
+            let ocr = try await ocrService.performOCR(on: data)
+            self.ocrResult = ocr.text
+            self.ocrOutputFolder = ocr.outputFolderURL
+            self.ocrBaseFilename = ocr.baseFilename
+            await self.parseTextWithNLP(text: ocr.text)
+        } catch {
+            self.errorMessage = "OCR işlemi sırasında bir hata oluştu: \(error.localizedDescription)"
+            self.ocrResult = "İşlem başarısız oldu."
+        }
+        self.isLoading = false
+    }
+
+    // Tek adımlık indirme + OCR + NLP + JSON kaydetme
+    func fetchAndProcessOnce() async {
+        do {
+            // Dosyaları listele ve rastgele PDF indir
+            let files = try await supabase.storage.from(pdfBucket).list()
+            let pdfFiles = files.filter { !$0.name.hasSuffix("/") && $0.name.lowercased().hasSuffix(".pdf") }
+            guard let randomFile = pdfFiles.randomElement() else {
+                throw URLError(.fileDoesNotExist, userInfo: [NSLocalizedDescriptionKey: "Bucket'ta PDF bulunamadı."])
+            }
+            self.ocrResult = "'\(randomFile.name)' dosyası indiriliyor..."
+            let fileData = try await supabase.storage.from(pdfBucket).download(path: randomFile.name)
+            // Seçimi güncelle ve OCR'ı çalıştır
+            self.selectedPDF = fileData
+            await self.performOCRAsync(data: fileData)
+            // NLP JSON kaydet
+            self.saveNlpJsonToDisk()
+        } catch {
+            self.errorMessage = "İşlem başarısız: \(error.localizedDescription)"
+        }
+    }
+
+    // Manuel mod: belirlenen adet kadar sırayla çalıştır
+    func startManualBatch() {
+        guard !isAutoRunning, processingTask == nil else { return }
+        let count = max(1, manualCount)
+        processingTask = Task { [weak self] in
+            guard let self else { return }
+            for _ in 0..<count {
+                if Task.isCancelled { break }
+                await self.fetchAndProcessOnce()
+            }
+            await MainActor.run {
+                self.processingTask = nil
+            }
+        }
+    }
+
+    // Otomatik mod: durdurulana kadar döngü
+    func startAutomaticProcessing() {
+        guard !isAutoRunning else { return }
+        isAutoRunning = true
+        processingTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                await self.fetchAndProcessOnce()
+            }
+            await MainActor.run {
+                self.isAutoRunning = false
+                self.processingTask = nil
+            }
+        }
+    }
+
+    func stopAutomaticProcessing() {
+        processingTask?.cancel()
+        processingTask = nil
+        isAutoRunning = false
+    }
+
+    // Tek buton davranışı: PDF Getir / Durdur
+    func handleFetchButtonTapped() {
+        switch processingMode {
+        case .manual:
+            startManualBatch()
+        case .automatic:
+            if isAutoRunning { stopAutomaticProcessing() } else { startAutomaticProcessing() }
         }
     }
     
@@ -263,9 +360,7 @@ class MainViewModel: ObservableObject {
             } else {
                 self.errorMessage = "Uyarı: parsedAnnouncements boş. Sadece ham backend listesi kaydedildi."
             }
-            // Kaydedilen dosyayı Finder’da göster: liste boşsa ham listeyi göster
-            let revealURL = hasList ? combinedURL : rawListURL
-            NSWorkspace.shared.activateFileViewerSelecting([revealURL])
+            // Finder otomatik açma kaldırıldı (istek üzerine). Sessiz kaydetme.
         } catch {
             self.errorMessage = "NLP JSON kaydedilemedi: \(error.localizedDescription)"
         }

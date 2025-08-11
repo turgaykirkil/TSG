@@ -15,7 +15,7 @@ struct MainView: View {
         var id: String { rawValue }
     }
 
-    enum SidebarItem {
+    enum SidebarItem: Hashable {
         case ocr
         case settings
     }
@@ -24,15 +24,17 @@ struct MainView: View {
         HSplitView {
             // Yan Menü
             VStack(alignment: .leading) {
-                Text("Sicilius OCR")
+                Text("Sicilius OCR App")
                     .font(.title)
                     .bold()
                     .padding([.horizontal, .top])
-                List(selection: $selectedSidebarItem) {
+                List {
                     Label("OCR İşlemi", systemImage: "doc.text.viewfinder")
-                        .tag(SidebarItem.ocr as SidebarItem?)
+                        .contentShape(Rectangle())
+                        .onTapGesture { selectedSidebarItem = .ocr }
                     Label("Ayarlar", systemImage: "gear")
-                        .tag(SidebarItem.settings as SidebarItem?)
+                        .contentShape(Rectangle())
+                        .onTapGesture { selectedSidebarItem = .settings }
                 }
                 .listStyle(.sidebar)
             }
@@ -43,9 +45,7 @@ struct MainView: View {
             case .ocr:
                 ocrContentView
             case .settings:
-                Text("Ayarlar sayfası burada olacak.")
-                    .font(.largeTitle)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                settingsView
             case .none:
                 Text("Lütfen bir seçim yapın.")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -61,6 +61,46 @@ struct MainView: View {
         }
     }
     
+    private var settingsView: some View {
+        Form {
+            Section(header: Text("İşlem Modu")) {
+                Picker("Mod", selection: $viewModel.processingMode) {
+                    Text(MainViewModel.ProcessingMode.manual.rawValue).tag(MainViewModel.ProcessingMode.manual)
+                    Text(MainViewModel.ProcessingMode.automatic.rawValue).tag(MainViewModel.ProcessingMode.automatic)
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 360)
+                
+                if viewModel.processingMode == .manual {
+                    HStack(spacing: 12) {
+                        Text("Adet")
+                        Stepper(value: $viewModel.manualCount, in: 1...100) {
+                            Text("\(viewModel.manualCount)")
+                        }
+                        .frame(maxWidth: 200)
+                    }
+                    Text("Manuel modda 'PDF Getir' butonuna basınca belirtilen adet kadar PDF sırasıyla indirilir, OCR ve NLP yapılır, sonuçlar disk'e kaydedilir.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Otomatik modda 'PDF Getir' butonu 'Durdur' olarak değişir. Durdurulana kadar yeni PDF'ler indirilir, OCR ve NLP çalışır ve çıktılar kaydedilir.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            
+            Section(header: Text("İpuçları")) {
+                Text("OCR çıktıları 'ocr_ciktilari' klasörüne kaydedilir. NLP JSON kaydetme için sağ panelde 'JSON'u Kaydet' butonunu da kullanabilirsiniz.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+    
     private var ocrContentView: some View {
         VStack(spacing: 0) {
             // Üst Kontrol Paneli
@@ -70,11 +110,19 @@ struct MainView: View {
                     .fontWeight(.bold)
 
                 HStack(spacing: 12) {
-                    Button(action: viewModel.fetchRandomPDF) {
-                        Label("PDF Getir", systemImage: "arrow.down.doc.fill")
+                    Button(action: viewModel.handleFetchButtonTapped) {
+                        if viewModel.processingMode == .automatic {
+                            if viewModel.isAutoRunning {
+                                Label("Durdur", systemImage: "stop.circle.fill")
+                            } else {
+                                Label("PDF Getir", systemImage: "arrow.down.doc.fill")
+                            }
+                        } else {
+                            Label("PDF Getir", systemImage: "arrow.down.doc.fill")
+                        }
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(viewModel.isLoading)
+                    .disabled(viewModel.processingMode == .manual && viewModel.isLoading)
                     .controlSize(.large)
 
                     Button(action: viewModel.performOCR) {
@@ -102,6 +150,13 @@ struct MainView: View {
                         .frame(maxWidth: .infinity, minHeight: 30)
                         .background(Color.primary.opacity(0.05))
                         .cornerRadius(8)
+                } else if viewModel.isAutoRunning {
+                    Text("Otomatik mod aktif: Yeni PDF'ler indiriliyor, OCR ve NLP sonuçları kaydediliyor...")
+                        .foregroundColor(.secondary)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, minHeight: 30)
+                        .background(Color.primary.opacity(0.05))
+                        .cornerRadius(8)
                 } else if let errorMessage = viewModel.errorMessage {
                     Text(errorMessage)
                         .foregroundColor(.red)
@@ -110,7 +165,7 @@ struct MainView: View {
                         .background(Color.red.opacity(0.15))
                         .cornerRadius(8)
                 } else if viewModel.selectedPDF != nil {
-                    Text("PDF indirildi. Tara butonuna basın.")
+                    Text("PDF indirildi veya OCR tamamlandı.")
                         .foregroundColor(.secondary)
                         .padding(8)
                         .frame(maxWidth: .infinity, minHeight: 30)

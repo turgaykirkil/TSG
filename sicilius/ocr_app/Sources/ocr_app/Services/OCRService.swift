@@ -47,7 +47,6 @@ struct OCRService {
         try fileManager.createDirectory(at: outputFolderURL, withIntermediateDirectories: true, attributes: nil)
 
         var fullRecognizedText = "Sicilius OCR Sonucu - \(Date())\n"
-        var imageSaveCount = 0
 
         for i in 0..<pdfDocument.pageCount {
             guard let page = pdfDocument.page(at: i) else { continue }
@@ -66,13 +65,7 @@ struct OCRService {
                 throw OCRError.imageConversionError
             }
 
-            // Resmi PNG olarak kaydet
-            let imageURL = outputFolderURL.appendingPathComponent("\(baseFilename)_sayfa_\(i + 1).png")
-            let imageRepresentation = NSBitmapImageRep(cgImage: cgImage)
-            if let pngData = imageRepresentation.representation(using: .png, properties: [:]) {
-                try pngData.write(to: imageURL)
-                imageSaveCount += 1
-            }
+            // PNG kaydetme kaldırıldı (istek üzerine). Sadece OCR yapılacak.
 
             // Sütun-temelli OCR (ColumnOCRService) ile sayfayı işle
             let languages = ["tr-TR", "en-US"]
@@ -100,9 +93,7 @@ struct OCRService {
         let txtURL = outputFolderURL.appendingPathComponent("\(baseFilename)_tum_sayfalar.txt")
         try fullRecognizedText.write(to: txtURL, atomically: true, encoding: .utf8)
 
-        if fullRecognizedText.isEmpty && imageSaveCount == 0 {
-            throw OCRError.noTextFound
-        }
+        // PNG kaydetme kaldırıldığı için imageSaveCount kontrolü de kaldırıldı.
 
         return OCRResult(text: fullRecognizedText, outputFolderURL: outputFolderURL, baseFilename: baseFilename)
     }

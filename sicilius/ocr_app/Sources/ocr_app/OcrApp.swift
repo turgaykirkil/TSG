@@ -8,7 +8,7 @@ struct OcrApp: App {
     @StateObject private var authViewModel = AuthViewModel()
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup("Sicilius OCR App") {
             // Eğer kullanıcı giriş yapmışsa Ana Ekran'ı, yapmamışsa Giriş Ekranı'nı göster.
             if authViewModel.isAuthenticated {
                 MainView()
