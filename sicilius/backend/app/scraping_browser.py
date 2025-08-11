@@ -6,7 +6,7 @@ import random
 import uuid
 import httpx
 import traceback
-from datetime import datetime
+from datetime import datetime, date
 from typing import Any, Dict, Optional
 from urllib.parse import urljoin
 
@@ -443,10 +443,14 @@ async def scrape_company(page: Page, db: Session, company):
                         continue
 
                     pdf_url = None
-                    storage_path = None
+                    should_upload_pdf = publication_date >= date(2021, 1, 1)
+                    newspaper_text = await cells[7].inner_text()
+                    if not should_upload_pdf:
+                        newspaper_text = "pre-2021"
+
                     pdf_link_element = await cells[7].query_selector('a')
 
-                    if pdf_link_element:
+                    if should_upload_pdf and pdf_link_element:
                         pdf_href = await pdf_link_element.get_attribute('href')
                         if pdf_href:
                             try:
@@ -475,7 +479,6 @@ async def scrape_company(page: Page, db: Session, company):
                                 )
 
                                 pdf_url = supabase.storage.from_(bucket_name).get_public_url(file_name)
-                                storage_path = f"{bucket_name}/{file_name}"
                                 scraping_state.add_log(f"PDF_SUCCESS: PDF for '{title}' downloaded and uploaded.")
 
                             except Exception as pdf_error:
@@ -491,9 +494,8 @@ async def scrape_company(page: Page, db: Session, company):
                         issue_number=int(await cells[4].inner_text()),
                         page_number=int(await cells[5].inner_text()),
                         announcement_type=await cells[6].inner_text(),
-                        newspaper_name=await cells[7].inner_text(), # This might contain the link text
-                        pdf_url=pdf_url,
-                        storage_path=storage_path
+                        newspaper_name=newspaper_text, # mark pre-2021 when skipping upload
+                        pdf_url=pdf_url
                     )
                     crud.announcement.create(db=db, obj_in=announcement_data)
                     scraping_state.add_log(f"DB_SUCCESS: Saved announcement: {title}")

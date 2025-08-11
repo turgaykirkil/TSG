@@ -150,12 +150,30 @@ struct MainView: View {
                 // Sağ Taraf: Ham Metin / NLP Çıktısı
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Picker("Görünüm", selection: $resultTab) {
-                            ForEach(ResultTab.allCases) { tab in
-                                Text(tab.rawValue).tag(tab)
+                        HStack(spacing: 12) {
+                            Picker("Görünüm", selection: $resultTab) {
+                                ForEach(ResultTab.allCases) { tab in
+                                    Text(tab.rawValue).tag(tab)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            Spacer()
+                            if resultTab == .nlp {
+                                Button(action: { viewModel.copyNlpJsonToClipboard() }) {
+                                    Label("Kopyala JSON", systemImage: "doc.on.doc")
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .disabled(viewModel.nlpRawJson == nil)
+                                Button(action: { viewModel.saveNlpJsonToDisk() }) {
+                                    Label("JSON'u Kaydet", systemImage: "square.and.arrow.down")
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .disabled(viewModel.nlpRawJson == nil)
                             }
                         }
-                        .pickerStyle(.segmented)
+                        .frame(height: 32)
                         
                         Spacer()
                     }
@@ -176,27 +194,166 @@ struct MainView: View {
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("NLP Çıktısı")
                                     .font(.headline)
-                                if let pe = viewModel.parsedEntities {
-                                    if let reg = pe.registration_number, !reg.isEmpty {
-                                        HStack(spacing: 6) {
-                                            Image(systemName: "number")
-                                            Text("Ticaret Sicil No:")
-                                                .fontWeight(.semibold)
-                                            Text(reg)
+                                // Önce çoklu ilânları göster, yoksa tekil akışa düş
+                                if let list = viewModel.parsedAnnouncements, !list.isEmpty {
+                                    ForEach(list) { ann in
+                                        GroupBox {
+                                            VStack(alignment: .leading, spacing: 8) {
+                                                // Başlık ve temel alanlar
+                                                if let header = ann.sicil_office_header, !header.isEmpty {
+                                                    HStack(spacing: 6) {
+                                                        Image(systemName: "building.columns")
+                                                        Text(header)
+                                                            .font(.subheadline)
+                                                            .fontWeight(.semibold)
+                                                    }
+                                                }
+                                                HStack(spacing: 12) {
+                                                    if let mersis = ann.mersis_no, !mersis.isEmpty {
+                                                        HStack(spacing: 6) {
+                                                            Image(systemName: "number")
+                                                            Text("MERSIS No:")
+                                                                .fontWeight(.semibold)
+                                                            Text(mersis)
+                                                        }
+                                                    }
+                                                    if let sicil = ann.sicil_dosya_no ?? ann.registration_number, !sicil.isEmpty {
+                                                        HStack(spacing: 6) {
+                                                            Image(systemName: "number")
+                                                            Text("Ticaret Sicil No:")
+                                                                .fontWeight(.semibold)
+                                                            Text(sicil)
+                                                        }
+                                                    }
+                                                }
+                                                if let unvan = ann.trade_name, !unvan.isEmpty {
+                                                    HStack(alignment: .top, spacing: 6) {
+                                                        Image(systemName: "doc.text")
+                                                        Text("Ticaret Unvanı:")
+                                                            .fontWeight(.semibold)
+                                                        Text(unvan)
+                                                    }
+                                                }
+
+                                                // Adresler
+                                                if let addrs = ann.addresses, !addrs.isEmpty {
+                                                    DisclosureGroup(content: {
+                                                        VStack(alignment: .leading, spacing: 6) {
+                                                            ForEach(addrs.indices, id: \.self) { idx in
+                                                                Text("• " + addrs[idx])
+                                                                    .textSelection(.enabled)
+                                                            }
+                                                        }
+                                                    }, label: {
+                                                        HStack {
+                                                            Image(systemName: "mail.and.text.magnifyingglass")
+                                                            Text("Adresler")
+                                                            Spacer()
+                                                            Text("\(addrs.count)")
+                                                                .font(.subheadline)
+                                                                .foregroundColor(.secondary)
+                                                        }
+                                                    })
+                                                }
+
+                                                // Varlık grupları
+                                                // (Kuruluşlar bölümü kaldırıldı)
+
+                                                DisclosureGroup(content: {
+                                                    EntitySectionView(title: "Kişiler", systemImage: "person.2", items: ann.persons, showHeader: false)
+                                                }, label: {
+                                                    HStack {
+                                                        Image(systemName: "person.2")
+                                                        Text("Kişiler")
+                                                        Spacer()
+                                                        Text("\(ann.persons.count)")
+                                                            .font(.subheadline)
+                                                            .foregroundColor(.secondary)
+                                                    }
+                                                })
+
+                                                // (Konumlar bölümü kaldırıldı)
+
+                                                // (Tarihler bölümü kaldırıldı)
+
+                                                let monies = ann.money ?? []
+                                                if !monies.isEmpty {
+                                                    DisclosureGroup(content: {
+                                                        EntitySectionView(title: "Para", systemImage: "turkishlirasign", items: monies, showHeader: false)
+                                                    }, label: {
+                                                        HStack {
+                                                            Image(systemName: "turkishlirasign")
+                                                            Text("Para")
+                                                            Spacer()
+                                                            Text("\(monies.count)")
+                                                                .font(.subheadline)
+                                                                .foregroundColor(.secondary)
+                                                        }
+                                                    })
+                                                }
+
+                                                let others = ann.misc ?? []
+                                                if !others.isEmpty {
+                                                    DisclosureGroup(content: {
+                                                        EntitySectionView(title: "Diğer", systemImage: "tag", items: others, showHeader: false)
+                                                    }, label: {
+                                                        HStack {
+                                                            Image(systemName: "tag")
+                                                            Text("Diğer")
+                                                            Spacer()
+                                                            Text("\(others.count)")
+                                                                .font(.subheadline)
+                                                                .foregroundColor(.secondary)
+                                                        }
+                                                    })
+                                                }
+
+                                                // Ham segmenti göster
+                                                if let seg = ann.original_text, !seg.isEmpty {
+                                                    DisclosureGroup("Orijinal Segment") {
+                                                        Text(seg)
+                                                            .font(.system(.footnote, design: .monospaced))
+                                                            .textSelection(.enabled)
+                                                    }
+                                                }
+                                            }
+                                        } label: {
+                                            HStack {
+                                                Image(systemName: "doc.text.magnifyingglass")
+                                                Text("İlan #\(ann.index ?? 0)")
+                                                if let name = ann.trade_name, !name.isEmpty { Text("• ") + Text(name).fontWeight(.semibold) }
+                                                Spacer()
+                                            }
                                         }
                                     }
-                                    DisclosureGroup(content: {
-                                        EntitySectionView(title: "Kuruluşlar", systemImage: "building.2", items: pe.organizations, showHeader: false)
-                                    }, label: {
-                                        HStack {
-                                            Image(systemName: "building.2")
-                                            Text("Kuruluşlar")
-                                            Spacer()
-                                            Text("\(pe.organizations.count)")
-                                                .font(.subheadline)
-                                                .foregroundColor(.secondary)
+                                } else if let pe = viewModel.parsedEntities {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        if let mersis = pe.mersis_no, !mersis.isEmpty {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: "number")
+                                                Text("MERSIS No:")
+                                                    .fontWeight(.semibold)
+                                                Text(mersis)
+                                            }
                                         }
-                                    })
+                                        if let sicil = pe.sicil_dosya_no ?? pe.registration_number, !sicil.isEmpty {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: "number")
+                                                Text("Ticaret Sicil No:")
+                                                    .fontWeight(.semibold)
+                                                Text(sicil)
+                                            }
+                                        }
+                                        if let unvan = pe.trade_name, !unvan.isEmpty {
+                                            HStack(alignment: .top, spacing: 6) {
+                                                Image(systemName: "doc.text")
+                                                Text("Ticaret Unvanı:")
+                                                    .fontWeight(.semibold)
+                                                Text(unvan)
+                                            }
+                                        }
+                                    }
+                                    // (Kuruluşlar bölümü kaldırıldı)
                                     DisclosureGroup(content: {
                                         EntitySectionView(title: "Kişiler", systemImage: "person.2", items: pe.persons, showHeader: false)
                                     }, label: {
@@ -209,30 +366,8 @@ struct MainView: View {
                                                 .foregroundColor(.secondary)
                                         }
                                     })
-                                    DisclosureGroup(content: {
-                                        EntitySectionView(title: "Konumlar", systemImage: "mappin.and.ellipse", items: pe.locations, showHeader: false)
-                                    }, label: {
-                                        HStack {
-                                            Image(systemName: "mappin.and.ellipse")
-                                            Text("Konumlar")
-                                            Spacer()
-                                            Text("\(pe.locations.count)")
-                                                .font(.subheadline)
-                                                .foregroundColor(.secondary)
-                                        }
-                                    })
-                                    DisclosureGroup(content: {
-                                        EntitySectionView(title: "Tarihler", systemImage: "calendar", items: pe.dates, showHeader: false)
-                                    }, label: {
-                                        HStack {
-                                            Image(systemName: "calendar")
-                                            Text("Tarihler")
-                                            Spacer()
-                                            Text("\(pe.dates.count)")
-                                                .font(.subheadline)
-                                                .foregroundColor(.secondary)
-                                        }
-                                    })
+                                    // (Konumlar bölümü kaldırıldı)
+                                    // (Tarihler bölümü kaldırıldı)
                                     DisclosureGroup(content: {
                                         EntitySectionView(title: "Para", systemImage: "turkishlirasign", items: pe.money, showHeader: false)
                                     }, label: {
@@ -257,6 +392,25 @@ struct MainView: View {
                                                 .foregroundColor(.secondary)
                                         }
                                     })
+                                    if let addrs = pe.addresses, !addrs.isEmpty {
+                                        DisclosureGroup(content: {
+                                            VStack(alignment: .leading, spacing: 6) {
+                                                ForEach(addrs.indices, id: \.self) { idx in
+                                                    Text("• " + addrs[idx])
+                                                        .textSelection(.enabled)
+                                                }
+                                            }
+                                        }, label: {
+                                            HStack {
+                                                Image(systemName: "mail.and.text.magnifyingglass")
+                                                Text("Adresler")
+                                                Spacer()
+                                                Text("\(addrs.count)")
+                                                    .font(.subheadline)
+                                                    .foregroundColor(.secondary)
+                                            }
+                                        })
+                                    }
                                 } else {
                                     Text("Henüz NLP çıktısı yok. Önce OCR yapın.")
                                         .foregroundColor(.secondary)
@@ -264,6 +418,7 @@ struct MainView: View {
                             }
                             .frame(maxWidth: .infinity, alignment: .topLeading)
                         }
+                        .textSelection(.enabled)
                         .padding()
                 }
             }

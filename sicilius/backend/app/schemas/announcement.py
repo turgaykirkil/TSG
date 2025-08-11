@@ -12,6 +12,7 @@ class AnnouncementBase(BaseModel):
     issue_number: Optional[int] = None
     page_number: Optional[int] = None
     announcement_type: Optional[str] = None
+    newspaper_name: Optional[str] = None
     pdf_url: Optional[str] = None
     company_id: uuid.UUID
 

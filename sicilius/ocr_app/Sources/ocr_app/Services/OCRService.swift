@@ -1,6 +1,7 @@
 import Foundation
 import Vision
 import PDFKit
+import AppKit
 
 
 enum OCRError: Error {
@@ -11,12 +12,18 @@ enum OCRError: Error {
     case noTextFound
 }
 
+struct OCRResult {
+    let text: String
+    let outputFolderURL: URL
+    let baseFilename: String
+}
+
 struct OCRService {
     init() throws {
         // Initialization logic can be added here if needed in the future.
     }
 
-    func performOCR(on pdfData: Data) async throws -> String {
+    func performOCR(on pdfData: Data) async throws -> OCRResult {
         guard let pdfDocument = PDFDocument(data: pdfData) else {
             throw OCRError.pdfConversionError
         }
@@ -67,20 +74,23 @@ struct OCRService {
                 imageSaveCount += 1
             }
 
-            // Vision ile metin tanıma
-            let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-            request.recognitionLanguages = ["tr-TR", "en-US"]
-
-            try requestHandler.perform([request])
-
-            guard let observations = request.results else {
-                continue
+            // Sütun-temelli OCR (ColumnOCRService) ile sayfayı işle
+            let languages = ["tr-TR", "en-US"]
+            let columnOCR = ColumnOCRService()
+            let pageText: String
+            do {
+                pageText = try columnOCR.recognizePageWithColumns(cgImage: cgImage, languages: languages)
+            } catch {
+                // Hata olursa mevcut tek-parça OCR'e geri dön
+                let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+                let request = VNRecognizeTextRequest()
+                request.recognitionLevel = .accurate
+                request.usesLanguageCorrection = true
+                request.recognitionLanguages = languages
+                try requestHandler.perform([request])
+                let observations = request.results ?? []
+                pageText = observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
             }
-            
-            let pageText = observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
             
             fullRecognizedText.append("\n\n--- Sayfa \(i + 1) ---\n\n")
             fullRecognizedText.append(pageText)
@@ -94,7 +104,7 @@ struct OCRService {
             throw OCRError.noTextFound
         }
 
-        return fullRecognizedText
+        return OCRResult(text: fullRecognizedText, outputFolderURL: outputFolderURL, baseFilename: baseFilename)
     }
 }
 
