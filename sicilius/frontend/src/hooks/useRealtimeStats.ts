@@ -7,6 +7,7 @@ export interface StatsData {
   scraped_companies: number;
   total_announcements: number;
   new_companies_today: number;
+  storage_pdf_count?: number | null;
 }
 
 const API_URL = '/api/v1/stats';

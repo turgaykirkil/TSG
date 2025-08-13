@@ -17,6 +17,7 @@ class Announcement(Base):
     issue_number = Column(Integer, nullable=True) # Sayı
     page_number = Column(Integer, nullable=True) # Sayfa
     announcement_type = Column(String(255), nullable=True) # İlan Türü
+    newspaper_name = Column(String(255), nullable=True) # Gazete adı veya pre-2021 işareti
     pdf_url = Column(String(1024), nullable=True) # Gazete
 
     # Relationship to Company
@@ -24,7 +25,7 @@ class Announcement(Base):
     company = relationship("Company", back_populates="announcements")
 
     # Relationship to OcrResult (one-to-one)
-    ocr_result = relationship("OcrResult", back_populates="announcement", uselist=False, cascade="all, delete-orphan")
+    ocr_result = relationship("OcrResult", back_populates="announcement", uselist=False)
 
     def __repr__(self):
         return f"<Announcement {self.id} - {self.title}>"

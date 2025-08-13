@@ -28,7 +28,7 @@ struct OCRService {
             throw OCRError.pdfConversionError
         }
 
-        let fileManager = FileManager.default
+        // Disk yazımı kaldırıldı: FileManager kullanımı gereksiz
 
         // Proje kök dizinini bulmak için mevcut dosyanın konumunu kullan
         let currentFileURL = URL(fileURLWithPath: #file)
@@ -44,7 +44,7 @@ struct OCRService {
         let outputFolderURL = projectRootURL.appendingPathComponent("ocr_ciktilari")
         let timestamp = Int(Date().timeIntervalSince1970)
         let baseFilename = "ocr_sonuc_\(timestamp)"
-        try fileManager.createDirectory(at: outputFolderURL, withIntermediateDirectories: true, attributes: nil)
+        // Diskte klasör oluşturma devre dışı: çıktı dosyası yazılmayacak
 
         var fullRecognizedText = "Sicilius OCR Sonucu - \(Date())\n"
 
@@ -89,9 +89,7 @@ struct OCRService {
             fullRecognizedText.append(pageText)
         }
 
-        // Toplu metin sonucunu dosyaya yaz
-        let txtURL = outputFolderURL.appendingPathComponent("\(baseFilename)_tum_sayfalar.txt")
-        try fullRecognizedText.write(to: txtURL, atomically: true, encoding: .utf8)
+        // Disk yazımı kaldırıldı: toplu metin dosyaya yazılmıyor
 
         // PNG kaydetme kaldırıldığı için imageSaveCount kontrolü de kaldırıldı.
 

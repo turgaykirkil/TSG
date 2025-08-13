@@ -128,7 +128,8 @@ export const useAuth = (): AuthContextType => {
   const forgotPassword = useCallback(async (email: string): Promise<AuthResult> => {
     setLoading(true);
     try {
-      await api.post(API_ENDPOINTS.AUTH.FORGOT_PASSWORD, { email });
+      // Backend expects POST to /password-recovery/{email}
+      await api.post(API_ENDPOINTS.AUTH.FORGOT_PASSWORD(email));
       toast.info('Şifre sıfırlama e-postası gönderildi.');
       return { success: true };
     } catch (error) {
@@ -143,7 +144,8 @@ export const useAuth = (): AuthContextType => {
   const resetPassword = useCallback(async (token: string, password: string): Promise<AuthResult> => {
     setLoading(true);
     try {
-      await api.post(API_ENDPOINTS.AUTH.RESET_PASSWORD, { token, password });
+      // Backend expects body { token, new_password }
+      await api.post(API_ENDPOINTS.AUTH.RESET_PASSWORD, { token, new_password: password });
       toast.success('Şifre başarıyla sıfırlandı. Giriş yapabilirsiniz.');
       router.push('/login');
       return { success: true };

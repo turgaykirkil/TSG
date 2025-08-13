@@ -5,7 +5,11 @@ from uuid import UUID
 
 # Properties to receive on item creation
 class OcrResultCreate(BaseModel):
-    announcement_id: UUID
+    company_id: UUID
+    announcement_id: Optional[UUID] = None
+    raw_text: Optional[str] = None
+    structured_data: Optional[Any] = None
+    status: Optional[str] = None
 
 # Properties to receive on item update
 class OcrResultUpdate(BaseModel):
@@ -16,7 +20,8 @@ class OcrResultUpdate(BaseModel):
 # Properties shared by models stored in DB
 class OcrResultInDBBase(BaseModel):
     id: int
-    announcement_id: UUID
+    company_id: UUID
+    announcement_id: Optional[UUID] = None
     raw_text: Optional[str] = None
     structured_data: Optional[Any] = None
     status: str

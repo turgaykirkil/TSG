@@ -1,5 +1,5 @@
 // API Base URL
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api';
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5001';
 
 // API Endpoints
 export const API_ENDPOINTS = {
@@ -8,8 +8,10 @@ export const API_ENDPOINTS = {
     LOGOUT: '/api/v1/auth/logout',
     REGISTER: '/api/v1/auth/register',
     CHANGE_PASSWORD: '/api/v1/auth/change-password',
-    FORGOT_PASSWORD: '/api/v1/auth/forgot-password',
-    RESET_PASSWORD: '/api/v1/auth/reset-password',
+    // Backend expects POST /password-recovery/{email}
+    FORGOT_PASSWORD: (email: string) => `/api/v1/auth/password-recovery/${encodeURIComponent(email)}`,
+    // Backend expects POST /reset-password/ with { token, new_password }
+    RESET_PASSWORD: '/api/v1/auth/reset-password/',
     REFRESH: '/api/v1/auth/refresh', 
   },
   USERS: {
@@ -24,12 +26,13 @@ export const API_ENDPOINTS = {
     BASE: '/api/v1/stats',
     COORDINATES: '/api/v1/stats/coordinates',
   },
-  PROCESS: {
-    COORDINATES: '/api/v1/process/process-coordinates',
-    CONFLICTS: '/api/v1/process/resolve-conflicts',
+  PROCESSING: {
+    PROCESS_COORDINATES: '/api/v1/process/process-coordinates',
+    RESOLVE_CONFLICTS: '/api/v1/process/resolve-conflicts',
   },
   OCR: {
-    PROCESS_AND_PREVIEW: '/api/v1/batch_ocr/process-and-preview/',
+    // Current OCR technical preview endpoint
+    PROCESS_AND_PREVIEW: '/api/v1/parsing/technical-preview',
   },
   // Add other endpoints as needed
 } as const;

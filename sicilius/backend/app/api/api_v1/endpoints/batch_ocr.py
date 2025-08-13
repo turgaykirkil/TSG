@@ -6,6 +6,7 @@ from io import BytesIO
 from PIL import Image
 import logging
 from typing import List, Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 def start_batch_ocr(
     *,
     db: Session = Depends(deps.get_db),
-    announcement_ids: List[int],
+    announcement_ids: List[UUID],
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(deps.get_current_active_user),
 ):
@@ -42,13 +43,25 @@ def start_batch_ocr(
 
     # 2. Create initial OCR result entries and add task to background
     for ann_id in announcement_ids:
-        existing_ocr_result = crud.ocr_result.get_by_announcement(db, announcement_id=ann_id)
+        announcement = crud.announcement.get(db, id=ann_id)
+        if not announcement:
+            logger.warning("Announcement %s not found during batch creation step; skipping.", ann_id)
+            continue
+        # Prefer canonical link by company
+        existing_ocr_result = crud.ocr_result.get_by_company(db, company_id=announcement.company_id)
         if not existing_ocr_result:
-            ocr_result_in = schemas.OcrResultCreate(announcement_id=ann_id)
+            # Also check legacy link just in case
+            existing_ocr_result = crud.ocr_result.get_by_announcement(db, announcement_id=ann_id)
+
+        if not existing_ocr_result:
+            ocr_result_in = schemas.OcrResultCreate(
+                company_id=announcement.company_id,
+                announcement_id=ann_id,
+            )
             crud.ocr_result.create(db=db, obj_in=ocr_result_in)
             # TODO: Add the actual OCR processing to the background tasks
             # Clean the URL by removing query parameters
-            clean_pdf_url = announcement.pdf_url.split('?')[0]
+            clean_pdf_url = (announcement.pdf_url or "").split('?')[0] if announcement.pdf_url else None
             # background_tasks.add_task(ocr_service.run_full_ocr, db=db, announcement_id=ann_id)
             logger.info(f"Task for announcement {ann_id} would be added here.")
 

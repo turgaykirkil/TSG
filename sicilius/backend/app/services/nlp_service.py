@@ -438,6 +438,59 @@ def split_announcements(text: str) -> list[str]:
             segments.append(seg)
     return segments
 
+def split_announcements_with_offsets(text: str) -> list[dict]:
+    """
+    OCR metnini ilân segmentlerine böler ve her segment için orijinal metin
+    üzerindeki başlangıç/bitiş karakter ofsetlerini de döner.
+
+    Dönüş: { start, end, text } sözlüklerinden oluşan liste.
+    - start/end: orijinal 'text' içinde [start:end) aralığı
+    - text: 'split_announcements' ile aynı temizleme kuralları uygulanmış segment
+    """
+    if not text:
+        return []
+
+    header_re = re.compile(
+        r"(?mi)^\s*(?!Eski\b)(?:T\.?C\.?\s*)?.{0,80}?"
+        r"TICARET(?:\s+|\r?\n){0,2}SICIL[Iİ]"
+        r"(?:\s+|\r?\n){0,2}(?:M[ÜU]D[ÜU]R[^\n\r]{0,20}|MEMURL[^\n\r]{0,20})"
+        r"N'?D[EA]N\s*$"
+    )
+
+    def clean_lines(seg: str) -> str:
+        lines = []
+        for ln in seg.splitlines():
+            l2 = ln.strip()
+            if not l2:
+                lines.append(ln)
+                continue
+            if re.search(r"(?i)devam[iı]|bastarafi|^\s*sayfa\s*[:\-]", l2):
+                continue
+            lines.append(ln)
+        out = "\n".join(lines)
+        out = re.sub(r"\n{3,}", "\n\n", out)
+        return out.strip()
+
+    matches = list(header_re.finditer(text))
+    if len(matches) <= 1:
+        fallback_re = re.compile(r"(?mi)^\s*(?!Eski\b).{0,160}?(m[üu]d[üu]rl[üu][ğg]?[üu]?nden|memurlu[ğg]?[üu]?ndan)\s*$")
+        fb = list(fallback_re.finditer(text))
+        if len(fb) > len(matches):
+            matches = fb
+    if not matches:
+        return ([{"start": 0, "end": len(text), "text": clean_lines(text)}]
+                if text.strip() else [])
+
+    out: list[dict] = []
+    for i, m in enumerate(matches):
+        start = m.start()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        raw = text[start:end].strip()
+        seg = clean_lines(raw)
+        if seg:
+            out.append({"start": start, "end": end, "text": seg})
+    return out
+
 def parse_multiple_announcements(text: str) -> list[dict]:
     """
     Metni ilânlara böler ve her ilânı `parse_announcement_text` ile işler.
@@ -448,7 +501,8 @@ def parse_multiple_announcements(text: str) -> list[dict]:
         Swift Codable kırılmaması için boş liste olarak set eder.
     """
     out: list[dict] = []
-    for idx, seg in enumerate(split_announcements(text), start=1):
+    for idx, segobj in enumerate(split_announcements_with_offsets(text), start=1):
+        seg = segobj["text"]
         parsed = parse_announcement_text(seg)
         # Başlık satır(lar)ını daha sağlıklı oluştur: ilk dolu satırdan başlayıp
         # '...nden' (Müdürlüğünden/Memurluğundan) içeren satıra kadar 1-4 satırı birleştir.
@@ -468,6 +522,8 @@ def parse_multiple_announcements(text: str) -> list[dict]:
             "index": idx,
             "sicil_office_header": header,
             "original_text": seg,  # ham segment (normalize edilmemiş)
+            "start_offset": segobj.get("start"),
+            "end_offset": segobj.get("end"),
             # Kimlik/sicil alanları
             "registration_number": parsed.get("registration_number"),
             "sicil_dosya_no": parsed.get("sicil_dosya_no"),

@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
+import { API_ENDPOINTS } from '@/config/constants';
 import { OcrPreviewResponse } from '@/lib/types';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Loader2 } from 'lucide-react';
@@ -37,7 +38,7 @@ const OcrAdminPage = () => {
 
     try {
             const response = await api.post<OcrPreviewResponse>(
-        '/api/v1/parsing/technical-preview',
+        API_ENDPOINTS.OCR.PROCESS_AND_PREVIEW,
         formData,
         {
           headers: {

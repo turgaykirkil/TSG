@@ -96,7 +96,7 @@ class CRUDFileUpload(CRUDBase[FileUpload, FileUploadCreate, FileUploadUpdate]):
         """Dosya yükleme durumunu günceller."""
         update_data = {
             "status": status,
-            "processed_at": datetime.utcnow() if status == FileUploadStatus.PROCESSED else None,
+            "processed_at": datetime.utcnow() if status == FileUploadStatus.COMPLETED else None,
             "error_message": error_message
         }
         
@@ -121,7 +121,7 @@ class CRUDFileUpload(CRUDBase[FileUpload, FileUploadCreate, FileUploadUpdate]):
         return self.update_status(
             db,
             db_obj=db_obj,
-            status=FileUploadStatus.PROCESSED,
+            status=FileUploadStatus.COMPLETED,
             error_message=error_message,
             processed_records=processed_records,
             failed_records=failed_records

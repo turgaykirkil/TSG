@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from supabase import Client
-from .stats import get_supabase_client
+from app.core.dependencies import get_supabase_client
 import logging
 
 router = APIRouter()

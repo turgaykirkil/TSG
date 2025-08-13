@@ -30,65 +30,13 @@ from app.core.supabase_client import supabase
 from app.schemas.announcement import AnnouncementCreate
 from app.scraping_state import scraping_state
 # from app.services.notification_service import notification_service
+from app.utils.office_normalization import normalize_office_freeform
 
 logger = logging.getLogger(__name__)
 
 # Helper data and functions for scraping
-VALID_CITIES = [
-    "İSTANBUL", "ANKARA", "İZMİR", "ACIPAYAM", "ADANA", "ADIYAMAN", "AFYONKARAHİSAR",
-    "AFŞİN", "AKHİSAR", "AKSARAY", "AKYAZI", "AKÇAKOCA", "AKŞEHİR", "ALACA", "ALANYA",
-    "ALAPLI", "ALAŞEHİR", "ALİAĞA", "AMASYA", "ANAMUR", "ANTALYA", "ARDAHAN", "ARDEŞEN",
-    "ARHAVİ", "ARTVİN", "AYDIN", "AYVALIK", "AĞRI", "BABADAĞ", "BABAESKİ", "BAFRA",
-    "BALIKESİR", "BANDIRMA", "BARTIN", "BATMAN", "BAYBURT", "BAYINDIR", "BERGAMA", "BEYPAZARI",
-    "BEYŞEHİR", "BODRUM", "BOLU", "BOLVADİN", "BOR", "BORÇKA", "BOYABAT", "BOZÜYÜK",
-    "BOĞAZLIYAN", "BUCAK", "BULANCAK", "BULDAN", "BURDUR", "BURHANİYE", "BURSA", "BÜNYAN",
-    "BİGA", "BİLECİK", "BİNGÖL", "BİRECİK", "BİTLİS", "CEYHAN", "CİZRE", "DEMİRCİ",
-    "DENİZLİ", "DEVELİ", "DEVREK", "DOĞANHİSAR", "DOĞUBAYAZIT", "DÖRTYOL", "DÜZCE", "DİDİM",
-    "DİNAR", "DİYARBAKIR", "EDREMİT", "EDİRNE", "ELAZIĞ", "ELBİSTAN", "EMİRDAĞ", "ERBAA",
-    "ERCİŞ", "ERDEK", "ERDEMLİ", "ERZURUM", "ERZİN", "ERZİNCAN", "ESKİŞEHİR", "FATSA",
-    "FETHİYE", "GAZİANTEP", "GEBZE", "GEDİZ", "GELİBOLU", "GEMLİK", "GEREDE", "GÖNEN",
-    "GÖRDES", "GÜMÜŞHACIKÖY", "GÜMÜŞHANE", "GİRESUN", "HAKKARİ", "HATAY", "HAVZA",
-    "HAYMANA", "HAYRABOLU", "HOPA", "ILGIN", "ISPARTA", "IĞDIR", "KAHRAMANMARAŞ", "KADİRLİ",
-    "KAMAN", "KARABÜK", "KARACABEY", "KARAHALLI", "KARAMAN", "KARAPINAR", "KARS",
-    "KASTAMONU", "KAYSERİ", "KELKİT", "KEŞAN", "KIRIKHAN", "KIRIKKALE", "KIRKLARELİ",
-    "KIRŞEHİR", "KIZILTEPE", "KOCAELİ", "KONYA EREĞLİ", "KONYA", "KOZAN", "KUMLUCA",
-    "KUŞADASI", "KÖRFEZ", "KÜTAHYA", "KİLİS", "LÜLEBURGAZ", "MALATYA", "MALKARA",
-    "MANAVGAT", "MANİSA", "MARDİN", "MARMARİS", "MENEMEN", "MERSİN", "MERZİFON", "MUCUR",
-    "MUSTAFAKEMALPAŞA", "MUT", "MUĞLA", "MUŞ", "MİLAS", "NAZİLLİ", "NEVŞEHİR",
-    "NUSAYBİN", "NİKSAR", "NİZİP", "NİĞDE", "OLTU", "ORDU", "ORHANGAZİ", "OSMANİYE",
-    "PASİNLER", "PAZAR", "POLATLI", "REYHANLI", "RİZE", "SAFRANBOLU", "SAKARYA",
-    "SALİHLİ", "SAMSUN", "SANDIKLI", "SARAYKÖY", "SELÇUK", "SEYDİŞEHİR", "SOMA",
-    "SULUOVA", "SUNGURLU", "SUSURLUK", "SÖKE", "SİLİFKE", "SİMAV", "SİNOP", "SİVAS",
-    "SİVEREK", "SİİRT", "TARSUS", "TATVAN", "TAVAS", "TAVŞANLI", "TAŞKÖPRÜ", "TEKİRDAĞ",
-    "TERME", "TOKAT", "TORBALI", "TOSYA", "TRABZON", "TUNCELİ", "TURGUTLU", "TURHAL",
-    "TİRE", "UZUNKÖPRÜ", "UŞAK", "VAN", "VEZİRKÖPRÜ", "YAHYALI", "YALOVA", "YALVAÇ",
-    "YENİŞEHİR", "YERKÖY", "YOZGAT", "YÜKSEKOVA", "ZONGULDAK", "ZİLE", "ÇANAKKALE",
-    "ÇANKIRI", "ÇARŞAMBA", "ÇAY", "ÇAYCUMA", "ÇAYELİ", "ÇERKEZKÖY", "ÇORLU", "ÇORUM",
-    "ÇUMRA", "ÖDEMİŞ", "ÜNYE", "ÜRGÜP", "İNEBOLU", "İNEGÖL", "İSKENDERUN", "İSLAHİYE",
-    "İZNİK", "ŞANLIURFA", "ŞEREFLİKOÇHİSAR", "ŞIRNAK", "SORGUN", "OF", "ŞEFAATLİ",
-    "KARADENİZ EREĞLİ"
-]
-
-def normalize_city_name(db_city_name: str) -> str | None:
-    """
-    Veritabanından gelen sicil müdürlüğü adını, sitedeki dropdown ile uyumlu hale getirir.
-    """
-    if not db_city_name:
-        return None
-    normalized = db_city_name.upper().strip()
-    suffixes_to_remove = [
-        'TİCARET SİCİLİ MÜDÜRLÜĞÜ',
-        'TİCARET SİCİL MÜDÜRLÜĞÜ',
-        'TİCARET VE SANAYİ ODASI'
-    ]
-    cleaned_name = normalized
-    for suffix in suffixes_to_remove:
-        cleaned_name = cleaned_name.replace(suffix, '')
-    cleaned_name = cleaned_name.strip()
-    if cleaned_name in VALID_CITIES:
-        return cleaned_name
-    logger.warning(f"Could not normalize city name: {db_city_name}")
-    return None
+# Not: Ofis normalizasyonu için merkezî kaynak kullanılmaktadır:
+#  - app.utils.office_normalization.normalize_office_freeform
 
 
 
@@ -388,14 +336,16 @@ async def scrape_company(page: Page, db: Session, company):
     """
     scraping_state.add_log(f"PROCESSING_COMPANY: Start processing '{company.unvan}' (Sicil No: {company.sicil_no}).")
     try:
-        city_name = normalize_city_name(company.sicil_mudurluk)
-        if not city_name:
-            scraping_state.add_log(f"COMPANY_ERROR: Could not normalize city name for '{company.unvan}'.")
-            crud.company.mark_as_scraped(db=db, company_id=company.id) # Mark as scraped to avoid retries
+        # Öncelik: composite key'de kullanılan normalize alan
+        office_value = getattr(company, "sicil_office_code", None) or getattr(company, "sicil_mudurluk", None)
+        office_label = normalize_office_freeform(office_value)
+        if not office_label:
+            scraping_state.add_log(f"COMPANY_ERROR: Could not normalize office for '{company.unvan}'. Raw: {office_value}")
+            crud.company.mark_as_scraped(db=db, company_id=company.id)  # Retry önlemek için işaretle
             return
 
         await page.goto("https://www.ticaretsicil.gov.tr/view/hizlierisim/ilangoruntuleme.php", wait_until="domcontentloaded")
-        await page.select_option('select#SicilMudurluguId', label=city_name)
+        await page.select_option('select#SicilMudurluguId', label=office_label)
         await page.fill('input#TicSicNo', str(company.sicil_no))
         await page.click('button[data-message=\"İlan Ara\"]')
         scraping_state.add_log("FORM_SUBMITTED: Search form submitted.")

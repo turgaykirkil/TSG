@@ -14,7 +14,7 @@ from app import crud, models, schemas
 from app.core import security
 from app.core.config import settings
 from app.db.session import SessionLocal
-from supabase.client import Client, create_client
+from supabase import Client, create_client, ClientOptions
 
 reusable_oauth2 = OAuth2PasswordBearer(
     tokenUrl=f"{settings.API_V1_STR}/auth/login", auto_error=False
@@ -100,7 +100,13 @@ def get_supabase_client() -> Generator[Client, None, None]:
     Get a Supabase client.
     """
     try:
-        supabase_client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+        if not settings.supabase_url or not settings.supabase_service_role_key:
+            raise ValueError("Supabase URL or Service Role Key not configured")
+
+        opts: ClientOptions = ClientOptions(
+            postgrest_client_timeout=60.0,
+        )
+        supabase_client = create_client(settings.supabase_url, settings.supabase_service_role_key, options=opts)
         yield supabase_client
     except Exception as e:
         logging.error(f"Failed to create Supabase client: {e}", exc_info=True)

@@ -63,7 +63,7 @@ const AdminPage = () => {
       </Tabs>
 
                   {error && <div className="text-red-500 text-center my-4 p-4 border border-red-500 rounded-md">{error}</div>}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mt-8">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5 mt-8">
         <StatCard
           title="Toplam Şirket"
           value={stats?.total_companies?.toLocaleString('tr-TR') || '0'}
@@ -89,6 +89,17 @@ const AdminPage = () => {
           title="Bugün Eklenen Şirket"
           value={stats?.new_companies_today?.toLocaleString('tr-TR') || '0'}
           icon={MapPin}
+          change=""
+          isLoading={!stats && !error}
+        />
+        <StatCard
+          title="Bucket PDF"
+          value={
+            stats?.storage_pdf_count != null
+              ? stats.storage_pdf_count.toLocaleString('tr-TR')
+              : '0'
+          }
+          icon={FileSearch}
           change=""
           isLoading={!stats && !error}
         />

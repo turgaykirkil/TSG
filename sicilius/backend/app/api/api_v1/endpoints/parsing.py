@@ -2,6 +2,7 @@ import io
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+import re
 
 import pdfplumber
 from fastapi import APIRouter, File, UploadFile, HTTPException, Depends
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
 from app.db.session import get_db
 from app.models.company import Company
+from app.utils.office_normalization import normalize_office_freeform
 
 # --- Pydantic Models ---
 
@@ -31,6 +33,7 @@ class CompanyDBData(BaseModel):
     unvan: Optional[str] = None
     address: Optional[str] = None
     sicil_mudurluk: Optional[str] = None
+    sicil_office_code: Optional[str] = None
 
 class SaveCompaniesRequest(BaseModel):
     companies: List[CompanyUploadData]
@@ -51,6 +54,20 @@ def clean_text(text: Any) -> str:
         return ""
     return str(text).strip()
 
+def normalize_sicil_no(value: Optional[str]) -> Optional[str]:
+    """
+    Sicil numarasını normalize eder: None için None döner, boşlukları temizler.
+    Gelecekte gerekirse rakam dışı karakterleri de ayıklayacak şekilde genişletilebilir.
+    """
+    if value is None:
+        return None
+    # Tüm boşlukları kaldır ve kırp
+    return re.sub(r"\s+", "", str(value)).strip()
+
+def normalize_office(value: Optional[str]) -> Optional[str]:
+    """Merkezi ofis normalizasyonunu kullan."""
+    return normalize_office_freeform(value)
+
 
 
 # --- API Endpoints ---
@@ -61,6 +78,7 @@ async def parse_pdf_file(files: List[UploadFile] = File(...)):
     Parses multiple PDF files, merges all tables from all pages,
     and returns a single merged table for user review.
     """
+    logger.info("parse-pdf called files=%s", len(files) if files else 0)
     master_header = None
     all_data_rows_as_lists = []
     first_file_processed = False
@@ -101,9 +119,11 @@ async def parse_pdf_file(files: List[UploadFile] = File(...)):
             raise HTTPException(status_code=500, detail=f"An error occurred while processing {file.filename}: {e}")
 
     if not master_header:
+        logger.warning("parse-pdf no header extracted")
         raise HTTPException(status_code=400, detail="No valid tables with headers found in any of the uploaded PDF files.")
 
     all_data_rows_as_lists = [row for row in all_data_rows_as_lists if any(row)]
+    logger.info("parse-pdf merged rows=%s header_len=%s", len(all_data_rows_as_lists), len(master_header or []))
 
     all_data_rows_as_dicts = []
     for row in all_data_rows_as_lists:
@@ -116,6 +136,8 @@ async def parse_pdf_file(files: List[UploadFile] = File(...)):
         rows=all_data_rows_as_dicts
     )
 
+    logger.info("parse-pdf returning rows=%s", len(all_data_rows_as_dicts))
+
     return [final_merged_table]
 
 
@@ -125,10 +147,26 @@ async def save_companies_data(payload: SaveCompaniesRequest, db: Session = Depen
     Receives structured company data and upserts it into the 'companies' table.
     """
     # Yinelenen kayıtları sicil numarasına göre filtrele (sadece sonuncuyu tut)
+    logger.info("companies/save called incoming=%s", len(payload.companies) if payload and payload.companies else 0)
     unique_companies: Dict[str, CompanyUploadData] = {}
+    skipped_missing_sicil = 0
+    skipped_missing_office = 0
     for company_data in payload.companies:
-        if company_data.sicil_no:
-            unique_companies[company_data.sicil_no] = company_data
+        # Normalize alanlar
+        company_data.sicil_no = normalize_sicil_no(company_data.sicil_no)
+        company_data.sicil_mudurluk = normalize_office(company_data.sicil_mudurluk)
+        if not company_data.sicil_no:
+            skipped_missing_sicil += 1
+            continue
+        if not company_data.sicil_mudurluk:
+            skipped_missing_office += 1
+            continue
+        unique_companies[company_data.sicil_no] = company_data
+
+    logger.info(
+        "companies/save normalized unique=%s skipped_sicil=%s skipped_office=%s",
+        len(unique_companies), skipped_missing_sicil, skipped_missing_office
+    )
 
     records_to_upsert = []
     for company_data in unique_companies.values():
@@ -136,31 +174,42 @@ async def save_companies_data(payload: SaveCompaniesRequest, db: Session = Depen
             sicil_no=company_data.sicil_no,
             unvan=company_data.firma_unvani,
             address=company_data.adres,
-            sicil_mudurluk=company_data.sicil_mudurluk
+            sicil_mudurluk=company_data.sicil_mudurluk,
+            sicil_office_code=company_data.sicil_mudurluk,
         )
         records_to_upsert.append(db_data.dict(exclude_none=True))
 
     if not records_to_upsert:
+        logger.warning("companies/save nothing to upsert")
         raise HTTPException(status_code=400, detail="No company data provided to save.")
 
     try:
-        logger.info(f"Upserting {len(records_to_upsert)} records to 'companies' table.")
+        logger.info(
+            "Upserting %s records to 'companies' table. skipped_sicil=%s skipped_office=%s",
+            len(records_to_upsert), skipped_missing_sicil, skipped_missing_office
+        )
         
         # SQLAlchemy ile bulk upsert işlemi
         stmt = insert(Company).values(records_to_upsert)
         update_stmt = stmt.on_conflict_do_update(
-            index_elements=['sicil_no'],
+            index_elements=['sicil_no', 'sicil_office_code'],
             set_={
                 'unvan': stmt.excluded.unvan,
                 'address': stmt.excluded.address,
-                'sicil_mudurluk': stmt.excluded.sicil_mudurluk
+                # Mevcut kayıtlarda sicil_mudurluk / office_code formatını koru (Altın Kural)
+                # 'sicil_mudurluk' ve 'sicil_office_code' ÇAKIŞMADA güncellenmez.
             }
         )
         db.execute(update_stmt)
         db.commit()
+        logger.info("companies/save committed upserted=%s", len(records_to_upsert))
 
         return SaveResponse(
-            message=f"Successfully saved {len(records_to_upsert)} company records.",
+            message=(
+                f"Successfully saved {len(records_to_upsert)} company records. "
+                f"Skipped (missing sicil_no): {skipped_missing_sicil}; "
+                f"Skipped (missing office): {skipped_missing_office}"
+            ),
             processed_rows=len(records_to_upsert)
         )
     except Exception as e:

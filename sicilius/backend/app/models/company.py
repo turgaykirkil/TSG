@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Text, func, Date, Integer, Boolean, ForeignKey
+from sqlalchemy import Column, String, DateTime, Text, func, Date, Integer, Boolean, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from geoalchemy2 import Geometry
@@ -9,12 +9,16 @@ from .announcement import Announcement
 
 class Company(Base):
     __tablename__ = "companies"
+    __table_args__ = (
+        UniqueConstraint('sicil_no', 'sicil_office_code', name='ux_companies_sicil_no_office'),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     unvan = Column(String(500), index=True)
     mersis_number = Column(String(50), unique=True, index=True, nullable=True)
-    sicil_no = Column(String(50), unique=True, index=True)
+    sicil_no = Column(String(50), index=True)
     sicil_mudurluk = Column(String(255), nullable=True)
+    sicil_office_code = Column(String(64), nullable=True, index=True)
     nace_code = Column(String(255), nullable=True)
 
     # Contact Information
@@ -42,6 +46,7 @@ class Company(Base):
 
     # Relationships
     announcements = relationship("Announcement", back_populates="company", cascade="all, delete-orphan")
+    ocr_results = relationship("OcrResult", back_populates="company", cascade="all, delete-orphan")
     gazette_entries = relationship("GazetteEntry", back_populates="company")
     persons = relationship("CompanyPersonRelation", back_populates="company")
 

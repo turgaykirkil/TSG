@@ -79,6 +79,8 @@ class MainViewModel: ObservableObject {
     private let supabase: SupabaseClient
     private let pdfBucket = "gazette-pdfs"
     private let parser = GazetteParser()
+    // Supabase Storage'dan indirilen aktif PDF'nin yolunu (bucket içi path) takip ederiz
+    private var currentStoragePath: String?
 
     init() {
         // AuthViewModel'deki gibi, güvenli yapılandırmadan Supabase istemcisini oluşturuyoruz.
@@ -135,6 +137,7 @@ class MainViewModel: ObservableObject {
                 // 5. UI'ı güncelle
                 self.selectedPDF = fileData
                 self.ocrResult = "'\(randomFile.name)' başarıyla indirildi. OCR için hazır."
+                self.currentStoragePath = randomFile.name
                 
             } catch {
                 self.errorMessage = "PDF alınamadı: \(error.localizedDescription)"
@@ -204,6 +207,7 @@ class MainViewModel: ObservableObject {
             let fileData = try await supabase.storage.from(pdfBucket).download(path: randomFile.name)
             // Seçimi güncelle ve OCR'ı çalıştır
             self.selectedPDF = fileData
+            self.currentStoragePath = randomFile.name
             await self.performOCRAsync(data: fileData)
             // NLP JSON kaydet
             self.saveNlpJsonToDisk()
@@ -316,53 +320,57 @@ class MainViewModel: ObservableObject {
     }
 
     func saveNlpJsonToDisk() {
-        guard let folder = ocrOutputFolder, let base = ocrBaseFilename else {
-            self.errorMessage = "OCR çıktı klasörü bulunamadı. Önce OCR çalıştırın."
-            return
-        }
-        let parsedList = parsedAnnouncements ?? []
-        let hasList = !parsedList.isEmpty
-        let combinedURL = folder.appendingPathComponent("\(base)_nlp.json")
-        let rawListURL = folder.appendingPathComponent("\(base)_nlp_list.json")
-
-        struct CombinedNlpOutput: Codable {
-            let original_text: String
-            let parsed_announcements: [NlpParsedAnnouncement]
-            let raw_backend_json: String?
-            let output_folder: String
-            let base_filename: String
-            let created_at: String
-        }
-
-        let formatter = ISO8601DateFormatter()
-        let payload = CombinedNlpOutput(
-            original_text: self.ocrResult,
-            parsed_announcements: parsedList,
-            raw_backend_json: self.nlpRawJson,
-            output_folder: folder.path,
-            base_filename: base,
-            created_at: formatter.string(from: Date())
-        )
-
+        // Disk yazımı kaldırıldı: Artık JSON/TXT dosyaları kaydedilmiyor.
+        // Sadece backend'e ingest yapılır.
         do {
-            // 1) Backend'in ham dizi çıktısı (tüm alanlar korunur) - her durumda kaydetmeyi dene
-            if let raw = nlpRawJson, !raw.isEmpty, let rawData = raw.data(using: .utf8) {
-                try rawData.write(to: rawListURL)
-                print("NLP liste JSON kaydedildi: \(rawListURL.path)")
-            } else {
-                print("Uyarı: raw_backend_json boş, _nlp_list.json yazılamadı.")
+            guard let raw = self.nlpRawJson, !raw.isEmpty else {
+                print("Ingest atlandı: raw_backend_json boş.")
+                return
             }
-            // 2) Meta + struct'lı birleştirilmiş çıktı - yalnızca liste doluysa yaz
-            if hasList {
-                let data = try JSONEncoder().encode(payload)
-                try data.write(to: combinedURL)
-                print("NLP JSON kaydedildi: \(combinedURL.path)")
-            } else {
-                self.errorMessage = "Uyarı: parsedAnnouncements boş. Sadece ham backend listesi kaydedildi."
+            let itemsData = Data(raw.utf8)
+            let itemsAny = try JSONSerialization.jsonObject(with: itemsData, options: [])
+            guard let itemsArray = itemsAny as? [Any], !itemsArray.isEmpty else {
+                print("Ingest atlandı: items boş veya dizi değil.")
+                return
             }
-            // Finder otomatik açma kaldırıldı (istek üzerine). Sessiz kaydetme.
+
+            var payloadObj: [String: Any] = [
+                "raw_text": self.ocrResult,
+                "items": itemsArray
+            ]
+            if let path = self.currentStoragePath, !path.isEmpty {
+                payloadObj["source_file"] = [
+                    "bucket": self.pdfBucket,
+                    "path": path
+                ]
+                payloadObj["delete_after_ingest"] = true
+            }
+            let postData = try JSONSerialization.data(withJSONObject: payloadObj, options: [])
+
+            guard let url = URL(string: "http://127.0.0.1:5001/api/v1/nlp/ingest-structured") else {
+                print("Ingest hata: URL oluşturulamadı.")
+                return
+            }
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+            req.httpBody = postData
+
+            print("Ingest-structured POST gönderiliyor... items=\(itemsArray.count)")
+            URLSession.shared.dataTask(with: req) { data, resp, err in
+                if let err = err {
+                    print("Ingest-structured hata: \(err.localizedDescription)")
+                    return
+                }
+                if let http = resp as? HTTPURLResponse {
+                    print("Ingest-structured yanıt: status=\(http.statusCode)")
+                }
+                if let data = data, let body = String(data: data, encoding: .utf8) {
+                    print("Ingest-structured gövde: \n\(body)")
+                }
+            }.resume()
         } catch {
-            self.errorMessage = "NLP JSON kaydedilemedi: \(error.localizedDescription)"
+            print("Ingest hazırlık hatası: \(error.localizedDescription)")
         }
     }
 }

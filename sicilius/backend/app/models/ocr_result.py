@@ -9,7 +9,15 @@ class OcrResult(Base):
     __tablename__ = "ocr_results"
 
     id = Column(Integer, primary_key=True, index=True)
-    announcement_id = Column(UUID(as_uuid=True), ForeignKey("announcements.id"), unique=True, nullable=False, index=True)
+    # Optional link to an announcement (legacy flow)
+    announcement_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("announcements.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # New required link to company (canonical owner of OCR result)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
     
     raw_text = Column(Text, nullable=True)
     structured_data = Column(JSON, nullable=True) # To store words, bounding boxes, confidence, etc.
@@ -18,4 +26,5 @@ class OcrResult(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    announcement = relationship("Announcement", back_populates="ocr_result")
+    announcement = relationship("Announcement", back_populates="ocr_result", passive_deletes=True)
+    company = relationship("Company", back_populates="ocr_results")

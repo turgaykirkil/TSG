@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status, File, UploadFile
 from sqlalchemy.orm import Session
 from uuid import UUID
@@ -11,6 +12,7 @@ from supabase.client import Client
 from typing import List
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 @router.post("/process/{announcement_id}", status_code=status.HTTP_202_ACCEPTED, response_model=schemas.OcrResult)
 def start_ocr_processing(
@@ -71,11 +73,18 @@ async def get_ocr_technical_preview(
     """
     try:
         pdf_content = await file.read()
+        logger.info(
+            "OCR technical-preview requested file=%s size=%s",
+            getattr(file, 'filename', 'unknown'), len(pdf_content) if pdf_content else 0
+        )
         # Note: We are using the new Surya-based service function
-        return ocr_service.get_surya_ocr_preview(
+        preview = ocr_service.get_surya_ocr_preview(
             pdf_content=pdf_content, file_name=file.filename
         )
+        logger.info("OCR technical-preview generated pages=%s", len(getattr(preview, 'pages', []) or []))
+        return preview
     except Exception as e:
+        logger.error("OCR technical-preview failed: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate OCR technical preview: {str(e)}"
