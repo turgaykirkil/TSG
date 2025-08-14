@@ -17,16 +17,28 @@ import Link from 'next/link';
 
 interface HeaderProps {
   onMenuClick: () => void;
+  isMenuOpen?: boolean;
 }
 
-export function Header({ onMenuClick }: HeaderProps) {
+export function Header({ onMenuClick, isMenuOpen }: HeaderProps) {
   const { session, logout } = useAuth();
   const user = session.user;
 
   return (
-    <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-4 border-b bg-background px-4 sm:px-6">
+    <header
+      className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-4 border-b bg-background px-4 sm:px-6"
+      role="banner"
+    >
       {/* Mobile Menu Button */}
-      <Button variant="ghost" size="icon" onClick={onMenuClick} className="lg:hidden">
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={onMenuClick}
+        className="lg:hidden"
+        aria-label="Menüyü aç/kapat"
+        aria-controls="mobile-sidebar"
+        aria-expanded={isMenuOpen ? true : false}
+      >
         <Menu className="h-6 w-6" />
         <span className="sr-only">Menüyü Aç/Kapat</span>
       </Button>
@@ -43,6 +55,7 @@ export function Header({ onMenuClick }: HeaderProps) {
             type="search"
             placeholder="Şirket, sicil no veya vergi no..."
             className="w-full rounded-full bg-slate-100 pl-9 dark:bg-slate-800"
+            aria-label="Arama"
           />
         </div>
 

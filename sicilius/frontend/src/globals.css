@@ -800,10 +800,69 @@ html {
   transition: all 0.3s ease;
 }
 
+/* Animated gradient utilities for borders/backgrounds */
+.animated-gradient-border {
+  position: relative;
+  border-radius: 9999px;
+  background: linear-gradient(
+    270deg,
+    #0A192F,
+    #1E3A8A,
+    #0EA5E9,
+    #1E3A8A,
+    #0A192F
+  );
+  background-size: 400% 400%;
+  animation: gradientShift 14s ease infinite;
+}
+
+.animated-gradient-bg {
+  background: linear-gradient(
+    270deg,
+    rgba(10,25,47,0.08),
+    rgba(30,58,138,0.08),
+    rgba(14,165,233,0.08),
+    rgba(30,58,138,0.08),
+    rgba(10,25,47,0.08)
+  );
+  background-size: 400% 400%;
+  animation: gradientShift 18s ease infinite;
+}
+
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
 .gradient-secondary:hover {
   @apply shadow-xl shadow-secondary/30;
   transform: translateY(-1px);
 }
+
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  html:focus-within {
+    scroll-behavior: auto;
+  }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .animated-gradient-border,
+  .animated-gradient-bg,
+  .animate-float,
+  .animate-float-slow,
+  .animate-float-fast,
+  .animate-pulse-slow,
+  .animate-blob,
+  .animate-fade-in {
+    animation: none !important;
+  }
+}
+
+ 
 
 /* Glassmorphism Effect */
 .glass {

@@ -31,7 +31,7 @@ export default function RootLayout({
       <head />
       <body
         className={cn(
-          'min-h-screen bg-background font-sans antialiased',
+          'min-h-[100svh] bg-gradient-to-b from-[#FAFCFF] via-[#F7FAFF] to-[#EFF4FF] font-sans antialiased',
           inter.variable,
           spaceGrotesk.variable
         )}
