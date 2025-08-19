@@ -134,7 +134,7 @@ export default function MobileHistoryDrawer({
           <ProfileCard />
         </div>
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
-          <h2 id="history-heading" className="text-sm font-semibold text-slate-700">Geçmiş Aramalar</h2>
+          <h2 id="history-heading" className="text-sm font-semibold text-slate-700 text-left">Geçmiş Aramalar</h2>
           <button
             type="button"
             className="text-xs text-slate-500 hover:text-slate-700"

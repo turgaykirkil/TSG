@@ -9,12 +9,33 @@ try:
 except Exception:  # transformers yoksa da çalışabilsin
     hf_pipeline = None  # type: ignore
 
+import json
+from typing import Any, Optional
+try:
+    import httpx  # type: ignore
+except Exception:
+    httpx = None  # type: ignore
+try:
+    import requests  # type: ignore
+except Exception:
+    requests = None  # type: ignore
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
 MODEL_NAME = "tr_core_news_sm"
 nlp_model = None
 hf_ner = None  # Hugging Face NER pipeline (opsiyonel)
+
+# LLM (LM Studio / OpenAI uyumlu) yapılandırması
+LLM_ENABLED = os.getenv("USE_QWEN_LLM", "0").strip() in ("1", "true", "True")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://localhost:1234/v1").strip()
+LLM_MODEL = os.getenv("LLM_MODEL", "qwen/qwen3-4b-thinking-2507").strip()
+LLM_API_KEY = os.getenv("LLM_API_KEY", "").strip()
+try:
+    LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "30").strip())
+except Exception:
+    LLM_TIMEOUT = 30.0
 
 # --- OCR Normalizasyonu ve Yardımcı Regex Fonksiyonları ---
 TURKISH_MONTHS = (
@@ -145,12 +166,139 @@ def load_hf_ner():
                 device=-1,
             )
             logger.info("HF NER '%s' yüklendi.", model_id)
-            return ner
+            hf_ner = ner
+            return hf_ner
         except Exception as e:
             logger.warning("HF NER modeli '%s' yüklenemedi: %s", model_id, e)
 
     logger.warning("HF NER modelleri yüklenemedi; SpaCy/regex ile devam edilecek.")
     return None
+
+def _dedup_entity_dicts(items: list[dict]) -> list[dict]:
+    """'text' anahtarına göre küçük harf normalize ederek deduplikasyon yapar."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    for it in items:
+        t = (it.get("text") or "").strip().lower()
+        if not t:
+            continue
+        if t in seen:
+            continue
+        seen.add(t)
+        out.append(it)
+    return out
+
+def _http_post_json(url: str, payload: dict, headers: Optional[dict] = None, timeout: float = 30.0) -> dict | None:
+    """Basit HTTP POST JSON. httpx/requests mevcutsa onları, değilse urllib kullanır."""
+    hdrs = {"Content-Type": "application/json"}
+    if headers:
+        hdrs.update(headers)
+    data = json.dumps(payload).encode("utf-8")
+    # Tercihen httpx
+    if httpx is not None:
+        try:
+            resp = httpx.post(url, headers=hdrs, content=data, timeout=timeout)
+            if 200 <= resp.status_code < 300:
+                return resp.json()
+            logger.warning("LLM HTTP %s: %s", resp.status_code, resp.text[:200])
+            return None
+        except Exception as e:
+            logger.warning("LLM httpx post hatası: %s", e)
+    # requests fallback
+    if requests is not None:
+        try:
+            resp = requests.post(url, headers=hdrs, data=data, timeout=timeout)  # type: ignore
+            if 200 <= resp.status_code < 300:  # type: ignore[attr-defined]
+                return resp.json()  # type: ignore[no-any-return]
+            logger.warning("LLM HTTP %s: %s", getattr(resp, 'status_code', '?'), getattr(resp, 'text', '')[:200])
+            return None
+        except Exception as e:
+            logger.warning("LLM requests post hatası: %s", e)
+    # urllib son çare
+    try:
+        import urllib.request as urlreq
+        req = urlreq.Request(url, data=data, headers=hdrs, method="POST")
+        with urlreq.urlopen(req, timeout=timeout) as r:  # type: ignore[attr-defined]
+            txt = r.read().decode("utf-8")
+            return json.loads(txt)
+    except Exception as e:
+        logger.warning("LLM urllib post hatası: %s", e)
+        return None
+
+def _llm_extract_entities(text: str) -> Optional[dict[str, Any]]:
+    """
+    LM Studio/OpenAI uyumlu chat.completions ile varlık çıkarımı.
+    Beklenen anahtarlar: persons[str[]], organizations[str[]], addresses[str[]],
+    trade_name[str?], registration_number[str?], sicil_dosya_no[str?], mersis_no[str?]
+    """
+    if not LLM_ENABLED:
+        return None
+    try:
+        url = LLM_BASE_URL.rstrip("/") + "/chat/completions"
+        headers = {}
+        if LLM_API_KEY:
+            headers["Authorization"] = f"Bearer {LLM_API_KEY}"
+        system = (
+            "Türkçe ticaret sicil ilanı/duyurusu OCR metninden varlık çıkar. "
+            "Sadece geçerli kişi ad-soyadlarını (ör. 'Atakan Yüklü') tespit et; "
+            "kurum/unvan, adres, MERSIS, Sicil/Dosya No alanlarını ayıkla. "
+            "Sıkı JSON döndür. Ek açıklama yok."
+        )
+        user = (
+            "Metin:\n" + text + "\n\n"
+            "Yalnızca şu JSON'u döndür:\n"
+            "{\n"
+            "  \"persons\": [\"Ad Soyad\"...],\n"
+            "  \"organizations\": [\"...\"],\n"
+            "  \"addresses\": [\"...\"],\n"
+            "  \"trade_name\": \"...\" | null,\n"
+            "  \"registration_number\": \"...\" | null,\n"
+            "  \"sicil_dosya_no\": \"...\" | null,\n"
+            "  \"mersis_no\": \"...\" | null\n"
+            "}"
+        )
+        payload = {
+            "model": LLM_MODEL,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": 0,
+            "max_tokens": 800,
+            "response_format": {"type": "json_object"},
+        }
+        resp = _http_post_json(url, payload, headers=headers, timeout=LLM_TIMEOUT)
+        if not resp:
+            return None
+        # OpenAI uyumlu çıktı
+        content = None
+        try:
+            content = (
+                resp.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content")
+            )
+        except Exception:
+            content = None
+        if not content:
+            return None
+        data = None
+        try:
+            data = json.loads(content)
+        except Exception:
+            # Güvenli ayrıştırma için olası codeblock içini çekmeye çalış
+            m = re.search(r"\{[\s\S]*\}\s*$", content)
+            if m:
+                try:
+                    data = json.loads(m.group(0))
+                except Exception:
+                    data = None
+        if isinstance(data, dict):
+            return data
+    except Exception as e:
+        logger.warning("LLM extract hatası: %s", e)
+    return None
+
 
 def parse_announcement_text(text: str) -> dict:
     """
@@ -372,7 +520,50 @@ def parse_announcement_text(text: str) -> dict:
     if regex_dates:
         for d in unique_list(regex_dates):
             entities["dates"].append({"text": d, "label": "DATE"})
-            
+
+    # --- LLM Destekli Ek Çıkarım (opsiyonel) ---
+    if LLM_ENABLED:
+        llm_out = _llm_extract_entities(norm)
+        if isinstance(llm_out, dict):
+            # persons
+            for p in llm_out.get("persons", []) or []:
+                if isinstance(p, str) and p.strip():
+                    entities["persons"].append({"text": p.strip(), "label": "PER_LLM"})
+            # organizations
+            for o in llm_out.get("organizations", []) or []:
+                if isinstance(o, str) and o.strip():
+                    entities["organizations"].append({"text": o.strip(), "label": "ORG_LLM"})
+            # addresses
+            addrs = []
+            for a in llm_out.get("addresses", []) or []:
+                if isinstance(a, str) and a.strip():
+                    addrs.append(a.strip())
+            if addrs:
+                entities["addresses"] = unique_list((entities.get("addresses") or []) + addrs)
+            # trade_name / registration_number / mersis / sicil_dosya_no
+            if not entities.get("trade_name") and isinstance(llm_out.get("trade_name"), str):
+                tn = llm_out.get("trade_name", "").strip()
+                if tn:
+                    entities["trade_name"] = tn
+                    entities["organizations"].append({"text": tn, "label": "ORG"})
+            if not entities.get("registration_number") and isinstance(llm_out.get("registration_number"), str):
+                rn = llm_out.get("registration_number", "").strip()
+                if rn:
+                    entities["registration_number"] = rn
+            if not entities.get("sicil_dosya_no") and isinstance(llm_out.get("sicil_dosya_no"), str):
+                sd = llm_out.get("sicil_dosya_no", "").strip()
+                if sd:
+                    entities["sicil_dosya_no"] = sd
+            if not entities.get("mersis_no") and isinstance(llm_out.get("mersis_no"), str):
+                mn = llm_out.get("mersis_no", "").strip()
+                if mn:
+                    entities["mersis_no"] = mn
+
+    # Deduplikasyon ve filtreler
+    entities["persons"] = [e for e in entities["persons"] if not is_false_person(e["text"]) ]
+    entities["persons"] = _dedup_entity_dicts(entities["persons"])
+    entities["organizations"] = _dedup_entity_dicts(entities["organizations"])
+
     return entities
 
 def split_announcements(text: str) -> list[str]:

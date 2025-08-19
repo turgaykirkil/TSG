@@ -2,8 +2,9 @@
 
 import HistoryItem from './HistoryItem';
 import type { SearchEntry } from '../../hooks/useSearchHistory';
-import ProfileCard from './ProfileCard';
+import ProfileCard from '@/app/(app)/dashboard/components/sidebar/ProfileCard';
 import { useRef } from 'react';
+import { PanelLeftClose } from 'lucide-react';
 
 export default function HistorySidebar({
   items,
@@ -11,12 +12,14 @@ export default function HistorySidebar({
   onRemove,
   onClear,
   onTogglePin,
+  onCollapse,
 }: {
   items: SearchEntry[];
   onSelect: (query: string) => void;
   onRemove: (id: string) => void;
   onClear: () => void;
   onTogglePin: (id: string) => void;
+  onCollapse?: () => void;
 }) {
   const asideRef = useRef<HTMLDivElement>(null);
 
@@ -43,26 +46,36 @@ export default function HistorySidebar({
 
   return (
     <aside
-      className="hidden lg:flex lg:flex-col lg:w-72 xl:w-80 border-r border-slate-200/70 bg-white/60 backdrop-blur-sm"
+      className="hidden lg:sticky lg:top-0 lg:flex lg:h-screen min-h-0 lg:flex-col lg:w-72 xl:w-80 border-r border-slate-200/70 bg-white/60 backdrop-blur-sm"
       role="complementary"
       aria-label="Arama geçmişi"
       ref={asideRef as unknown as React.RefObject<HTMLDivElement>}
       onKeyDown={onKeyDown}
     >
-      <div className="p-4 border-b border-slate-200/70">
-        <ProfileCard />
-      </div>
       <div className="flex items-center justify-between px-4 pt-4 pb-2">
-        <h2 id="history-heading-desktop" className="text-sm font-semibold text-slate-700">Geçmiş Aramalar</h2>
-        <button
-          type="button"
-          className="text-xs text-slate-500 hover:text-slate-700"
-          onClick={() => {
-            if (confirm('Tüm geçmişi temizlemek istediğine emin misin?')) onClear();
-          }}
-        >
-          Temizle
-        </button>
+        <h2 id="history-heading-desktop" className="text-sm font-semibold text-slate-700 text-left">Geçmiş Aramalar</h2>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="text-xs text-slate-500 hover:text-slate-700"
+            onClick={() => {
+              if (confirm('Tüm geçmişi temizlemek istediğine emin misin?')) onClear();
+            }}
+          >
+            Temizle
+          </button>
+          {onCollapse && (
+            <button
+              type="button"
+              className="hidden lg:inline-flex h-7 w-7 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-50"
+              aria-label="Paneli daralt"
+              title="Paneli daralt"
+              onClick={onCollapse}
+            >
+              <PanelLeftClose size={16} />
+            </button>
+          )}
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto px-3 pb-4">
         {items.length === 0 ? (
@@ -76,6 +89,9 @@ export default function HistorySidebar({
             ))}
           </ul>
         )}
+      </div>
+      <div className="mt-auto p-4 border-t border-slate-200/70">
+        <ProfileCard />
       </div>
     </aside>
   );

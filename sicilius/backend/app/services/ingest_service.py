@@ -8,6 +8,9 @@ from sqlalchemy import select
 from app.models.company import Company
 from app.models.announcement import Announcement
 from app.models.ocr_result import OcrResult
+from app.models.person import Person
+from app.models.relation import CompanyPersonRelation, RelationType
+from app.services import nlp_service
 from app.utils.office_normalization import normalize_office_from_header
 
 logger = logging.getLogger(__name__)
@@ -78,6 +81,28 @@ def _extract_office_from_header(header: str | None) -> str:
 def _pick_address(addresses: List[str] | None) -> str | None:
     if not addresses:
         return None
+
+
+def _split_person_name(full_name: str) -> Tuple[str, str | None, str] | None:
+    """
+    Basit isim bölücü: son kelime soyadı, ilk kelime adı, aradakiler orta ad.
+    Person modeli için first_name ve last_name zorunlu.
+    Tek kelime ise veya 2'den kısa parça varsa None döner.
+    """
+    if not isinstance(full_name, str):
+        return None
+    name = _normalize_whitespace(full_name)
+    if not name:
+        return None
+    parts = name.split(" ")
+    if len(parts) < 2:
+        return None
+    first = parts[0]
+    last = parts[-1]
+    middle = " ".join(parts[1:-1]) if len(parts) > 2 else None
+    if not first or not last:
+        return None
+    return first, (middle or None), last
     # İlk anlamlı adresi seç
     for a in addresses:
         aa = _normalize_whitespace(a)

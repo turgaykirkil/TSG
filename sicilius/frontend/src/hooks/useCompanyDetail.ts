@@ -1,0 +1,116 @@
+import { useQuery } from '@tanstack/react-query';
+import { API_BASE_URL } from '@/config/constants';
+import type { Company } from '@/types/company.types';
+
+export interface PersonWithRelation {
+  id: string;
+  full_name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  email?: string | null;
+  nationality_id?: string | null;
+  birth_date?: string | null;
+  is_active?: boolean | null;
+  updated_at?: string | null;
+  relation_type?: string | null;
+  position?: string | null;
+  is_current?: boolean | null;
+  start_date?: string | null;
+  end_date?: string | null;
+}
+
+export interface AnnouncementLite {
+  id: string;
+  title?: string | null;
+  announcement_type?: string | null;
+  publication_date?: string | null;
+  issue_number?: string | null;
+  page_number?: string | null;
+  newspaper_name?: string | null;
+  pdf_url?: string | null;
+  ocr_status?: string | null;
+  created_at?: string | null;
+}
+
+export interface HistoryEntryLite {
+  id: string;
+  entry_type?: string | null;
+  entry_date?: string | null;
+  company_id?: string | null;
+  processed_text?: string | null;
+}
+
+export interface SharedPersonLite {
+  id: string;
+  full_name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  relation_type?: string | null;
+  position?: string | null;
+  is_current?: boolean | null;
+  start_date?: string | null;
+  end_date?: string | null;
+}
+
+export interface RelatedCompany {
+  id: string;
+  unvan?: string | null;
+  firma_unvani?: string | null;
+  sicil_no?: string | null;
+  sicil_mudurluk?: string | null;
+  address?: string | null;
+  adres?: string | null;
+  shared_persons: SharedPersonLite[];
+}
+
+export interface SameAddressCompany {
+  id: string;
+  unvan?: string | null;
+  firma_unvani?: string | null;
+  sicil_no?: string | null;
+  sicil_mudurluk?: string | null;
+  address?: string | null;
+  adres?: string | null;
+}
+
+export interface CompanyDetailPayload {
+  company: Company | null;
+  persons: PersonWithRelation[];
+  announcements: AnnouncementLite[];
+  history: HistoryEntryLite[];
+  related_companies: RelatedCompany[];
+  same_address_companies: SameAddressCompany[];
+}
+
+const fetchCompanyDetail = async (companyId: string): Promise<CompanyDetailPayload> => {
+  const id = (companyId || '').trim();
+  if (!id) throw new Error('Geçersiz şirket kimliği');
+  const url = `${API_BASE_URL}/api/v1/search/company-detail?company_id=${encodeURIComponent(id)}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    let message = 'Şirket detayları getirilemedi';
+    try {
+      const data = await res.json();
+      message = data?.detail || message;
+    } catch {}
+    throw new Error(message);
+  }
+  const data = await res.json();
+  return {
+    company: data?.company ?? null,
+    persons: Array.isArray(data?.persons) ? data.persons : [],
+    announcements: Array.isArray(data?.announcements) ? data.announcements : [],
+    history: Array.isArray(data?.history) ? data.history : [],
+    related_companies: Array.isArray(data?.related_companies) ? data.related_companies : [],
+    same_address_companies: Array.isArray(data?.same_address_companies) ? data.same_address_companies : [],
+  };
+};
+
+export const useCompanyDetail = (companyId: string | undefined, enabled: boolean) => {
+  return useQuery<CompanyDetailPayload, Error>({
+    queryKey: ['company-detail', companyId],
+    queryFn: () => fetchCompanyDetail(companyId as string),
+    enabled: !!companyId && enabled,
+    staleTime: 60_000,
+  });
+};

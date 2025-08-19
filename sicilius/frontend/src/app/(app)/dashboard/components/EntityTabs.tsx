@@ -11,9 +11,10 @@ interface EntityTabsProps {
   companies: Company[];
   persons: PersonLite[];
   history: HistoryEntryLite[];
+  onSelectCompany?: (id: string) => void;
 }
 
-export function EntityTabs({ companies, persons, history }: EntityTabsProps) {
+export function EntityTabs({ companies, persons, history, onSelectCompany }: EntityTabsProps) {
   return (
     <div className="mt-2">
       <Tabs defaultValue="companies" className="w-full" aria-label="Varlık sekmeleri">
@@ -23,7 +24,7 @@ export function EntityTabs({ companies, persons, history }: EntityTabsProps) {
           <TabsTrigger value="history">Şirket Geçmişi</TabsTrigger>
         </TabsList>
         <TabsContent value="companies">
-          <CompaniesTable companies={companies} />
+          <CompaniesTable companies={companies} onSelectCompany={onSelectCompany} />
         </TabsContent>
         <TabsContent value="people">
           <PeopleTable people={persons} />

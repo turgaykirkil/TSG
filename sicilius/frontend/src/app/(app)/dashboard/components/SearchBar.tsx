@@ -9,6 +9,7 @@ interface SearchBarProps {
   placeholder?: string;
   onChange?: (value: string) => void;
   onSubmit?: (value: string) => void;
+  onClear?: () => void;
   autoFocus?: boolean;
   className?: string;
   placeholderPhrases?: string[];
@@ -21,6 +22,7 @@ export default function SearchBar({
   placeholder = 'Şirket, kişi, TCKN/VKN veya unvan ara...',
   onChange,
   onSubmit,
+  onClear,
   autoFocus = true,
   className,
   placeholderPhrases = [],
@@ -28,7 +30,9 @@ export default function SearchBar({
   inputRef,
 }: SearchBarProps) {
   const [input, setInput] = useState(value);
-  const [placeholderIndex, setPlaceholderIndex] = useState(0);
+  // Placeholder typing animation state
+  const [tp, setTp] = useState({ phraseIndex: 0, charIndex: 0, deleting: false });
+  const [typedPlaceholder, setTypedPlaceholder] = useState('');
   const showShortcutHint = input.length === 0;
 
   useEffect(() => {
@@ -50,21 +54,49 @@ export default function SearchBar({
   const clear = () => {
     setInput('');
     onChange?.('');
+    onClear?.();
   };
 
-  // Rotate placeholder when input is empty
+  // Typing animation for placeholder when input is empty
   useEffect(() => {
     if (!placeholderPhrases || placeholderPhrases.length === 0) return;
-    if (input.length > 0) return; // don't rotate while user types
-    const id = setInterval(() => {
-      setPlaceholderIndex((p) => (p + 1) % placeholderPhrases.length);
-    }, Math.max(1000, rotateIntervalMs));
-    return () => clearInterval(id);
-  }, [placeholderPhrases, rotateIntervalMs, input]);
+    // Pause typing when user is typing
+    if (input.length > 0) {
+      setTypedPlaceholder('');
+      return;
+    }
+
+    const phrase = placeholderPhrases[tp.phraseIndex] ?? '';
+    const isDeleting = tp.deleting;
+    const delay = isDeleting ? 40 : 85; // typing speed
+
+    const timer = setTimeout(() => {
+      if (!isDeleting) {
+        const next = tp.charIndex + 1;
+        setTypedPlaceholder(phrase.slice(0, next));
+        if (next === phrase.length) {
+          // hold before deleting
+          setTimeout(() => setTp({ ...tp, deleting: true, charIndex: phrase.length }), 700);
+        } else {
+          setTp({ ...tp, charIndex: next, deleting: false });
+        }
+      } else {
+        const next = tp.charIndex - 1;
+        setTypedPlaceholder(phrase.slice(0, next));
+        if (next <= 0) {
+          setTp({ phraseIndex: (tp.phraseIndex + 1) % placeholderPhrases.length, charIndex: 0, deleting: false });
+        } else {
+          setTp({ ...tp, charIndex: next, deleting: true });
+        }
+      }
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [tp, input, placeholderPhrases]);
 
   const placeholderToShow =
     input.length === 0 && placeholderPhrases.length > 0
-      ? placeholderPhrases[placeholderIndex]
+      ? (typedPlaceholder || placeholderPhrases[0])
       : placeholder;
 
   return (
@@ -74,7 +106,7 @@ export default function SearchBar({
           <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={20} aria-hidden />
           <SimpleTooltip content={<span>Kısayollar: <kbd>/</kbd>, <kbd>⌘K</kbd>, <kbd>Ctrl K</kbd></span>}>
             <input
-              type="search"
+              type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={placeholderToShow}
