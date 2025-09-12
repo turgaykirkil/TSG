@@ -49,6 +49,9 @@ struct OCRService {
         var fullRecognizedText = "Sicilius OCR Sonucu - \(Date())\n"
 
         for i in 0..<pdfDocument.pageCount {
+            // İptal kontrolü ve süre ölçümü
+            try Task.checkCancellation()
+            let pageStartTs = CFAbsoluteTimeGetCurrent()
             guard let page = pdfDocument.page(at: i) else { continue }
             
             let pageRect = page.bounds(for: .mediaBox)
@@ -85,8 +88,13 @@ struct OCRService {
                 pageText = observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
             }
             
+            let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - pageStartTs) * 1000)
+            print("[OCR] Sayfa \(i + 1)/\(pdfDocument.pageCount) tamamlandı (\(elapsedMs) ms)")
+            
             fullRecognizedText.append("\n\n--- Sayfa \(i + 1) ---\n\n")
             fullRecognizedText.append(pageText)
+            // Ana aktöre nefes aldır
+            await Task.yield()
         }
 
         // Disk yazımı kaldırıldı: toplu metin dosyaya yazılmıyor

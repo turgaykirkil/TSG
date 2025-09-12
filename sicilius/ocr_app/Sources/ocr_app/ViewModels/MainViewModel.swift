@@ -10,25 +10,54 @@ struct NlpParseRequest: Codable {
     let text: String
 }
 
+// Backend'in döndürdüğü entities_full içindeki minimal alanlar
+struct NlpEntitiesFull: Codable {
+    let hususlar: [String]?
+    let belgeler: String?
+}
+
 struct NlpEntity: Codable, Hashable, Identifiable {
     var id: String { text + label }
     let text: String
     let label: String
+    // Kişiler için kişi satırına gömülü maskeli kimlik (opsiyonel)
+    let masked_ids: String?
+}
+// Backend aksiyonları için model
+struct NlpAction: Codable, Hashable, Identifiable {
+    var id: String {
+        let t = (type ?? "UNKNOWN")
+        let d = (details ?? "")
+        let p = (parties ?? []).joined(separator: "|")
+        return t + "-" + d + "-" + p
+    }
+    let type: String?
+    let details: String?
+    let parties: [String]?
+    let amounts: [String]?
+    let effective_date: String?
+    let devralan: String?
 }
 
 struct NlpParseResponse: Codable {
-    let organizations: [NlpEntity]
-    let locations: [NlpEntity]
-    let persons: [NlpEntity]
-    let dates: [NlpEntity]
-    let money: [NlpEntity]
-    let misc: [NlpEntity]
+    let organizations: [NlpEntity]?
+    let locations: [NlpEntity]?
+    let persons: [NlpEntity]?
+    let dates: [NlpEntity]?
+    let money: [NlpEntity]?
+    let misc: [NlpEntity]?
     let registration_number: String?
     let sicil_dosya_no: String?
     let mersis_no: String?
     let trade_name: String?
+    let old_trade_name: String?
     let addresses: [String]?
+    let old_addresses: [String]?
     let masked_ids: [String]?
+    let ilan_sira_no: [String]?
+    let hususlar: [String]?
+    let belgeler: String?
+    let entities_full: NlpEntitiesFull?
 }
 
 // Çoklu ilân öğesi (backend'in parse_multiple_announcements çıktısı)
@@ -38,19 +67,28 @@ struct NlpParsedAnnouncement: Codable, Identifiable {
     let index: Int?
     let sicil_office_header: String?
     let original_text: String?
-    let organizations: [NlpEntity]
-    let locations: [NlpEntity]
-    let persons: [NlpEntity]
-    let dates: [NlpEntity]
+    let start_offset: Int?
+    let end_offset: Int?
+    let organizations: [NlpEntity]?
+    let locations: [NlpEntity]?
+    let persons: [NlpEntity]?
+    let dates: [NlpEntity]?
     let money: [NlpEntity]?
     let misc: [NlpEntity]?
+    // Yeni: backend aksiyonları
+    let actions: [NlpAction]?
     let registration_number: String?
     let sicil_dosya_no: String?
     let mersis_no: String?
     let trade_name: String?
+    let old_trade_name: String?
     let addresses: [String]?
-    let masked_ids: [String]?
+    let old_addresses: [String]?
     let phones: [String]?
+    let ilan_sira_no: [String]?
+    let hususlar: [String]?
+    let belgeler: String?
+    let entities_full: NlpEntitiesFull?
 }
 
 @MainActor
@@ -64,7 +102,12 @@ class MainViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var ocrOutputFolder: URL?
     @Published var ocrBaseFilename: String?
-    @Published var nlpRawJson: String?
+    // Minimal çoklu liste JSON (yedek/karşılaştırma amaçlı)
+    @Published var nlpMinimalJson: String?
+    // İntegration/ingest için: structured çoklu liste (daha önce nlpRawJson olarak kullanılıyordu)
+    @Published var nlpStructuredJson: String?
+    // Ingest sonrası PDF silme tercihi (UI üzerinden ayarlanır)
+    @Published var deleteAfterIngest: Bool = true
     // İşlem modu ve toplu/otomatik akış durumları
     enum ProcessingMode: String, CaseIterable, Identifiable {
         case manual = "Manuel"
@@ -77,8 +120,9 @@ class MainViewModel: ObservableObject {
     private var processingTask: Task<Void, Never>?
     private let ocrService: OCRService
     private let supabase: SupabaseClient
+    private let nlpBaseURL: URL
     private let pdfBucket = "gazette-pdfs"
-    private let parser = GazetteParser()
+    // Yerel GazetteParser kaldırıldı: Ayrıştırma tamamen backend tarafında yapılır.
     // Supabase Storage'dan indirilen aktif PDF'nin yolunu (bucket içi path) takip ederiz
     private var currentStoragePath: String?
 
@@ -97,6 +141,13 @@ class MainViewModel: ObservableObject {
         } catch {
             fatalError("Yapılandırma hatası: \(error.localizedDescription). Lütfen Config.plist dosyasını ve içeriğini kontrol edin.")
         }
+
+        // NLP Base URL (Config.plist: NLP_BASE_URL). Yoksa localhost'a düş.
+        let nlpBase: String = (try? ConfigService.get(key: "NLP_BASE_URL")) ?? "http://127.0.0.1:5001"
+        guard let nlpURL = URL(string: nlpBase) else {
+            fatalError("Geçersiz NLP_BASE_URL: \(nlpBase)")
+        }
+        self.nlpBaseURL = nlpURL
         
         do {
             self.ocrService = try OCRService()
@@ -182,6 +233,7 @@ class MainViewModel: ObservableObject {
         errorMessage = nil
         ocrResult = "OCR işlemi başlatıldı, lütfen bekleyin..."
         do {
+            if Task.isCancelled { self.isLoading = false; return }
             let ocr = try await ocrService.performOCR(on: data)
             self.ocrResult = ocr.text
             self.ocrOutputFolder = ocr.outputFolderURL
@@ -204,10 +256,12 @@ class MainViewModel: ObservableObject {
                 throw URLError(.fileDoesNotExist, userInfo: [NSLocalizedDescriptionKey: "Bucket'ta PDF bulunamadı."])
             }
             self.ocrResult = "'\(randomFile.name)' dosyası indiriliyor..."
+            if Task.isCancelled { return }
             let fileData = try await supabase.storage.from(pdfBucket).download(path: randomFile.name)
             // Seçimi güncelle ve OCR'ı çalıştır
             self.selectedPDF = fileData
             self.currentStoragePath = randomFile.name
+            if Task.isCancelled { return }
             await self.performOCRAsync(data: fileData)
             // NLP JSON kaydet
             self.saveNlpJsonToDisk()
@@ -225,6 +279,7 @@ class MainViewModel: ObservableObject {
             for _ in 0..<count {
                 if Task.isCancelled { break }
                 await self.fetchAndProcessOnce()
+                await Task.yield()
             }
             await MainActor.run {
                 self.processingTask = nil
@@ -240,6 +295,7 @@ class MainViewModel: ObservableObject {
             guard let self else { return }
             while !Task.isCancelled {
                 await self.fetchAndProcessOnce()
+                await Task.yield()
             }
             await MainActor.run {
                 self.isAutoRunning = false
@@ -267,51 +323,98 @@ class MainViewModel: ObservableObject {
     // MARK: - NLP Service Communication
     
     func parseTextWithNLP(text: String) async {
-        // Çoklu ilân endpoint'i
-        guard let url = URL(string: "http://localhost:5001/api/v1/nlp/parse-announcements") else {
-            self.errorMessage = "Invalid NLP service URL"
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        
+        // 1) Structured çoklu ilanları getir (backend)
+        let listURL = nlpBaseURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("v1")
+            .appendingPathComponent("nlp")
+            .appendingPathComponent("parse-announcements")
+        var listReq = URLRequest(url: listURL)
+        listReq.httpMethod = "POST"
+        listReq.addValue("application/json", forHTTPHeaderField: "Content-Type")
+
         let requestBody = NlpParseRequest(text: text)
-        do {
-            request.httpBody = try JSONEncoder().encode(requestBody)
-        } catch {
-            self.errorMessage = "Failed to encode NLP request: \(error.localizedDescription)"
-            return
+        do { listReq.httpBody = try JSONEncoder().encode(requestBody) } catch {
+            self.errorMessage = "Failed to encode NLP request: \(error.localizedDescription)"; return
         }
-        
+
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            if Task.isCancelled { return }
+            let t0 = CFAbsoluteTimeGetCurrent()
+            let (data, response) = try await URLSession.shared.data(for: listReq)
+            let tNet = Int((CFAbsoluteTimeGetCurrent() - t0) * 1000)
+
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
                 let responseBody = String(data: data, encoding: .utf8) ?? "No response body"
-                print("NLP Service Error Response Body: \(responseBody)")
+                print("NLP Service Error Response Body (list): \(responseBody)")
                 throw URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: "NLP service returned status code \(statusCode)"])
             }
-            
-            // Keep raw JSON for copy/save features
-            self.nlpRawJson = String(data: data, encoding: .utf8)
-            let decodedList = try JSONDecoder().decode([NlpParsedAnnouncement].self, from: data)
+
+            // Structured JSON'u sakla (ingest ve NLP sekmesi için)
+            self.nlpStructuredJson = String(data: data, encoding: .utf8)
+            let tDec0 = CFAbsoluteTimeGetCurrent()
+            let decodedList = try await Task.detached(priority: .userInitiated) {
+                return try JSONDecoder().decode([NlpParsedAnnouncement].self, from: data)
+            }.value
+            let tDec = Int((CFAbsoluteTimeGetCurrent() - tDec0) * 1000)
             self.parsedAnnouncements = decodedList
-            self.parsedEntities = nil // tekil akış artık kullanılmıyor
-            print("Successfully parsed announcements: count=\(decodedList.count)")
+            self.parsedEntities = nil
+            print("[NLP:list] İstek=\(tNet) ms, Decode=\(tDec) ms, Count=\(decodedList.count)")
 
         } catch {
-            self.errorMessage = "NLP service request failed: \(error.localizedDescription)"
-            print("NLP service error: \(error)")
+            self.errorMessage = "NLP list request failed: \(error.localizedDescription)"
+            print("NLP list error: \(error)")
         }
+
+        // 2) Minimal çoklu liste (yedek gösterim ve karşılaştırma için)
+        let minimalURL = nlpBaseURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("v1")
+            .appendingPathComponent("nlp")
+            .appendingPathComponent("parse-announcements-minimal")
+        var minimalReq = URLRequest(url: minimalURL)
+        minimalReq.httpMethod = "POST"
+        minimalReq.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        do { minimalReq.httpBody = try JSONEncoder().encode(requestBody) } catch {
+            print("Failed to encode minimal NLP request: \(error.localizedDescription)")
+            return
+        }
+        do {
+            if Task.isCancelled { return }
+            let (data, response) = try await URLSession.shared.data(for: minimalReq)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                let body = String(data: data, encoding: .utf8) ?? ""
+                print("Minimal NLP error: status=\(statusCode) body=\(body)")
+                return
+            }
+            self.nlpMinimalJson = String(data: data, encoding: .utf8)
+        } catch {
+            print("Minimal NLP request failed: \(error.localizedDescription)")
+        }
+    }
+
+    // NLP'yi mevcut OCR metni ile manuel olarak yeniden çalıştır
+    func reRunNLP() async {
+        if isLoading { return }
+        let txt = self.ocrResult.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !txt.isEmpty else {
+            self.errorMessage = "Yeniden NLP için OCR metni boş. Önce OCR çalıştırın veya ham metni girin."
+            return
+        }
+        self.errorMessage = nil
+        self.isLoading = true
+        defer { self.isLoading = false }
+        await self.parseTextWithNLP(text: txt)
     }
 
     // MARK: - Utilities: Copy & Save NLP JSON
     func copyNlpJsonToClipboard() {
-        guard let json = nlpRawJson, !json.isEmpty else {
-            self.errorMessage = "Kopyalanacak NLP JSON bulunamadı. Önce OCR ve NLP işlemini çalıştırın."
+        // Öncelik: structured çoklu; yoksa minimal gösterim
+        let json = self.nlpStructuredJson?.isEmpty == false ? self.nlpStructuredJson! : (self.nlpMinimalJson ?? "")
+        guard !json.isEmpty else {
+            self.errorMessage = "Kopyalanacak JSON bulunamadı. Önce OCR ve NLP işlemini çalıştırın."
             return
         }
         let pasteboard = NSPasteboard.general
@@ -323,7 +426,8 @@ class MainViewModel: ObservableObject {
         // Disk yazımı kaldırıldı: Artık JSON/TXT dosyaları kaydedilmiyor.
         // Sadece backend'e ingest yapılır.
         do {
-            guard let raw = self.nlpRawJson, !raw.isEmpty else {
+            // Ingest için structured çoklu liste gereklidir
+            guard let raw = self.nlpStructuredJson, !raw.isEmpty else {
                 print("Ingest atlandı: raw_backend_json boş.")
                 return
             }
@@ -343,14 +447,16 @@ class MainViewModel: ObservableObject {
                     "bucket": self.pdfBucket,
                     "path": path
                 ]
-                payloadObj["delete_after_ingest"] = true
             }
+            // Kullanıcı tercihi: ingest sonrasında PDF'nin silinip silinmeyeceği
+            payloadObj["delete_after_ingest"] = self.deleteAfterIngest
             let postData = try JSONSerialization.data(withJSONObject: payloadObj, options: [])
 
-            guard let url = URL(string: "http://127.0.0.1:5001/api/v1/nlp/ingest-structured") else {
-                print("Ingest hata: URL oluşturulamadı.")
-                return
-            }
+            let url = nlpBaseURL
+                .appendingPathComponent("api")
+                .appendingPathComponent("v1")
+                .appendingPathComponent("nlp")
+                .appendingPathComponent("ingest-structured")
             var req = URLRequest(url: url)
             req.httpMethod = "POST"
             req.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")

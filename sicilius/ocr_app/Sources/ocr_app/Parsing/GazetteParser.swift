@@ -1,6 +1,11 @@
 import Foundation
 
+// NOT: 2025-09 itibarıyla ayrıştırma işlemi backend'e taşınmıştır.
+// Bu dosya yalnızca geriye dönük tipler için tutulmaktadır.
+// Lütfen yerel parser'ı KULLANMAYIN; backend NLP servislerini kullanın.
+
 // Represents a single announcement parsed from the gazette.
+@available(*, deprecated, message: "Yerel ayrıştırıcı kullanım dışı. Backend NLP JSON'u kullanılmalıdır.")
 struct Announcement: Identifiable, Hashable {
     let id = UUID()
     var rawText: String
@@ -9,6 +14,7 @@ struct Announcement: Identifiable, Hashable {
     var mersisNumber: String
 }
 
+@available(*, deprecated, message: "Yerel ayrıştırıcı kullanım dışı. Backend NLP JSON'u kullanılmalıdır.")
 struct GazetteParser {
 
     // Main parsing function
@@ -39,9 +45,11 @@ struct GazetteParser {
     // Splits the entire OCR text into individual announcement blocks.
     private func splitAnnouncements(from fullText: String) -> [String] {
         // Correctly escaped regex for Swift strings.
-        let separatorPattern = "(?:\n|\\A)\\s*T\\.C\\.\\s+[A-ZĞÜŞİÖÇ]+\\s+TİCARET\\s+SİCİLİ\\s+MÜDÜRLÜĞÜ'NDEN"
+        // Daha toleranslı ayırıcı: OCR kaynaklı "SÌCILI" gibi varyasyonları da yakalamak için [İIÌ] kullanıldı.
+        // Ayrıca MÜDÜRLÜĞÜ/MÜDÜRLÜGÜ ve MEMURLUĞU varyasyonları desteklenir.
+        let separatorPattern = "(?mi)^\\s*(?!Eski\\b)(?:T\\.?C\\.?\\s*)?.{0,80}?T[İIÌ]CARET(?:\\s+|\\R){0,3}S[İIÌ]C[İIÌ]L[İIÌ](?:\\s+|\\R){0,3}(?:M[ÜU]D[ÜU]RL[ÜU][ĞG][ÜU]['’]?N[DT][EA]N|MEMURLU[ĞG][UÜ]['’]?N[DT][EA]N)\\s*$"
         
-        guard let regex = try? NSRegularExpression(pattern: separatorPattern, options: []) else {
+        guard let regex = try? NSRegularExpression(pattern: separatorPattern, options: [.caseInsensitive, .anchorsMatchLines]) else {
             return [fullText]
         }
         

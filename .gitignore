@@ -83,3 +83,6 @@ logs
 # Misc
 .DS_Store
 Thumbs.db
+
+# Project-specific: do not track backend app tests
+sicilius/backend/app/tests/

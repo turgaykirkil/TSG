@@ -50,7 +50,14 @@ pytest
 pytest-cov
 pytest-asyncio
 pytest-mock
-psutilpytesseract==0.3.10
-opencv-python==4.8.1.78
+psutil
 pytesseract==0.3.10
 opencv-python==4.11.0.86
+
+# NLP segmentation deps
+numbers-parser
+orjson
+rapidfuzz
+dateparser
+Unidecode
+phonenumbers
