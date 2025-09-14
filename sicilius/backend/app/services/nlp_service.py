@@ -62,10 +62,11 @@ except Exception:
     HEADER_MIN_SCORE = 2
 
 # --- Otomatik Kaydetme (OCR çıktılarını dosyaya yaz) ---
+# Varsayılanı KAPALI: Supabase'e doğrudan yazacağımız için yerel JSON kaydı devre dışı.
 try:
-    AUTO_SAVE_OCR = os.getenv("AUTO_SAVE_OCR", "1").strip() in ("1", "true", "True")
+    AUTO_SAVE_OCR = os.getenv("AUTO_SAVE_OCR", "0").strip() in ("1", "true", "True")
 except Exception:
-    AUTO_SAVE_OCR = True
+    AUTO_SAVE_OCR = False
 
 # --- NLP Debug Loglama ---
 try:
