@@ -100,7 +100,7 @@ const fetchCompanyDetail = async (companyId: string): Promise<CompanyDetailPaylo
     company: data?.company ?? null,
     persons: Array.isArray(data?.persons) ? data.persons : [],
     announcements: Array.isArray(data?.announcements) ? data.announcements : [],
-    history: Array.isArray(data?.history) ? data.history : [],
+    history: Array.isArray(data?.history) ? data.history : (Array.isArray(data?.gazette_entries) ? data.gazette_entries : []),
     related_companies: Array.isArray(data?.related_companies) ? data.related_companies : [],
     same_address_companies: Array.isArray(data?.same_address_companies) ? data.same_address_companies : [],
   };

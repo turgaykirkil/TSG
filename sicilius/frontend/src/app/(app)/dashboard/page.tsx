@@ -10,6 +10,8 @@ import MobileHistoryDrawer from './components/sidebar/MobileHistoryDrawer';
 import { Menu, PanelLeftOpen, PanelLeftClose } from 'lucide-react';
 import CompanyDetailModal from './components/CompanyDetailModal';
 import CompaniesTable from './components/tables/CompaniesTable';
+import PeopleTable from './components/tables/PeopleTable';
+import CompanyHistoryTable from './components/tables/CompanyHistoryTable';
 
 export default function DashboardPage() {
   const [query, setQuery] = useState('');
@@ -212,9 +214,25 @@ export default function DashboardPage() {
         )}
 
         {submitted && query.trim() && !isFetching && !isError && (companies.length + persons.length + historyEntries.length > 0) && (
-          <div className="mx-auto max-w-5xl">
-            {/* Sekmeler kaldırıldı; şirketler tablosu doğrudan gösteriliyor */}
+          <div className="mx-auto max-w-5xl space-y-8">
+            {/* Şirketler */}
             <CompaniesTable companies={companies} onSelectCompany={handleSelectCompany} />
+
+            {/* Kişiler */}
+            {persons.length > 0 && (
+              <section aria-label="Kişiler sonuçları">
+                <div className="mb-2 text-sm font-semibold text-slate-700">Kişiler</div>
+                <PeopleTable people={persons} />
+              </section>
+            )}
+
+            {/* Geçmiş / Gazette Entries */}
+            {historyEntries.length > 0 && (
+              <section aria-label="Geçmiş sonuçları">
+                <div className="mb-2 text-sm font-semibold text-slate-700">Gazete Geçmişi</div>
+                <CompanyHistoryTable entries={historyEntries} />
+              </section>
+            )}
           </div>
         )}
       </section>

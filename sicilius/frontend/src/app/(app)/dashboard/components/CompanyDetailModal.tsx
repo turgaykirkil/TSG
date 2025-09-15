@@ -1,7 +1,10 @@
 "use client";
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { useCompanyDetail } from '@/hooks/useCompanyDetail';
+import { useState } from 'react';
 
 interface CompanyDetailModalProps {
   open: boolean;
@@ -11,11 +14,12 @@ interface CompanyDetailModalProps {
 
 export default function CompanyDetailModal({ open, onOpenChange, companyId }: CompanyDetailModalProps) {
   const { data, isFetching, isError, error } = useCompanyDetail(companyId, open);
+  const [annOpenAll, setAnnOpenAll] = useState(false);
   const company: any = data?.company ?? null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{company?.firma_unvani || company?.unvan || 'Şirket Detayı'}</DialogTitle>
           <DialogDescription>
@@ -43,30 +47,90 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId }: Co
 
             <section>
               <h3 className="text-sm font-semibold text-slate-700">Kişiler</h3>
-              {data?.persons?.filter(p => 
-                (p.full_name || '').includes('***') || 
-                (p.first_name || '').includes('***') || 
-                (p.last_name || '').includes('***')
-              ).length ? (
+              {Array.isArray(data?.persons) && data.persons.length > 0 ? (
                 <ul className="mt-2 space-y-1 text-sm">
-                  {data.persons
-                    .filter(p => 
-                      (p.full_name || '').includes('***') || 
-                      (p.first_name || '').includes('***') || 
-                      (p.last_name || '').includes('***')
-                    )
-                    .map((p, i) => (
+                  {data.persons.map((p: any, i: number) => {
+                    const nameRaw = p.full_name || `${p.first_name || ''} ${p.last_name || ''}`.trim();
+                    const name = nameRaw && nameRaw.length > 0 ? nameRaw : 'Ad Bilinmiyor';
+                    const roleRaw = p.relation_type || p.position || '';
+                    const role = (roleRaw === 'MASKELI_KIMLIK' || roleRaw === 'OCR') ? '' : roleRaw;
+                    const mids: string[] = Array.isArray(p.masked_ids) ? p.masked_ids : [];
+                    return (
                       <li key={`${p.id}-${i}`} className="flex items-center justify-between">
-                        <div>
-                          <span className="font-medium">{p.full_name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Ad Soyad Yok'}</span>
-                          <span className="ml-2 text-xs text-slate-500">{p.relation_type || p.position || ''}</span>
+                        <div className="min-w-0 pr-2">
+                          <span className="font-medium truncate inline-block max-w-[16rem] align-middle" title={name}>{name}</span>
+                          {role ? <span className="ml-2 text-xs text-slate-500 align-middle">{role}</span> : null}
+                          {p.is_starred ? <Badge variant="secondary" className="ml-2 align-middle">Yıldızlı</Badge> : null}
+                          {p.source ? <Badge variant="outline" className="ml-2 align-middle">{p.source}</Badge> : null}
+                          {mids.length ? (
+                            <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">
+                              {mids.map((m, mi) => (
+                                <Badge key={`${p.id}-mid-${mi}`} variant="outline">Kimlik: {m}</Badge>
+                              ))}
+                            </span>
+                          ) : null}
                         </div>
-                        <div className="text-xs text-slate-500">{p.is_current ? 'Aktif' : 'Geçmiş'}</div>
+                        <div className="text-xs text-slate-500 shrink-0">{p.is_current === false ? 'Geçmiş' : 'Aktif'}</div>
                       </li>
-                    ))}
+                    );
+                  })}
                 </ul>
               ) : (
-                <div className="mt-2 text-xs text-muted-foreground">Yıldızlı kişi bulunamadı.</div>
+                <div className="mt-2 text-xs text-muted-foreground">Kişi bulunamadı.</div>
+              )}
+            </section>
+
+            {/* İlanlar */}
+            <section>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-700">İlanlar</h3>
+                {Array.isArray(data?.announcements) && data.announcements.length > 0 ? (
+                  <Button size="sm" variant="outline" onClick={() => setAnnOpenAll((v: boolean) => !v)}>
+                    {annOpenAll ? 'Tümünü Kapat' : 'Tümünü Aç'}
+                  </Button>
+                ) : null}
+              </div>
+              {Array.isArray(data?.announcements) && data.announcements.length > 0 ? (
+                <div className="mt-2 space-y-2">
+                  {data.announcements.map((a: any, idx: number) => {
+                    const date = a.publication_date ? new Date(a.publication_date).toLocaleDateString('tr-TR') : '-';
+                    return (
+                      <details key={a.id || idx} className="rounded border bg-white p-3" open={annOpenAll}>
+                        <summary className="cursor-pointer select-none list-none">
+                          <div className="flex items-center justify-between">
+                            <div className="min-w-0 pr-2">
+                              <div className="font-medium truncate" title={a.title || 'Başlık yok'}>{a.title || 'Başlık yok'}</div>
+                              <div className="text-xs text-slate-500 mt-0.5">
+                                {a.announcement_type ? `${a.announcement_type} • ` : ''}
+                                {a.issue_number ? `Sayı: ${a.issue_number} • ` : ''}
+                                {a.page_number ? `Sayfa: ${a.page_number} • ` : ''}
+                                {date}
+                              </div>
+                            </div>
+                            {a.newspaper_name ? <Badge variant="outline" className="shrink-0">{a.newspaper_name}</Badge> : null}
+                          </div>
+                        </summary>
+                        <div className="mt-3 text-sm space-y-2">
+                          {a.pdf_url ? (
+                            <div>
+                              <a className="text-blue-700 underline" href={a.pdf_url} target="_blank" rel="noreferrer">
+                                PDF'yi Aç
+                              </a>
+                            </div>
+                          ) : null}
+                          {a.ocr_status ? (
+                            <div className="text-xs text-slate-500">OCR Durumu: {a.ocr_status}</div>
+                          ) : null}
+                          {a.trade_registry_number ? (
+                            <div className="text-xs text-slate-500">İlan Sicil No: {a.trade_registry_number}</div>
+                          ) : null}
+                        </div>
+                      </details>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="mt-2 text-xs text-muted-foreground">İlan bulunamadı.</div>
               )}
             </section>
 
@@ -114,7 +178,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId }: Co
 
             {Array.isArray((data as any)?.related_companies) && (
               <section>
-                <h3 className="text-sm font-semibold text-slate-700">İlişkiler (Ortak Kişiler - Yıldızlı)</h3>
+                <h3 className="text-sm font-semibold text-slate-700">İlişkiler (Ortak Kişiler)</h3>
                 {(data as any).related_companies.length ? (
                   <ul className="mt-2 space-y-2 text-sm max-h-60 overflow-auto pr-1">
                     {(data as any).related_companies.map((rc: any) => {
@@ -132,17 +196,24 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId }: Co
                           </div>
                           {persons.length ? (
                             <ul className="mt-1 grid grid-cols-1 gap-1">
-                              {persons.map((sp: any, idx: number) => (
-                                <li key={`${rc.id}-sp-${idx}`} className="text-xs text-slate-600">
-                                  <span className="font-medium">{sp.full_name || `${sp.first_name || ''} ${sp.last_name || ''}`.trim() || 'Ad Soyad Yok'}</span>
-                                  {sp.relation_type || sp.position ? (
-                                    <span className="ml-1 text-slate-500">— {sp.relation_type || sp.position}</span>
-                                  ) : null}
-                                  {sp.is_current !== undefined && (
-                                    <span className="ml-1 text-slate-400">({sp.is_current ? 'Aktif' : 'Geçmiş'})</span>
-                                  )}
-                                </li>
-                              ))}
+                              {persons.map((sp: any, idx: number) => {
+                                const nmRaw = sp.full_name || `${sp.first_name || ''} ${sp.last_name || ''}`.trim();
+                                const nm = nmRaw && nmRaw.length > 0 ? nmRaw : '';
+                                const mids: string[] = Array.isArray(sp.masked_ids) ? sp.masked_ids : (nm && nm.includes('*') ? [nm] : []);
+                                const showName = nm && !nm.includes('*');
+                                return (
+                                  <li key={`${rc.id}-sp-${idx}`} className="text-xs text-slate-600">
+                                    {showName ? <span className="font-medium">{nm}</span> : null}
+                                    {mids.length ? (
+                                      <span className="ml-1 inline-flex flex-wrap gap-1 align-middle">
+                                        {mids.map((m, mi) => (
+                                          <Badge key={`${rc.id}-sp-${idx}-mid-${mi}`} variant="outline">Kimlik: {m}</Badge>
+                                        ))}
+                                      </span>
+                                    ) : null}
+                                  </li>
+                                );
+                              })}
                             </ul>
                           ) : null}
                         </li>
@@ -150,7 +221,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId }: Co
                     })}
                   </ul>
                 ) : (
-                  <div className="mt-2 text-xs text-muted-foreground">Yıldızlı kişi üzerinden ilişkili şirket bulunamadı.</div>
+                  <div className="mt-2 text-xs text-muted-foreground">Ortak kişi üzerinden ilişkili şirket bulunamadı.</div>
                 )}
               </section>
             )}

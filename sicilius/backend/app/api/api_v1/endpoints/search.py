@@ -311,43 +311,43 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
     try:
         ocr_q = (
             supabase.table("ocr_results")
-            .select("id, announcement_id, company_id, raw_text, companies(*)")
+            .select("id, announcement_id, company_id, original_text, companies(*)")
             .limit(200)
         )
         if tokens:
-            # Her token için AND olacak şekilde birden çok like uygula
+            # Her token için AND olacak şekilde birden çok ilike uygula (unaccent kolonu yok)
             for t in tokens:
-                ocr_q = ocr_q.like("raw_text_unaccent", f"%{t}%")
+                ocr_q = ocr_q.ilike("original_text", f"%{t}%")
         else:
-            ocr_q = ocr_q.like("raw_text_unaccent", f"%{q_norm}%")
+            ocr_q = ocr_q.ilike("original_text", f"%{q_norm}%")
         ocr_matches = (ocr_q.execute()).data or []
 
         # Yıldız/punktuasyon maskeleri için ek Python filtresi (boş dönerse)
         if not ocr_matches and tokens_letters:
             coarse_ocr = (
                 supabase.table("ocr_results")
-                .select("id, announcement_id, company_id, raw_text, companies(*)")
+                .select("id, announcement_id, company_id, original_text, companies(*)")
                 .limit(500)
                 .execute()
             ).data or []
             ocr_matches = [
                 o for o in coarse_ocr
-                if all(tl in tr_letters_digits(o.get("raw_text", "")) for tl in tokens_letters)
+                if all(tl in tr_letters_digits(o.get("original_text", "")) for tl in tokens_letters)
             ]
     except Exception:
         coarse_ocr = (
             supabase.table("ocr_results")
-            .select("id, announcement_id, company_id, raw_text, companies(*)")
+            .select("id, announcement_id, company_id, original_text, companies(*)")
             .limit(300)
             .execute()
         ).data or []
         if tokens_letters:
             ocr_matches = [
                 o for o in coarse_ocr
-                if all(tl in tr_letters_digits(o.get("raw_text", "")) for tl in tokens_letters)
+                if all(tl in tr_letters_digits(o.get("original_text", "")) for tl in tokens_letters)
             ]
         else:
-            ocr_matches = [o for o in coarse_ocr if q_norm in tr_normalize_py(o.get("raw_text", ""))]
+            ocr_matches = [o for o in coarse_ocr if q_norm in tr_normalize_py(o.get("original_text", ""))]
 
     # OCR'dan gelen şirketleri ana listeye ekle (dedup)
     for o in ocr_matches:
@@ -503,16 +503,57 @@ def cross_company_persons(
         logger.error(f"[Cross Company Persons] Error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An error occurred while fetching cross-company persons.")
 
-@router.get("/all", response_model=SearchResult)
+@router.get("/all", response_model=Dict[str, Any])
 def search_all(
-    q: str = Query(..., min_length=2, description="Search term for companies, persons and history"),
+    q: str = Query(..., min_length=2, description="Search across companies, persons, OCR and history (SPA payload)"),
     supabase: Client = Depends(get_supabase_client),
 ):
     """
-    Perform a unified search across all entities and return related data.
+    SPA dostu birleşik arama sonucu döner.
+    Dönüş yapısı frontend `useUnifiedSearch` beklentisiyle uyumludur:
+    {
+      companies: [...],
+      persons: [...],
+      history: [...],
+      // ekstra alanlar (isteğe bağlı):
+      related_companies, same_address_companies, related_persons, ocr_matches, total_matches
+    }
     """
     try:
-        return search_all_related(q, supabase)
+        # Geniş arama (şirket, kişi, OCR, ilişkiler)
+        result = search_all_related(q, supabase)
+
+        # History (gazette_entries) — legacy mantığa benzer basit metin araması
+        # Not: Supabase tarafında unaccent kolonları yoksa normal ilike kullanılır.
+        history_data: List[Dict[str, Any]] = []
+        try:
+            search_term = q.strip()
+            search_query = f"%{search_term.replace(' ', '%')}%"
+            history_filter = f"entry_type.ilike.{search_query},processed_text.ilike.{search_query}"
+            history_data = (
+                supabase
+                .table("gazette_entries")
+                .select("id, entry_type, entry_date, company_id, processed_text")
+                .or_(history_filter)
+                .limit(50)
+                .execute()
+            ).data or []
+        except Exception as he:
+            logger.warning(f"[Unified Search] Gazette entries query failed: {he}")
+            history_data = []
+
+        payload = {
+            "companies": result.companies,
+            "persons": result.persons,
+            "history": history_data,
+            # Ekstra zengin alanlar (SPA şu an zorunlu tutmuyor ama advance kullanım için sağlıyoruz)
+            "related_companies": result.related_companies,
+            "same_address_companies": result.same_address_companies,
+            "related_persons": result.related_persons,
+            "ocr_matches": result.ocr_matches,
+            "total_matches": result.total_matches,
+        }
+        return payload
     except Exception as e:
         logger.error(f"Error in unified search: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -748,53 +789,480 @@ def company_detail(
         except Exception as re:
             logger.warning(f"[Company Detail] Related companies resolution failed: {re}")
 
-        # --- Announcements ---
-        ann_resp = (
-            supabase
-            .table("announcements")
-            .select("id, title, announcement_type, publication_date, issue_number, page_number, newspaper_name, pdf_url, ocr_status, created_at")
-            .eq("company_id", cid)
-            .order("publication_date", desc=True)
-            .limit(100)
-            .execute()
-        )
-        announcements = ann_resp.data or []
+        # --- Announcements --- (fallback'lı)
+        announcements = []
+        try:
+            ann_resp = (
+                supabase
+                .table("announcements")
+                .select("id, title, announcement_type, publication_date, issue_number, page_number, newspaper_name, pdf_url, ocr_status, created_at, trade_registry_number")
+                .eq("company_id", cid)
+                .order("publication_date", desc=True)
+                .limit(100)
+                .execute()
+            )
+            announcements = ann_resp.data or []
+        except Exception as _e:
+            logger.warning(f"[Company Detail] announcements by company_id failed: {_e}")
 
-                # --- OCR Results for Starred Names ---
+        # Fallback 1: trade_registry_number == company.sicil_no
+        if not announcements:
+            try:
+                sicil_no = company.get("sicil_no")
+                if sicil_no:
+                    ann_by_reg = (
+                        supabase
+                        .table("announcements")
+                        .select("id, title, announcement_type, publication_date, issue_number, page_number, newspaper_name, pdf_url, ocr_status, created_at, trade_registry_number")
+                        .eq("trade_registry_number", sicil_no)
+                        .order("publication_date", desc=True)
+                        .limit(100)
+                        .execute()
+                    )
+                    announcements = ann_by_reg.data or []
+                    if announcements:
+                        logger.info("[Company Detail] announcements resolved via trade_registry_number fallback")
+            except Exception as _e:
+                logger.warning(f"[Company Detail] announcements by trade_registry_number failed: {_e}")
+
+        # Fallback 2: title ilike %unvan%
+        if not announcements:
+            try:
+                unvan = (company.get("unvan") or "").strip()
+                if unvan:
+                    pat = f"%{unvan[:60]}%"
+                    ann_by_title = (
+                        supabase
+                        .table("announcements")
+                        .select("id, title, announcement_type, publication_date, issue_number, page_number, newspaper_name, pdf_url, ocr_status, created_at, trade_registry_number")
+                        .ilike("title", pat)
+                        .order("publication_date", desc=True)
+                        .limit(50)
+                        .execute()
+                    )
+                    announcements = ann_by_title.data or []
+                    if announcements:
+                        logger.info("[Company Detail] announcements resolved via title ilike fallback")
+            except Exception as _e:
+                logger.warning(f"[Company Detail] announcements by title failed: {_e}")
+
+                # --- OCR Results: persons JSON, masked_ids ve yıldızlı örüntüler ---
         try:
             ocr_resp = (
                 supabase
                 .table("ocr_results")
-                .select("raw_text")
+                .select("id, original_text, persons, masked_ids, created_at")
                 .eq("company_id", cid)
+                .order("created_at", desc=True)
+                .limit(100)
                 .execute()
             )
-            
-            # Extract names with *** pattern from OCR text
+            try:
+                logger.info(f"[Company Detail] OCR results fetched: count={len(ocr_resp.data or [])}")
+            except Exception:
+                pass
+
             import re
-            starred_persons = set()
+            import json
+            # Tekilleştirme için isim anahtarı üretici
+            def _key(n: str) -> str:
+                return tr_normalize_py(n or "").strip()
+
+            seen_names = set(_key(p.get('full_name') or f"{p.get('first_name','')} {p.get('last_name','')}") for p in persons if isinstance(p, dict))
+            masked_id_set = set()
+            attached_mids = set()
+
             for ocr in (ocr_resp.data or []):
-                text = ocr.get('raw_text', '')
-                # Match names like "ATAKAN*****" or "YÜKLÜ*****"
-                matches = re.findall(r'([A-ZĞÜŞİÖÇ]+\*+)', text)
-                starred_persons.update(matches)
-            
-            # Add starred persons to persons list
-            for name in starred_persons:
-                # Clean the name (remove stars and extra spaces)
-                clean_name = re.sub(r'\*+', ' ', name).strip()
-                if clean_name and len(clean_name) > 2:  # Ensure it's a valid name
-                    persons.append({
-                        'id': f'starred_{len(persons) + 1}',
-                        'full_name': clean_name,
-                        'is_starred': True,
-                        'relation_type': 'YILDIZLI_KISI',
-                        'position': 'Bilinmiyor',
-                        'is_current': True
-                    })
-                    
+                # 1) persons JSONB içeriği
+                plist = ocr.get('persons') or []
+                if isinstance(plist, list):
+                    for idx, p in enumerate(plist):
+                        if not isinstance(p, dict):
+                            continue
+                        full = (
+                            p.get('full_name')
+                            or (f"{p.get('first_name','')} {p.get('last_name','')}").strip()
+                            or p.get('text')
+                            or p.get('label')
+                        )
+                        if not full:
+                            continue
+                        # 'OCR' gibi gürültü etiketlerini temizle (bitişik/ayrı), boşlukları normalize et
+                        try:
+                            full = re.sub(r"(?i)ocr", "", full)
+                            full = re.sub(r"\s+", " ", full).strip()
+                        except Exception:
+                            pass
+                        k = _key(full)
+                        if k in seen_names:
+                            continue
+                        seen_names.add(k)
+                        # kişiye ait maskeler
+                        p_mids = p.get('masked_ids')
+                        if isinstance(p_mids, str):
+                            p_mids = [p_mids]
+                        # kişi maskesi yoksa OCR kaydının masked_ids'lerini kullan
+                        if not isinstance(p_mids, list) or len(p_mids) == 0:
+                            ocr_mids = ocr.get('masked_ids') or []
+                            if isinstance(ocr_mids, list) and ocr_mids:
+                                p_mids = [m for m in ocr_mids if isinstance(m, str) and '*' in m]
+                        if isinstance(p_mids, list):
+                            for mm in p_mids:
+                                if isinstance(mm, str):
+                                    masked_id_set.add(mm)
+                                    attached_mids.add(mm)
+
+                        persons.append({
+                            'id': f"ocr_{ocr.get('id')}_{idx}",
+                            'full_name': full,
+                            'relation_type': p.get('relation_type') or p.get('role') or p.get('position') or 'OCR',
+                            'position': p.get('position') or p.get('role') or None,
+                            'is_current': True,
+                            'source': 'OCR',
+                            'masked_ids': p_mids if isinstance(p_mids, list) else [],
+                        })
+                        try:
+                            logger.info(f"[Company Detail] OCR person added: name='{full}', mids={p_mids if isinstance(p_mids, list) else []}")
+                        except Exception:
+                            pass
+
+                # 2) masked_ids JSONB içeriği
+                mids = ocr.get('masked_ids') or []
+                if isinstance(mids, list):
+                    for midx, mid in enumerate(mids):
+                        if not isinstance(mid, (str,)):
+                            continue
+                        if '*' not in mid:
+                            continue
+                        masked_id_set.add(mid)
+                        # bu masked id zaten bir kişiye bağlandıysa tekrar kişi üretme
+                        if mid in attached_mids:
+                            continue
+                        # isim yoksa masked-only kişi olarak ekle (UI'da isim bulunamadı + kimlik)
+                        persons.append({
+                            'id': f"ocr_mask_{ocr.get('id')}_{midx}",
+                            'full_name': None,
+                            'is_starred': True,
+                            'relation_type': 'MASKELI_KIMLIK',
+                            'is_current': True,
+                            'source': 'OCR',
+                            'masked_ids': [mid],
+                        })
+                        try:
+                            logger.info(f"[Company Detail] OCR masked-only person added: mid='{mid}'")
+                        except Exception:
+                            pass
+
+                # 3) original_text içinden yıldızlı örüntü
+                text = ocr.get('original_text') or ''
+                if text:
+                    matches = re.findall(r'([A-ZĞÜŞİÖÇ]+\*+)', text)
+                    for m in matches:
+                        clean_name = re.sub(r'\*+', ' ', m).strip()
+                        if not clean_name or len(clean_name) <= 2:
+                            continue
+                        k = _key(clean_name)
+                        if k in seen_names:
+                            continue
+                        seen_names.add(k)
+                        persons.append({
+                            'id': f"ocr_star_{ocr.get('id')}",
+                            'full_name': clean_name,
+                            'is_starred': True,
+                            'relation_type': 'YILDIZLI_KISI',
+                            'is_current': True,
+                            'source': 'OCR',
+                        })
+
         except Exception as e:
             logger.warning(f"[Company Detail] Error processing OCR results: {e}")
+
+        # Kişi listesinde son temizlik
+        try:
+            cleaned_persons = []
+            for p in (persons or []):
+                if not isinstance(p, dict):
+                    continue
+                nm = p.get('full_name')
+                if isinstance(nm, str):
+                    try:
+                        nm = re.sub(r"(?i)ocr", "", nm)
+                        nm = re.sub(r"\s+", " ", nm).strip()
+                    except Exception:
+                        pass
+                    if not nm:
+                        nm = 'Ad Bilinmiyor'
+                    p['full_name'] = nm
+                cleaned_persons.append(p)
+            persons = cleaned_persons
+            try:
+                preview = [{k: v for k, v in p.items() if k in ['full_name', 'masked_ids', 'source']} for p in persons[:5]]
+                logger.info(f"[Company Detail] persons after cleanup (preview): {preview}")
+            except Exception:
+                pass
+        except Exception as e:
+            logger.warning(f"[Company Detail] persons cleanup failed: {e}")
+
+        # OCR tabanlı ilişkiler: aynı isim + masked_id'yi paylaşan farklı şirketler (öncelik)
+        try:
+            if 'related_companies' not in locals():
+                related_companies = []
+            existing_related_ids = {rc.get('id') for rc in related_companies if isinstance(rc, dict)}
+            # 1) kişi listesinde OCR kaynaklı {isim + masked_id} çiftlerini çıkar
+            candidate_pairs = set()
+            for p in (persons or []):
+                if not isinstance(p, dict):
+                    continue
+                if p.get('source') != 'OCR':
+                    continue
+                nm = (p.get('full_name') or '').strip()
+                if not nm or '*' in nm:
+                    continue
+                mids = p.get('masked_ids') or []
+                if isinstance(mids, list):
+                    for mm in mids:
+                        if isinstance(mm, str) and '*' in mm:
+                            candidate_pairs.add((tr_normalize_py(nm), mm))
+
+            logger.info(f"[Company Detail] OCR candidates: masked_id_set={len(masked_id_set)} (sample={list(masked_id_set)[:5]})")
+            # 2) Önce isim+maskeye göre ilişkili şirketleri bul
+            for (nm_norm, mid) in list(candidate_pairs)[:10]:
+                try:
+                    occ = (
+                        supabase
+                        .table("ocr_results")
+                        .select("id, company_id, masked_ids, persons, companies(*)")
+                        .filter("masked_ids", "cs", json.dumps([mid]))
+                        .limit(50)
+                        .execute()
+                    )
+                except Exception as _e:
+                    logger.warning(f"[Company Detail] OCR contains query (name+mask) failed for {mid}: {_e}")
+                    continue
+                for row in (occ.data or []):
+                    rcid = row.get('company_id')
+                    if not rcid or rcid == cid or rcid in (existing_related_ids or set()):
+                        continue
+                    # isim doğrulaması: row.persons içinde aynı isim var mı?
+                    row_persons = row.get('persons') or []
+                    found_same_name = False
+                    matched_name = None
+                    if isinstance(row_persons, list):
+                        for rp in row_persons:
+                            if not isinstance(rp, dict):
+                                continue
+                            rp_full = (
+                                rp.get('full_name')
+                                or (f"{rp.get('first_name','')} {rp.get('last_name','')}").strip()
+                                or rp.get('text')
+                                or rp.get('label')
+                            )
+                            if not rp_full:
+                                continue
+                            try:
+                                rp_full = re.sub(r"(?i)ocr", "", rp_full)
+                                rp_full = re.sub(r"\s+", " ", rp_full).strip()
+                            except Exception:
+                                pass
+                            rp_norm = tr_normalize_py(rp_full)
+                            # eşleştirme: eşitlik veya içerme veya en az iki ortak token
+                            if rp_norm == nm_norm or (rp_norm in nm_norm) or (nm_norm in rp_norm):
+                                found_same_name = True
+                                matched_name = rp_full
+                                break
+                            else:
+                                rp_toks = [t for t in rp_norm.split() if t]
+                                nm_toks = [t for t in nm_norm.split() if t]
+                                if len(set(rp_toks).intersection(nm_toks)) >= 2:
+                                    found_same_name = True
+                                    matched_name = rp_full
+                                    break
+                    if not found_same_name:
+                        continue
+                    comp_obj = row.get('companies') if isinstance(row.get('companies'), dict) else None
+                    # companies(*) çalışmadıysa Companies tablosundan tekil çekmeye çalış
+                    if not comp_obj:
+                        try:
+                            comp_q = (
+                                supabase
+                                .table("companies")
+                                .select("id, unvan, sicil_no, address, sicil_mudurluk")
+                                .eq("id", rcid)
+                                .limit(1)
+                                .execute()
+                            )
+                            comp_obj = (comp_q.data or [None])[0]
+                        except Exception:
+                            comp_obj = None
+                    shared = [{'full_name': matched_name if found_same_name else None, 'masked_ids': [mid], 'relation_type': 'OCR_ORTAK', 'is_current': True}]
+                    related_companies.append({
+                        **(comp_obj or {'id': rcid}),
+                        'shared_persons': shared,
+                    })
+                    existing_related_ids.add(rcid)
+                    try:
+                        logger.info(f"[Company Detail] related (name+mask): rcid={rcid}, shared={shared}")
+                    except Exception:
+                        pass
+
+            logger.info(f"[Company Detail] OCR candidate_pairs={len(candidate_pairs)} (sample={list(candidate_pairs)[:5]})")
+
+            # İsim+maskeden isim sözlüğü oluştur (fallback'te kullanmak için)
+            name_by_mid: dict[str, str] = {}
+            try:
+                for p in (persons or []):
+                    if not isinstance(p, dict):
+                        continue
+                    if p.get('source') != 'OCR':
+                        continue
+                    nm = (p.get('full_name') or '').strip()
+                    if not nm or '*' in nm:
+                        continue
+                    mids = p.get('masked_ids') or []
+                    if isinstance(mids, list):
+                        for mm in mids:
+                            if isinstance(mm, str) and '*' in mm and mm not in name_by_mid:
+                                name_by_mid[mm] = nm
+            except Exception:
+                pass
+
+            # 3) Son olarak yalnızca masked_id ortaklığına göre (fallback)
+            for mid in list(masked_id_set)[:20]:  # performans için ilk 20 maske
+                try:
+                    occ = (
+                        supabase
+                        .table("ocr_results")
+                        .select("id, company_id, masked_ids, persons, companies(*)")
+                        .filter("masked_ids", "cs", json.dumps([mid]))
+                        .limit(50)
+                        .execute()
+                    )
+                except Exception as _e:
+                    logger.warning(f"[Company Detail] OCR contains query failed for {mid}: {_e}")
+                    continue
+                for row in (occ.data or []):
+                    rcid = row.get('company_id')
+                    if not rcid or rcid == cid or rcid in (existing_related_ids or set()):
+                        continue
+                    comp_obj = row.get('companies') if isinstance(row.get('companies'), dict) else None
+                    shared_name = name_by_mid.get(mid)
+                    shared = [{'full_name': shared_name, 'masked_ids': [mid], 'relation_type': 'MASK_MATCH', 'is_current': True}]
+                    related_companies.append({
+                        **(comp_obj or {'id': rcid}),
+                        'shared_persons': shared,
+                    })
+                    existing_related_ids.add(rcid)
+
+                # Ek: persons JSON içinde masked_ids içeren kayıtları da ara (string veya liste)
+                occ2_data = []
+                try:
+                    occ2a = (
+                        supabase
+                        .table("ocr_results")
+                        .select("id, company_id, persons, companies(*)")
+                        .filter("persons", "cs", json.dumps([{"masked_ids": mid}]))
+                        .limit(50)
+                        .execute()
+                    )
+                    occ2_data.extend(occ2a.data or [])
+                except Exception as _e2a:
+                    logger.warning(f"[Company Detail] OCR persons contains (string) failed for {mid}: {_e2a}")
+                try:
+                    occ2b = (
+                        supabase
+                        .table("ocr_results")
+                        .select("id, company_id, persons, companies(*)")
+                        .filter("persons", "cs", json.dumps([{"masked_ids": [mid]}]))
+                        .limit(50)
+                        .execute()
+                    )
+                    occ2_data.extend(occ2b.data or [])
+                except Exception as _e2b:
+                    logger.warning(f"[Company Detail] OCR persons contains (list) failed for {mid}: {_e2b}")
+
+                seen_rc_in_occ2 = set()
+                for row in occ2_data:
+                    rcid = row.get('company_id')
+                    if not rcid or rcid == cid or rcid in (existing_related_ids or set()) or rcid in seen_rc_in_occ2:
+                        continue
+                    comp_obj = row.get('companies') if isinstance(row.get('companies'), dict) else None
+                    related_companies.append({
+                        **(comp_obj or {'id': rcid}),
+                        'shared_persons': [{'full_name': None, 'masked_ids': [mid], 'relation_type': 'MASK_IN_PERSONS', 'is_current': True}],
+                    })
+                    existing_related_ids.add(rcid)
+                    seen_rc_in_occ2.add(rcid)
+        except Exception as e:
+            logger.warning(f"[Company Detail] OCR-based related companies failed: {e}")
+
+        # Announcements boşsa, OCR snippet'larından pseudo-ilan üret
+        try:
+            if not announcements:
+                ann_from_ocr = []
+                for ocr in (ocr_resp.data or [])[:5]:
+                    txt = (ocr.get('original_text') or '').strip()
+                    if not txt:
+                        continue
+                    first_line = txt.splitlines()[0][:140]
+                    ann_from_ocr.append({
+                        'id': f"ocr-{ocr.get('id')}",
+                        'title': first_line or 'OCR Snippet',
+                        'announcement_type': 'OCR_SNIPPET',
+                        'publication_date': None,
+                        'issue_number': None,
+                        'page_number': None,
+                        'newspaper_name': 'OCR',
+                        'pdf_url': None,
+                        'ocr_status': 'extracted',
+                        'created_at': None,
+                        'trade_registry_number': company.get('sicil_no'),
+                    })
+                if ann_from_ocr:
+                    announcements = ann_from_ocr
+        except Exception as e:
+            logger.warning(f"[Company Detail] OCR-based announcement fallback failed: {e}")
+
+        # Hala boşsa, gazette_entries'den pseudo-ilan üret
+        try:
+            if not announcements:
+                # gazette_entries henüz yoksa şimdi çek
+                if 'gazette_entries' not in locals() or not gazette_entries:
+                    try:
+                        hist_resp2 = (
+                            supabase
+                            .table("gazette_entries")
+                            .select("id, entry_type, entry_date, processed_text, company_id")
+                            .eq("company_id", cid)
+                            .order("entry_date", desc=True)
+                            .limit(100)
+                            .execute()
+                        )
+                        gazette_entries = hist_resp2.data or []
+                    except Exception as _e:
+                        logger.warning(f"[Company Detail] Gazette fetch inside fallback failed: {_e}")
+                        gazette_entries = []
+
+                ann_from_hist = []
+                for ge in (gazette_entries or [])[:5]:
+                    pt = (ge.get('processed_text') or '').strip()
+                    title = (pt.splitlines()[0] if pt else '')[:140] or 'Gazete Kayıtı'
+                    ann_from_hist.append({
+                        'id': f"ge-{ge.get('id')}",
+                        'title': title,
+                        'announcement_type': 'GAZETTE_ENTRY',
+                        'publication_date': ge.get('entry_date'),
+                        'issue_number': None,
+                        'page_number': None,
+                        'newspaper_name': 'Gazette',
+                        'pdf_url': None,
+                        'ocr_status': None,
+                        'created_at': None,
+                        'trade_registry_number': company.get('sicil_no'),
+                    })
+                if ann_from_hist:
+                    announcements = ann_from_hist
+        except Exception as e:
+            logger.warning(f"[Company Detail] Gazette-entry announcement fallback failed: {e}")
 
         # --- History (gazette_entries) --- optional
         gazette_entries = []
