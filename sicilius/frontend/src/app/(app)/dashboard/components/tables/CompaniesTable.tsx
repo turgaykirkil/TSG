@@ -1,4 +1,5 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableCaption } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
 import type { Company } from '@/types/company.types';
 
 interface CompaniesTableProps {
@@ -40,22 +41,33 @@ const formatDateTime = (value?: string | null): string => {
 };
 
 export default function CompaniesTable({ companies = [], onSelectCompany }: CompaniesTableProps) {
+  // Eşleşme kuvveti varsa skoruna göre azalan sırada göster
+  const rows = Array.isArray(companies)
+    ? [...companies].sort((a: any, b: any) => {
+        const sa = typeof a?.match_strength === 'number' ? a.match_strength : -1;
+        const sb = typeof b?.match_strength === 'number' ? b.match_strength : -1;
+        return sb - sa;
+      })
+    : [];
+
   return (
     <div className="rounded-md border bg-white">
       <Table aria-label="Şirketler tablosu">
         <TableHeader>
           <TableRow>
             <TableHead>Unvan</TableHead>
+            <TableHead>Eşleşme</TableHead>
             <TableHead>Şehir</TableHead>
             <TableHead className="text-right">Son Güncelleme</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {companies.map((c, idx) => {
+          {rows.map((c, idx) => {
             const title = (c as any).firma_unvani ?? (c as any).unvan ?? '-';
             const registryNo = (c as any).sicil_no ?? '-';
             const registryOffice = (c as any).sicil_mudurluk ?? '-';
             const updatedAt = (c as any).updated_at ?? (c as any).last_scraped_at ?? (c as any).created_at ?? '-';
+            const matchStrength = (c as any).match_strength as number | undefined;
             const rowKey = `${(c as any).id ?? registryNo ?? title}-${idx}`;
             const id = (c as any).id ?? '';
             const city = extractCityFromRegistryOffice(registryOffice);
@@ -79,6 +91,15 @@ export default function CompaniesTable({ companies = [], onSelectCompany }: Comp
                 aria-label={`Şirket: ${title}, Şehir: ${city}`}
               >
                 <TableCell className="font-medium">{title}</TableCell>
+                <TableCell>
+                  {typeof matchStrength === 'number' ? (
+                    <Badge variant="outline" title="Eşleşme kuvveti">
+                      {matchStrength}
+                    </Badge>
+                  ) : (
+                    '-'
+                  )}
+                </TableCell>
                 <TableCell>{city}</TableCell>
                 <TableCell className="text-right">{formatDateTime(updatedAt)}</TableCell>
               </TableRow>

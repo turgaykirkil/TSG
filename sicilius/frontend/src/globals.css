@@ -1043,3 +1043,26 @@ html {
 .dark .shadow-glow {
   box-shadow: 0 0 20px -3px rgba(129, 140, 248, 0.4);
 }
+
+/* Search bar compact mode (after submit) */
+.searchbar-compact .animated-gradient-border {
+  padding: 1px !important;
+}
+
+.searchbar-compact input#dashboard-search-input {
+  padding-top: 0.6rem !important;
+  padding-bottom: 0.6rem !important;
+  font-size: 0.95rem !important;
+}
+
+.searchbar-compact button[aria-label="Ara"] {
+  padding-left: 0.6rem !important;
+  padding-right: 0.6rem !important;
+  padding-top: 0.35rem !important;
+  padding-bottom: 0.35rem !important;
+  font-size: 0.85rem !important;
+}
+
+.searchbar-compact button[aria-label="Aramayı temizle"] {
+  padding: 0.35rem !important;
+}

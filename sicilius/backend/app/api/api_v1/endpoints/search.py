@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Optional, Set
 from pydantic import BaseModel, Field
 from datetime import datetime
 import re
+import json
 import unicodedata
 import logging
 from app.core.dependencies import get_supabase_client
@@ -54,6 +55,393 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
     q_norm = tr_normalize_py(q_raw)
     tokens = [t for t in re.split(r"\s+", q_norm) if t]
     tokens_letters = [tr_letters_digits(t) for t in tokens if tr_letters_digits(t)]
+    # Sayı odaklı aramalar için rakamları soy: MERSİS alt-dize aramasını hızlandırmak için
+    q_digits = re.sub(r"\D+", "", (query or ""))
+
+    # Hızlı yol: Saf sayısal ve yeterince uzun sorgu ise doğrudan OCR (mersis_no, original_text) ve kimlik numarası taraması
+    try:
+        pure_digits = q_digits and (q_digits == re.sub(r"\D+", "", q_raw)) and len(q_digits) >= 6
+        if pure_digits:
+            # Skor tabloları ve kaynak bayrakları
+            score_map: Dict[str, int] = {}
+            def bump(cid: str, val: int):
+                prev = score_map.get(cid, 0)
+                if val > prev:
+                    score_map[cid] = val
+
+            # 0) Companies: mersis_number ve sicil_no içinde alt-dize
+            comp_hits_ids: Set[str] = set()
+            try:
+                c_mersis = (
+                    supabase.table("companies").select("id, unvan, mersis_number")
+                    .like("mersis_number", f"%{q_digits}%").limit(500).execute()
+                ).data or []
+                for r in c_mersis:
+                    cid = r.get("id")
+                    if cid:
+                        comp_hits_ids.add(cid)
+                        bump(cid, 90)  # companies.mersis_number eşleşmesi: güçlü
+            except Exception:
+                pass
+            try:
+                c_sicil = (
+                    supabase.table("companies").select("id, unvan, sicil_no")
+                    .like("sicil_no", f"%{q_digits}%").limit(500).execute()
+                ).data or []
+                for r in c_sicil:
+                    cid = r.get("id")
+                    if cid:
+                        comp_hits_ids.add(cid)
+                        bump(cid, max(score_map.get(cid, 0), 70))  # sicil_no: orta-güçlü
+            except Exception:
+                pass
+
+            # 1) OCR'da mersis_no ve original_text
+            ocr_company_ids: Set[str] = set()
+            ocr_mersis_map: Dict[str, str] = {}
+            ocr_trade_map: Dict[str, str] = {}
+            try:
+                ocr_rows = (
+                    supabase
+                    .table("ocr_results")
+                    .select("id, company_id, mersis_no, trade_name")
+                    .or_(f"mersis_no.like.%{q_digits}%,original_text.like.%{q_digits}%")
+                    .limit(2000)
+                    .execute()
+                ).data or []
+            except Exception:
+                ocr_rows = []
+
+            if not ocr_rows:
+                # Python tarafı fallback — Supabase'in varsayılan 1000 satır limitini aşmak için sayfalama
+                try:
+                    batch = 1000
+                    max_pages = 20  # en fazla 20k satır tarar
+                    page = 0
+                    while page < max_pages:
+                        start = page * batch
+                        end = start + batch - 1
+                        q = (
+                            supabase
+                            .table("ocr_results")
+                            .select("id, company_id, mersis_no, trade_name, original_text")
+                            .order("id", desc=True)
+                            .range(start, end)
+                            .execute()
+                        )
+                        rows = q.data or []
+                        if not rows:
+                            break
+                        for r in rows:
+                            cid = r.get("company_id")
+                            if not cid:
+                                continue
+                            text = r.get("original_text") or ""
+                            mers = r.get("mersis_no") or ""
+                            if (q_digits in text) or (q_digits in mers):
+                                ocr_company_ids.add(cid)
+                                if r.get("mersis_no") and not ocr_mersis_map.get(cid):
+                                    ocr_mersis_map[cid] = r["mersis_no"]
+                                    bump(cid, max(score_map.get(cid, 0), 80))
+                                if q_digits in text:
+                                    bump(cid, max(score_map.get(cid, 0), 60))
+                                if r.get("trade_name") and not ocr_trade_map.get(cid):
+                                    ocr_trade_map[cid] = r["trade_name"]
+                        if len(rows) < batch:
+                            break
+                        page += 1
+                except Exception:
+                    pass
+            else:
+                for r in ocr_rows:
+                    cid = r.get("company_id")
+                    if cid:
+                        ocr_company_ids.add(cid)
+                        if r.get("mersis_no") and not ocr_mersis_map.get(cid):
+                            ocr_mersis_map[cid] = r["mersis_no"]
+                            bump(cid, max(score_map.get(cid, 0), 80))  # OCR.mersis_no
+                        # original_text içinde sayısal alt-dize eşleşmesini doğrudan tespit edemiyoruz;
+                        # ancak bu sorgu zaten OR ile geldiği için en az orta skor veriyoruz.
+                        bump(cid, max(score_map.get(cid, 0), 60))  # OCR.original_text
+                        if r.get("trade_name") and not ocr_trade_map.get(cid):
+                            ocr_trade_map[cid] = r.get("trade_name")
+
+            # Şirketleri getir: tüm kaynaklardan toplanan adaylar üzerinden (skor map anahtarlarının birliği)
+            companies_fast: List[Dict[str, Any]] = []
+
+            # Kişiler: kimlik numarası alt-dize
+            persons_fast: List[Dict[str, Any]] = []
+            try:
+                persons_fast = (
+                    supabase.table("persons").select("*").like("nationality_id", f"%{q_digits}%").limit(500).execute()
+                ).data or []
+            except Exception:
+                pass
+
+            # 2.5) Kişiler -> ilişkili şirketlere düşük-orta skor ver
+            try:
+                if persons_fast:
+                    pids = [p.get("id") for p in persons_fast if p.get("id")]
+                    if pids:
+                        rels = (
+                            supabase
+                            .table("company_person_relations")
+                            .select("company_id, person_id")
+                            .in_("person_id", pids)
+                            .limit(5000)
+                            .execute()
+                        ).data or []
+                        for r in rels:
+                            cid = r.get("company_id")
+                            if cid:
+                                bump(cid, max(score_map.get(cid, 0), 50))
+            except Exception:
+                pass
+
+            # 2.6) 11 haneli kimlik için OCR masked_ids üzerinden aday şirketleri bul (maskeleri türet)
+            try:
+                if len(q_digits) == 11:
+                    def gen_masks(tckn: str) -> List[str]:
+                        out = []
+                        n = len(tckn)
+                        for pre in range(1, 5):
+                            for suf in range(1, 4):
+                                if pre + suf < n:
+                                    stars = n - (pre + suf)
+                                    out.append(tckn[:pre] + ("*" * stars) + tckn[-suf:])
+                        # tipik maske öne al
+                        pref = tckn[:3] + ("*" * 6) + tckn[-2:]
+                        if pref not in out:
+                            out.insert(0, pref)
+                        return out[:8]  # ilk 8 varyant ile sınırla
+                    masks = gen_masks(q_digits)
+                    ocr_mask_ids: Set[str] = set()
+                    for msk in masks:
+                        try:
+                            r1 = (
+                                supabase
+                                .table("ocr_results")
+                                .select("company_id, masked_ids")
+                                .filter("masked_ids", "cs", json.dumps([msk]))
+                                .limit(500)
+                                .execute()
+                            ).data or []
+                            for r in r1:
+                                cid = r.get("company_id")
+                                if cid:
+                                    ocr_mask_ids.add(cid)
+                            r2 = (
+                                supabase
+                                .table("ocr_results")
+                                .select("company_id, persons")
+                                .filter("persons", "cs", json.dumps([{"masked_ids": msk}]))
+                                .limit(500)
+                                .execute()
+                            ).data or []
+                            for r in r2:
+                                cid = r.get("company_id")
+                                if cid:
+                                    ocr_mask_ids.add(cid)
+                        except Exception:
+                            continue
+                    for cid in ocr_mask_ids:
+                        bump(cid, max(score_map.get(cid, 0), 70))  # OCR.masked_ids: güçlü-orta
+            except Exception:
+                pass
+
+            # Sonucu topla ve dön
+            # 2.7) Aday şirketleri birleştir ve getir
+            try:
+                candidate_ids: Set[str] = set(score_map.keys())
+                # Eğer yalnız OCR company_id'leri varsa ve skor yazılmadıysa yine de ekle
+                candidate_ids.update(ocr_company_ids)
+                if candidate_ids:
+                    comp_resp2 = (
+                        supabase
+                        .table("companies")
+                        .select("*")
+                        .in_("id", list(candidate_ids))
+                        .limit(min(2000, len(candidate_ids)))
+                        .execute()
+                    )
+                    fetched2 = comp_resp2.data or []
+                else:
+                    fetched2 = []
+            except Exception:
+                fetched2 = []
+
+            fetched2_map = {c.get("id"): c for c in fetched2 if isinstance(c, dict) and c.get("id")}
+            for cid in (candidate_ids if 'candidate_ids' in locals() else set()):
+                if cid in fetched2_map:
+                    companies_fast.append(dict(fetched2_map[cid]))
+                else:
+                    # Minimal obje (nadiren companies'de yoksa)
+                    companies_fast.append({
+                        "id": cid,
+                        "unvan": ocr_trade_map.get(cid),
+                        "unvan_ocr": ocr_trade_map.get(cid),
+                        "mersis_number_ocr": ocr_mersis_map.get(cid),
+                    })
+
+            # 3) match_strength alanını set et ve sırala
+            for obj in companies_fast:
+                cid = obj.get("id")
+                if cid:
+                    obj["match_strength"] = score_map.get(cid, obj.get("match_strength", 0))
+            companies_fast.sort(key=lambda x: x.get("match_strength", 0), reverse=True)
+
+            result.companies = companies_fast
+            result.persons = persons_fast
+            result.ocr_matches = []
+            result.related_companies = []
+            result.same_address_companies = []
+            result.total_matches = len(companies_fast) + len(persons_fast)
+            logger.info(f"[Search Fast Numeric] companies={len(companies_fast)} persons={len(persons_fast)} for q={q_digits}")
+            return result
+    except Exception:
+        pass
+
+    # Hızlı yol: Maskeli arama (en az 3 yıldız içeriyorsa)
+    try:
+        has_mask = q_raw.count("*") >= 3
+        if has_mask:
+            # KURAL: asla '*' ibaresi üzerinden OCR araması yapılmaz.
+            # Sadece maskeden çıkan sayısal prefix/suffix ile kişilerde arama yapılır ve ilişkili şirketler bulunur.
+            ocr_company_ids: Set[str] = set()  # bu hızlı yolda OCR kullanılmıyor
+            ocr_trade_map: Dict[str, str] = {}
+            ocr_mersis_map: Dict[str, str] = {}
+
+            # 1) Persons: maskeden prefix/suffix çıkar ve nationality_id LIKE uygula
+            persons_ids: Set[str] = set()
+            try:
+                import re as _re
+                parts = _re.split(r"\*+", q_raw)
+                pre = (parts[0] if parts else "")
+                suf = (parts[-1] if parts else "")
+                pre_d = _re.sub(r"\D+", "", pre)
+                suf_d = _re.sub(r"\D+", "", suf)
+                pattern = None
+                if pre_d and suf_d:
+                    pattern = f"%{pre_d}%{suf_d}%"
+                elif pre_d:
+                    pattern = f"%{pre_d}%"
+                elif suf_d:
+                    pattern = f"%{suf_d}%"
+                if pattern:
+                    persons_rows = (
+                        supabase
+                        .table("persons")
+                        .select("id")
+                        .like("nationality_id", pattern)
+                        .limit(1000)
+                        .execute()
+                    ).data or []
+                    for p in persons_rows:
+                        if p.get("id"):
+                            persons_ids.add(p["id"])
+            except Exception:
+                pass
+
+            # 2) Persons -> relations -> company_ids
+            rel_company_ids: Set[str] = set()
+            try:
+                if persons_ids:
+                    rels = (
+                        supabase
+                        .table("company_person_relations")
+                        .select("company_id, person_id")
+                        .in_("person_id", list(persons_ids))
+                        .limit(5000)
+                        .execute()
+                    ).data or []
+                    for r in rels:
+                        cid = r.get("company_id")
+                        if cid:
+                            rel_company_ids.add(cid)
+            except Exception:
+                pass
+
+            # 2.1) OCR masked_ids: doğrudan input maskesi ile eşleşen şirketleri bul (original_text taraması yapmadan)
+            ocr_mask_company_ids: Set[str] = set()
+            try:
+                # masked_ids dizisi doğrudan bu maskeyi içeriyor mu?
+                m1 = (
+                    supabase
+                    .table("ocr_results")
+                    .select("company_id, masked_ids")
+                    .filter("masked_ids", "cs", json.dumps([q_raw]))
+                    .limit(2000)
+                    .execute()
+                ).data or []
+                for r in m1:
+                    cid = r.get("company_id")
+                    if cid:
+                        ocr_mask_company_ids.add(cid)
+                # persons JSON'i içinde masked_ids alanında bu maske geçiyor mu?
+                m2 = (
+                    supabase
+                    .table("ocr_results")
+                    .select("company_id, persons")
+                    .filter("persons", "cs", json.dumps([{"masked_ids": q_raw}]))
+                    .limit(2000)
+                    .execute()
+                ).data or []
+                for r in m2:
+                    cid = r.get("company_id")
+                    if cid:
+                        ocr_mask_company_ids.add(cid)
+            except Exception:
+                pass
+
+            # 3) Topla ve tekilleştir
+            all_cids = set()
+            all_cids.update(ocr_company_ids)
+            all_cids.update(rel_company_ids)
+            all_cids.update(ocr_mask_company_ids)
+
+            companies_fast: List[Dict[str, Any]] = []
+            if all_cids:
+                try:
+                    comp_resp = (
+                        supabase
+                        .table("companies")
+                        .select("*")
+                        .in_("id", list(all_cids))
+                        .limit(1000)
+                        .execute()
+                    )
+                    fetched = comp_resp.data or []
+                except Exception:
+                    fetched = []
+                fetched_map = {c.get("id"): c for c in fetched if isinstance(c, dict) and c.get("id")}
+                for cid in all_cids:
+                    if cid in fetched_map:
+                        obj = dict(fetched_map[cid])
+                        # OCR masked_ids ile eşleştiyse daha yüksek skor ver; aksi halde kişi maskesi skoru
+                        obj["match_strength"] = 70 if cid in ocr_mask_company_ids else 40
+                        companies_fast.append(obj)
+                    else:
+                        companies_fast.append({
+                            "id": cid,
+                            "unvan": ocr_trade_map.get(cid),
+                            "unvan_ocr": ocr_trade_map.get(cid),
+                            "mersis_number_ocr": ocr_mersis_map.get(cid),
+                            "match_strength": 70 if cid in ocr_mask_company_ids else 40,
+                        })
+
+            # 4) Skora göre sırala (yüksekten düşüğe)
+            companies_fast.sort(key=lambda x: x.get("match_strength", 0), reverse=True)
+
+            result.companies = companies_fast
+            result.persons = []  # maskeli aramada ek kişi detayı döndürmüyoruz; istenirse genişletilir
+            result.ocr_matches = []
+            result.related_companies = []
+            result.same_address_companies = []
+            result.total_matches = len(companies_fast)
+            logger.info(f"[Search Fast Mask] companies={len(companies_fast)} for q='{q_raw}'")
+            return result
+    except Exception:
+        pass
 
     # 1) Şirketler: önce unaccent kolonları dene, hata olursa orijinal kolonlar ve Python filtresi
     companies_data: List[Dict[str, Any]] = []
@@ -111,6 +499,146 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
         except Exception:
             pass
 
+    # Ek: MERSİS alt-dize araması (örn. 7221127826)
+    try:
+        if q_digits and len(q_digits) >= 6:
+            # 1) companies.mersis_number (opsiyonel kolon olabilir)
+            try:
+                mersis_hits = (
+                    supabase
+                    .table("companies")
+                    .select("*")
+                    .like("mersis_number", f"%{q_digits}%")
+                    .limit(100)
+                    .execute()
+                ).data or []
+                companies_data.extend(mersis_hits)
+            except Exception:
+                # Kolon yoksa veya hata olursa devam et
+                pass
+
+            # 2) companies.sicil_no
+            try:
+                sicil_hits = (
+                    supabase
+                    .table("companies")
+                    .select("*")
+                    .like("sicil_no", f"%{q_digits}%")
+                    .limit(100)
+                    .execute()
+                ).data or []
+                companies_data.extend(sicil_hits)
+            except Exception:
+                pass
+
+            # 3) OCR üzerinden MERSİS/Original Text alt-dize araması -> company_id ile şirketleri ekle
+            try:
+                # 1) OCR'da mersis_no alanında alt-dize araması
+                ocr_mersis_rows = (
+                    supabase
+                    .table("ocr_results")
+                    .select("id, company_id, mersis_no, trade_name")
+                    .like("mersis_no", f"%{q_digits}%")
+                    .limit(1000)
+                    .execute()
+                ).data or []
+
+                # 2) OCR'da original_text içinde alt-dize araması
+                ocr_text_rows = (
+                    supabase
+                    .table("ocr_results")
+                    .select("id, company_id")
+                    .like("original_text", f"%{q_digits}%")
+                    .limit(1000)
+                    .execute()
+                ).data or []
+
+                logger.info(f"[Search] OCR numeric: mersis_hits={len(ocr_mersis_rows)} text_hits={len(ocr_text_rows)} for q_digits={q_digits}")
+
+                # company_id bazında tekilleştir ve OCR alanlarını hazırla
+                ocr_company_ids: Set[str] = set()
+                ocr_mersis_map: Dict[str, str] = {}
+                ocr_trade_map: Dict[str, str] = {}
+                for row in (ocr_mersis_rows + ocr_text_rows):
+                    cid = row.get("company_id")
+                    if cid:
+                        ocr_company_ids.add(cid)
+                        if not ocr_mersis_map.get(cid):
+                            val = row.get("mersis_no")
+                            if val:
+                                ocr_mersis_map[cid] = val
+                        if not ocr_trade_map.get(cid):
+                            tname = row.get("trade_name")
+                            if tname:
+                                ocr_trade_map[cid] = tname
+
+                # Fallback: LIKE/ILIKE hatası veya boş sonuç varsa Python tarafı substring filtrelemesi
+                if not ocr_company_ids:
+                    try:
+                        coarse_rows = (
+                            supabase
+                            .table("ocr_results")
+                            .select("id, company_id, mersis_no, trade_name, original_text")
+                            .limit(5000)
+                            .execute()
+                        ).data or []
+                        for r in coarse_rows:
+                            cid = r.get("company_id")
+                            if not cid:
+                                continue
+                            mers = (r.get("mersis_no") or "")
+                            txt = (r.get("original_text") or "")
+                            if (q_digits in mers) or (q_digits in txt):
+                                ocr_company_ids.add(cid)
+                                if not ocr_mersis_map.get(cid) and mers:
+                                    ocr_mersis_map[cid] = mers
+                                if not ocr_trade_map.get(cid) and r.get("trade_name"):
+                                    ocr_trade_map[cid] = r.get("trade_name")
+                        logger.info(f"[Search] OCR numeric fallback matched companies={len(ocr_company_ids)}")
+                    except Exception as _e_ocr_fb:
+                        logger.warning(f"[Search] OCR numeric fallback failed: {_e_ocr_fb}")
+
+                # Şirket tablosundan detayları çek; olmayanlar için minimal obje ekle
+                if ocr_company_ids:
+                    # Mevcut companies_data içindekileri çık; gereksiz çağrıyı azalt
+                    existing_ids = {c.get("id") for c in companies_data if isinstance(c, dict)}
+                    fetch_ids = sorted(list(ocr_company_ids - existing_ids))
+                    fetched_map: Dict[str, Dict[str, Any]] = {}
+                    if fetch_ids:
+                        comp_resp = (
+                            supabase
+                            .table("companies")
+                            .select("*")
+                            .in_("id", fetch_ids)
+                            .limit(min(1000, len(fetch_ids)))
+                            .execute()
+                        )
+                        for c in (comp_resp.data or []):
+                            if isinstance(c, dict) and c.get("id"):
+                                fetched_map[c["id"]] = c
+                        logger.info(f"[Search] OCR numeric: fetched {len(fetched_map)} companies by id")
+
+                    # companies_data listesine ekle
+                    for cid in ocr_company_ids:
+                        if cid in fetched_map:
+                            companies_data.append(fetched_map[cid])
+                        else:
+                            companies_data.append({
+                                "id": cid,
+                                # OCR'dan olası yardımcı alanlar
+                                "mersis_number_ocr": ocr_mersis_map.get(cid),
+                                "unvan_ocr": ocr_trade_map.get(cid),
+                                # UI'da daha iyi gösterim için unvan yoksa OCR'dan geleni kullan
+                                "unvan": ocr_trade_map.get(cid),
+                            })
+                    logger.info(f"[Search] OCR numeric: added {len(ocr_company_ids)} companies to results")
+            except Exception as _e_ocr_numeric:
+                # OCR aramasında hata olsa bile ana arama akışını bozma
+                logger.warning(f"[Search] OCR numeric search failed: {_e_ocr_numeric}")
+                
+    except Exception:
+        pass
+
     # Dedup by id
     seen_company_ids: Set[str] = set()
     companies: List[Dict[str, Any]] = []
@@ -119,6 +647,57 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
         if cid and cid not in seen_company_ids:
             seen_company_ids.add(cid)
             companies.append(c)
+
+    # Metin araması için eşleşme skoru: prefix > sıralı tokenlar > serbest tokenlar > adres
+    try:
+        # Bu blok, hızlı sayısal/maskeli yollardan geçilmediyse devrededir
+        if companies:
+            for c in companies:
+                try:
+                    base_score = int(c.get("match_strength", 0) or 0)
+                except Exception:
+                    base_score = 0
+                score = base_score
+                unv = (c.get("unvan") or c.get("firma_unvani") or "").strip()
+                s_unv = tr_normalize_py(unv)
+                # 1) Tam ifade prefix eşleşmesi
+                if q_norm and s_unv.startswith(q_norm):
+                    score = max(score, 95)
+                else:
+                    # 2) İlk token prefix eşleşmesi veya ifade başa çok yakın
+                    if tokens:
+                        if s_unv.startswith(tokens[0]):
+                            score = max(score, 88)
+                    if q_norm:
+                        idx = s_unv.find(q_norm)
+                        if idx != -1 and idx <= 5:
+                            score = max(score, 88)
+                    # 3) Tokenlar sırayla geçiyor mu?
+                    if tokens:
+                        pos = 0
+                        ok = True
+                        for t in tokens:
+                            p = s_unv.find(t, pos)
+                            if p == -1:
+                                ok = False
+                                break
+                            pos = p + len(t)
+                        if ok:
+                            score = max(score, 80)
+                    # 4) Tüm tokenlar bir yerlerde mevcut mu?
+                    if tokens and all(t in s_unv for t in tokens):
+                        score = max(score, 72)
+                    # 5) Adres fallback
+                    if score == base_score:
+                        addr = tr_normalize_py((c.get("address") or c.get("adres") or "").strip())
+                        if addr and tokens and all(t in addr for t in tokens):
+                            score = max(score, 50)
+                c["match_strength"] = score
+
+            # Skora göre sırala
+            companies.sort(key=lambda x: x.get("match_strength", 0), reverse=True)
+    except Exception:
+        pass
 
     result.companies = companies
     company_ids = list(seen_company_ids)
@@ -269,6 +848,21 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
             ]
         except Exception:
             pass
+    # Ek: Sayı odaklı aramalar için kimlik numarası (nationality_id) üzerinden hızlı arama
+    try:
+        if q_digits and len(q_digits) >= 6:
+            pnat_resp = (
+                supabase
+                .table("persons")
+                .select("*")
+                .ilike("nationality_id", f"%{q_digits}%")
+                .limit(200)
+                .execute()
+            )
+            persons_match.extend(pnat_resp.data or [])
+    except Exception:
+        pass
+
     # Dedup persons by id
     seen_person_ids: Set[str] = set()
     persons: List[Dict[str, Any]] = []
@@ -314,12 +908,19 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
             .select("id, announcement_id, company_id, original_text, companies(*)")
             .limit(200)
         )
+        # Sayısal sorgularda PostgREST ilike ile 500 hatası alabildiği için LIKE kullan
+        all_digits = bool(q_digits) and (q_digits == tr_letters_digits(q_raw))
         if tokens:
-            # Her token için AND olacak şekilde birden çok ilike uygula (unaccent kolonu yok)
             for t in tokens:
-                ocr_q = ocr_q.ilike("original_text", f"%{t}%")
+                if all_digits and t.isdigit():
+                    ocr_q = ocr_q.like("original_text", f"%{t}%")
+                else:
+                    ocr_q = ocr_q.ilike("original_text", f"%{t}%")
         else:
-            ocr_q = ocr_q.ilike("original_text", f"%{q_norm}%")
+            if all_digits:
+                ocr_q = ocr_q.like("original_text", f"%{q_norm}%")
+            else:
+                ocr_q = ocr_q.ilike("original_text", f"%{q_norm}%")
         ocr_matches = (ocr_q.execute()).data or []
 
         # Yıldız/punktuasyon maskeleri için ek Python filtresi (boş dönerse)
@@ -368,6 +969,10 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
         + len(result.same_address_companies)
         + len(result.persons)
         + len(result.ocr_matches)
+    )
+
+    logger.info(
+        f"[Search] totals companies={len(result.companies)} related={len(result.related_companies)} same_addr={len(result.same_address_companies)} persons={len(result.persons)} ocr_matches={len(result.ocr_matches)} total={result.total_matches} for query='{query}'"
     )
 
     return result
@@ -713,6 +1318,13 @@ def company_detail(
                     merged = {**persons_map[pid], **{k: v for k, v in r.items() if k != "person_id"}}
                     persons.append(merged)
 
+        # --- Announcements: enrich with OCR original_text ---
+        try:
+            if data := result.__dict__.get('announcements'):
+                pass  # placeholder; we haven't set announcements yet in this function
+        except Exception:
+            pass
+
         # --- Companies at the same address (exclude current company) ---
         same_address_companies = []
         if company.get('address'):
@@ -726,9 +1338,42 @@ def company_detail(
                 .execute()
             )
             same_address_companies = same_address_resp.data or []
+            # Aynı adresteki şirketlerde MERSIS yoksa OCR'dan aday türet
+            try:
+                if same_address_companies:
+                    pat_mersis = re.compile(r"(?:mers(?:i|ı)s\D{0,50}?)([0-9]{10,20})", re.IGNORECASE)
+                    for sc in same_address_companies[:20]:  # performans: ilk 20
+                        try:
+                            if not isinstance(sc, dict) or sc.get('mersis_number'):
+                                continue
+                            scid = sc.get('id')
+                            if not scid:
+                                continue
+                            ocr2 = (
+                                supabase
+                                .table('ocr_results')
+                                .select('id, original_text')
+                                .eq('company_id', scid)
+                                .limit(20)
+                                .execute()
+                            )
+                            candidates = []
+                            for row in (ocr2.data or []):
+                                txt = (row.get('original_text') or '')
+                                for m in pat_mersis.finditer(txt):
+                                    val = m.group(1)
+                                    if val and val not in candidates:
+                                        candidates.append(val)
+                            if candidates:
+                                sc['mersis_number_ocr'] = candidates[0]
+                        except Exception:
+                            continue
+            except Exception as _e_mersis_same:
+                logger.warning(f"[Company Detail] Same-address MERSIS extraction failed: {_e_mersis_same}")
 
         # --- Related companies via shared persons ---
         related_companies = []
+        existing_related_ids: Set[str] = set()
         try:
             if person_ids:
                 # Get all other company relations for these persons
@@ -786,8 +1431,8 @@ def company_detail(
                             **company_obj,
                             "shared_persons": entry["shared_persons"],
                         })
-        except Exception as re:
-            logger.warning(f"[Company Detail] Related companies resolution failed: {re}")
+        except Exception as ex:
+            logger.warning(f"[Company Detail] Related companies resolution failed: {ex}")
 
         # --- Announcements --- (fallback'lı)
         announcements = []
@@ -846,6 +1491,49 @@ def company_detail(
             except Exception as _e:
                 logger.warning(f"[Company Detail] announcements by title failed: {_e}")
 
+        # Enrichment: announcements -> original_text (from ocr_results by announcement_id)
+        try:
+            ann_ids = [a.get("id") for a in announcements if isinstance(a, dict) and a.get("id")]
+            if ann_ids:
+                ocr_by_ann = (
+                    supabase
+                    .table("ocr_results")
+                    .select("announcement_id, original_text")
+                    .in_("announcement_id", ann_ids)
+                    .limit(min(2000, len(ann_ids) * 5))
+                    .execute()
+                ).data or []
+                # Son ilanın metnini tercih et (aynı announcement_id için birden fazla satır olabilir)
+                ocr_map: Dict[Any, str] = {}
+                for row in ocr_by_ann:
+                    aid = row.get("announcement_id")
+                    if aid and not ocr_map.get(aid):
+                        ocr_map[aid] = row.get("original_text") or ""
+                for a in announcements:
+                    aid = a.get("id")
+                    if aid and aid in ocr_map:
+                        a["original_text"] = ocr_map[aid]
+                # Fallback: Hala metni olmayan ilanlar için şirketin en yeni OCR kayıtlarından sırayla doldur
+                missing = [a for a in announcements if isinstance(a, dict) and not a.get("original_text")]
+                if missing:
+                    try:
+                        ocr_recent = (
+                            supabase
+                            .table("ocr_results")
+                            .select("id, original_text, created_at")
+                            .eq("company_id", cid)
+                            .order("created_at", desc=True)
+                            .limit(min(100, len(missing) * 2))
+                            .execute()
+                        ).data or []
+                        for i, a in enumerate(missing):
+                            if i < len(ocr_recent):
+                                a["original_text"] = ocr_recent[i].get("original_text") or a.get("original_text")
+                    except Exception:
+                        pass
+        except Exception as _e_enrich:
+            logger.warning(f"[Company Detail] enrich announcements with original_text failed: {_e_enrich}")
+
                 # --- OCR Results: persons JSON, masked_ids ve yıldızlı örüntüler ---
         try:
             ocr_resp = (
@@ -862,8 +1550,7 @@ def company_detail(
             except Exception:
                 pass
 
-            import re
-            import json
+            # using module-level imports for re/json
             # Tekilleştirme için isim anahtarı üretici
             def _key(n: str) -> str:
                 return tr_normalize_py(n or "").strip()
@@ -974,138 +1661,23 @@ def company_detail(
                             'source': 'OCR',
                         })
 
-        except Exception as e:
-            logger.warning(f"[Company Detail] Error processing OCR results: {e}")
-
-        # Kişi listesinde son temizlik
-        try:
-            cleaned_persons = []
-            for p in (persons or []):
-                if not isinstance(p, dict):
-                    continue
-                nm = p.get('full_name')
-                if isinstance(nm, str):
-                    try:
-                        nm = re.sub(r"(?i)ocr", "", nm)
-                        nm = re.sub(r"\s+", " ", nm).strip()
-                    except Exception:
-                        pass
-                    if not nm:
-                        nm = 'Ad Bilinmiyor'
-                    p['full_name'] = nm
-                cleaned_persons.append(p)
-            persons = cleaned_persons
+            # MERSIS çıkarımı (mevcut şirkette yoksa OCR'dan türet)
             try:
-                preview = [{k: v for k, v in p.items() if k in ['full_name', 'masked_ids', 'source']} for p in persons[:5]]
-                logger.info(f"[Company Detail] persons after cleanup (preview): {preview}")
-            except Exception:
-                pass
-        except Exception as e:
-            logger.warning(f"[Company Detail] persons cleanup failed: {e}")
+                if not company.get('mersis_number'):
+                    mersis_candidates = []
+                    pat = re.compile(r"(?:mers(?:i|ı)s\D{0,50}?)([0-9]{10,20})", re.IGNORECASE)
+                    for ocr in (ocr_resp.data or []):
+                        txt = (ocr.get('original_text') or '')
+                        for m in pat.finditer(txt):
+                            val = m.group(1)
+                            if val and val not in mersis_candidates:
+                                mersis_candidates.append(val)
+                    if mersis_candidates:
+                        company['mersis_number_ocr'] = mersis_candidates[0]
+            except Exception as ex_mersis:
+                logger.warning(f"[Company Detail] MERSIS extraction failed: {ex_mersis}")
 
-        # OCR tabanlı ilişkiler: aynı isim + masked_id'yi paylaşan farklı şirketler (öncelik)
-        try:
-            if 'related_companies' not in locals():
-                related_companies = []
-            existing_related_ids = {rc.get('id') for rc in related_companies if isinstance(rc, dict)}
-            # 1) kişi listesinde OCR kaynaklı {isim + masked_id} çiftlerini çıkar
-            candidate_pairs = set()
-            for p in (persons or []):
-                if not isinstance(p, dict):
-                    continue
-                if p.get('source') != 'OCR':
-                    continue
-                nm = (p.get('full_name') or '').strip()
-                if not nm or '*' in nm:
-                    continue
-                mids = p.get('masked_ids') or []
-                if isinstance(mids, list):
-                    for mm in mids:
-                        if isinstance(mm, str) and '*' in mm:
-                            candidate_pairs.add((tr_normalize_py(nm), mm))
-
-            logger.info(f"[Company Detail] OCR candidates: masked_id_set={len(masked_id_set)} (sample={list(masked_id_set)[:5]})")
-            # 2) Önce isim+maskeye göre ilişkili şirketleri bul
-            for (nm_norm, mid) in list(candidate_pairs)[:10]:
-                try:
-                    occ = (
-                        supabase
-                        .table("ocr_results")
-                        .select("id, company_id, masked_ids, persons, companies(*)")
-                        .filter("masked_ids", "cs", json.dumps([mid]))
-                        .limit(50)
-                        .execute()
-                    )
-                except Exception as _e:
-                    logger.warning(f"[Company Detail] OCR contains query (name+mask) failed for {mid}: {_e}")
-                    continue
-                for row in (occ.data or []):
-                    rcid = row.get('company_id')
-                    if not rcid or rcid == cid or rcid in (existing_related_ids or set()):
-                        continue
-                    # isim doğrulaması: row.persons içinde aynı isim var mı?
-                    row_persons = row.get('persons') or []
-                    found_same_name = False
-                    matched_name = None
-                    if isinstance(row_persons, list):
-                        for rp in row_persons:
-                            if not isinstance(rp, dict):
-                                continue
-                            rp_full = (
-                                rp.get('full_name')
-                                or (f"{rp.get('first_name','')} {rp.get('last_name','')}").strip()
-                                or rp.get('text')
-                                or rp.get('label')
-                            )
-                            if not rp_full:
-                                continue
-                            try:
-                                rp_full = re.sub(r"(?i)ocr", "", rp_full)
-                                rp_full = re.sub(r"\s+", " ", rp_full).strip()
-                            except Exception:
-                                pass
-                            rp_norm = tr_normalize_py(rp_full)
-                            # eşleştirme: eşitlik veya içerme veya en az iki ortak token
-                            if rp_norm == nm_norm or (rp_norm in nm_norm) or (nm_norm in rp_norm):
-                                found_same_name = True
-                                matched_name = rp_full
-                                break
-                            else:
-                                rp_toks = [t for t in rp_norm.split() if t]
-                                nm_toks = [t for t in nm_norm.split() if t]
-                                if len(set(rp_toks).intersection(nm_toks)) >= 2:
-                                    found_same_name = True
-                                    matched_name = rp_full
-                                    break
-                    if not found_same_name:
-                        continue
-                    comp_obj = row.get('companies') if isinstance(row.get('companies'), dict) else None
-                    # companies(*) çalışmadıysa Companies tablosundan tekil çekmeye çalış
-                    if not comp_obj:
-                        try:
-                            comp_q = (
-                                supabase
-                                .table("companies")
-                                .select("id, unvan, sicil_no, address, sicil_mudurluk")
-                                .eq("id", rcid)
-                                .limit(1)
-                                .execute()
-                            )
-                            comp_obj = (comp_q.data or [None])[0]
-                        except Exception:
-                            comp_obj = None
-                    shared = [{'full_name': matched_name if found_same_name else None, 'masked_ids': [mid], 'relation_type': 'OCR_ORTAK', 'is_current': True}]
-                    related_companies.append({
-                        **(comp_obj or {'id': rcid}),
-                        'shared_persons': shared,
-                    })
-                    existing_related_ids.add(rcid)
-                    try:
-                        logger.info(f"[Company Detail] related (name+mask): rcid={rcid}, shared={shared}")
-                    except Exception:
-                        pass
-
-            logger.info(f"[Company Detail] OCR candidate_pairs={len(candidate_pairs)} (sample={list(candidate_pairs)[:5]})")
+            # candidate_pairs metrik logu kaldırıldı (tanımsız değişken hatası önlendi)
 
             # İsim+maskeden isim sözlüğü oluştur (fallback'te kullanmak için)
             name_by_mid: dict[str, str] = {}

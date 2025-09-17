@@ -153,7 +153,7 @@ export default function DashboardPage() {
       <section
         className={
           "relative overflow-hidden grid transition-all duration-500 ease-out " +
-          (submitted ? "min-h-[22vh] place-content-start pt-6" : "min-h-[68vh] place-content-center")
+          (submitted ? "min-h-[10vh] place-content-start justify-items-center pt-1" : "min-h-[68vh] place-content-center")
         }
       >
         <div className="mx-auto w-full max-w-screen-2xl text-center px-4">
@@ -168,9 +168,10 @@ export default function DashboardPage() {
             </h1>
           </div>
           <div className={
-            "mt-4 transition-all duration-500 " + (submitted ? "mt-2" : "mt-4")
+            "mt-4 transition-all duration-500 " + (submitted ? "mt-0.5" : "mt-4")
           }>
-            <div className={submitted ? "sticky top-4 z-30" : ""}>
+            <div className={submitted ? "sticky top-2 z-40 w-full searchbar-compact" : "flex justify-center"}>
+              <div className="mx-auto w-full max-w-xl">
               <SearchBar
               value={draft}
               onChange={setDraft}
@@ -182,19 +183,20 @@ export default function DashboardPage() {
               }}
               className={
                 "mx-auto w-full transition-all duration-500 " +
-                (submitted ? "max-w-2xl" : "max-w-screen-2xl")
+                (submitted ? "max-w-xl" : "max-w-screen-2xl")
               }
               inputRef={inputRef}
               placeholderPhrases={phrases}
               rotateIntervalMs={1800}
             />
+              </div>
             </div>
           </div>
         </div>
       </section>
 
       {/* Results */}
-      <section id="results" data-testid="results" aria-live="polite" aria-busy={isFetching} className="min-h-[200px] flex-1 bg-transparent pb-16">
+      <section id="results" data-testid="results" aria-live="polite" aria-busy={isFetching} className={"min-h-[200px] flex-1 bg-transparent pb-16 " + (submitted ? "pt-4" : "") }>
         {isError && (
           <div className="mx-auto max-w-5xl text-sm text-red-600" role="alert">
             {(error as Error)?.message || 'Arama sırasında bir hata oluştu.'}
@@ -243,6 +245,11 @@ export default function DashboardPage() {
           if (!o) setSelectedCompanyId(undefined);
         }}
         companyId={selectedCompanyId}
+        onOpenCompany={(id) => {
+          if (!id) return;
+          setSelectedCompanyId(id);
+          setDetailOpen(true);
+        }}
       />
       <MobileHistoryDrawer
         open={mobileOpen}
