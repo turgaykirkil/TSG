@@ -2,16 +2,21 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import SearchBar from './components/SearchBar';
+import SearchHints from './components/SearchHints';
+import QueryInsights from './components/QueryInsights';
+import ResultStats from './components/ResultStats';
+import ThemeToggle from './components/ThemeToggle';
+import { Clock } from 'lucide-react';
 import { useUnifiedSearch } from '@/hooks/useUnifiedSearch';
+import { SEARCH_MAX_COMPANIES } from '@/config/constants';
 import EmptyState from './components/EmptyState';
-import HistorySidebar from './components/sidebar/HistorySidebar';
 import { useSearchHistory } from './hooks/useSearchHistory';
 import MobileHistoryDrawer from './components/sidebar/MobileHistoryDrawer';
-import { Menu, PanelLeftOpen, PanelLeftClose } from 'lucide-react';
 import CompanyDetailModal from './components/CompanyDetailModal';
 import CompaniesTable from './components/tables/CompaniesTable';
 import PeopleTable from './components/tables/PeopleTable';
 import CompanyHistoryTable from './components/tables/CompanyHistoryTable';
+import TableSkeleton from './components/tables/TableSkeleton';
 
 export default function DashboardPage() {
   const [query, setQuery] = useState('');
@@ -20,10 +25,11 @@ export default function DashboardPage() {
   const companies = unified?.companies ?? [];
   const persons = unified?.persons ?? [];
   const historyEntries = unified?.history ?? [];
+  const totalMatches = unified?.total_matches ?? undefined;
   const [submitted, setSubmitted] = useState(false);
   const history = useSearchHistory();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Sol sidebar tamamen kaldırıldı; sağ çekmece (drawer) kullanılıyor
   const inputRef = useRef<HTMLInputElement>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | undefined>(undefined);
@@ -44,6 +50,19 @@ export default function DashboardPage() {
     ],
     []
   );
+  
+  // Typeahead kaynakları: geçmiş + mevcut şirket unvanları + temel etiketler
+  const typeaheadSuggestions = useMemo(() => {
+    const fromHistory = (history.items || []).map((i) => i.query).filter(Boolean);
+    const fromCompanies = (companies || [])
+      .map((c: any) => c?.firma_unvani || c?.unvan || '')
+      .filter((s: string) => !!s);
+    const basics = [
+      'MERSİS', 'Sicil No', 'İlan No', 'Anonim Şirketi', 'Limited Şirketi',
+      'İstanbul', 'Ankara', 'İzmir', 'Bursa', 'Antalya'
+    ];
+    return Array.from(new Set([...fromHistory, ...fromCompanies, ...basics]));
+  }, [history.items, companies]);
   
 
   // Submit ile küçült/yukarı taşı ve sonuçlara kaydır
@@ -99,13 +118,8 @@ export default function DashboardPage() {
   }, []);
 
   return (
-    <div
-      className={
-        "min-h-screen lg:h-screen relative overflow-x-hidden lg:overflow-x-hidden lg:grid " +
-        (sidebarOpen ? "lg:grid-cols-[18rem_1fr]" : "lg:grid-cols-[0_1fr]") +
-        " lg:gap-6"
-      }
-    >
+    <div className={"min-h-screen relative overflow-x-hidden bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100"}>
+      {isFetching && <div className="top-progress" aria-hidden />}
       {/* Skip link: klavye ile hızlı erişim */}
       <a
         href="#results"
@@ -113,42 +127,22 @@ export default function DashboardPage() {
       >
         Sonuçlara atla
       </a>
-      {/* Mobile history trigger */}
+      {/* Üst sağ sabit aksiyonlar */}
       <button
         type="button"
-        className="lg:hidden fixed left-4 top-4 z-40 rounded-full bg-white/80 backdrop-blur px-3 py-2 shadow border border-slate-200 text-slate-700"
-        data-testid="mobile-history-button"
+        aria-label="Arama geçmişi"
+        className="fixed top-4 right-4 z-50 rounded-full p-2.5 bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow hover:bg-white dark:hover:bg-slate-900"
         onClick={() => setMobileOpen(true)}
-        aria-label="Geçmişi aç"
       >
-        <Menu size={18} className="inline mr-2" /> Geçmiş
+        <span className="relative inline-flex">
+          <Clock size={18} />
+          {history.items.length > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-blue-500 ring-2 ring-white dark:ring-slate-900" aria-hidden />
+          )}
+        </span>
       </button>
-      {/* Desktop history open toggle (only when closed) */}
-      {!sidebarOpen && (
-        <button
-          type="button"
-          className="hidden lg:flex fixed left-4 top-4 z-40 rounded-full bg-white/80 backdrop-blur px-3 py-2 shadow border border-slate-200 text-slate-700"
-          onClick={() => setSidebarOpen(true)}
-          aria-label={'Geçmiş panelini aç'}
-        >
-          <PanelLeftOpen size={18} className="inline mr-2" />
-          Geçmiş
-        </button>
-      )}
-      {/* Sidebar grid column (kept present for layout) */}
-      <div className="hidden lg:block lg:h-full">
-        {sidebarOpen ? (
-          <HistorySidebar
-            items={history.items}
-            onSelect={handleSelectFromHistory}
-            onRemove={history.remove}
-            onClear={history.clear}
-            onTogglePin={history.togglePin}
-            onCollapse={() => setSidebarOpen(false)}
-          />
-        ) : null}
-      </div>
-      <div className="flex flex-col gap-6 px-4 lg:px-6 min-h-0 lg:h-screen lg:overflow-y-auto">
+      <ThemeToggle />
+      <div className="flex flex-col gap-6 px-4 lg:px-6">
       {/* Hero / Centered Search */}
       <section
         className={
@@ -157,25 +151,28 @@ export default function DashboardPage() {
         }
       >
         <div className="mx-auto w-full max-w-screen-2xl text-center px-4">
-          <div
-            className={
-              "transition-all duration-500 ease-out " +
-              (submitted ? "scale-95 -translate-y-1" : "scale-100 translate-y-0")
-            }
-          >
-            <h1 className="text-4xl md:text-5xl font-semibold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-[#0A192F] via-[#1E3A8A] to-[#0EA5E9]">
-              Sicilius
-            </h1>
-          </div>
+          {!submitted && (
+            <div
+              className={
+                "transition-all duration-500 ease-out " +
+                (submitted ? "scale-95 -translate-y-1" : "scale-100 translate-y-0")
+              }
+            >
+              <h1 className="text-4xl md:text-5xl font-semibold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-[#0A192F] via-[#1E3A8A] to-[#0EA5E9]">
+                Sicilius
+              </h1>
+            </div>
+          )}
           <div className={
             "mt-4 transition-all duration-500 " + (submitted ? "mt-0.5" : "mt-4")
           }>
-            <div className={submitted ? "sticky top-2 z-40 w-full searchbar-compact" : "flex justify-center"}>
-              <div className="mx-auto w-full max-w-xl">
+            <div className={submitted ? "sticky top-6 z-40 w-full searchbar-compact" : "flex justify-center"}>
+              <div className="mx-auto w-full max-w-lg search-spotlight">
               <SearchBar
               value={draft}
               onChange={setDraft}
               onSubmit={handleSubmit}
+              onPickSuggestion={(q) => handleSubmit(q)}
               onClear={() => {
                 setDraft('');
                 setQuery('');
@@ -188,7 +185,15 @@ export default function DashboardPage() {
               inputRef={inputRef}
               placeholderPhrases={phrases}
               rotateIntervalMs={1800}
+              suggestions={typeaheadSuggestions}
+              disableSuggestions={submitted || isFetching}
             />
+              {!submitted && !draft.trim() && (
+                <SearchHints onPick={(q) => handleSubmit(q)} />
+              )}
+              {!submitted && !!draft.trim() && (
+                <QueryInsights text={draft} onPick={(q) => handleSubmit(q)} />
+              )}
               </div>
             </div>
           </div>
@@ -196,7 +201,17 @@ export default function DashboardPage() {
       </section>
 
       {/* Results */}
-      <section id="results" data-testid="results" aria-live="polite" aria-busy={isFetching} className={"min-h-[200px] flex-1 bg-transparent pb-16 " + (submitted ? "pt-4" : "") }>
+      <section id="results" data-testid="results" aria-live="polite" aria-busy={isFetching} className={"min-h-[200px] flex-1 bg-transparent pb-16 " + (submitted ? "pt-2" : "") }>
+        {submitted && query.trim() && (
+          <ResultStats
+            companies={companies.length}
+            persons={persons.length}
+            history={historyEntries.length}
+            query={query}
+            capped={typeof totalMatches === 'number' ? totalMatches > companies.length : companies.length >= SEARCH_MAX_COMPANIES}
+            capSize={SEARCH_MAX_COMPANIES}
+          />
+        )}
         {isError && (
           <div className="mx-auto max-w-5xl text-sm text-red-600" role="alert">
             {(error as Error)?.message || 'Arama sırasında bir hata oluştu.'}
@@ -206,7 +221,9 @@ export default function DashboardPage() {
         {/* Başlangıç boş durumu gösterme: kullanıcı arama yapmadıysa hiç kart gösterme */}
 
         {submitted && query.trim() && isFetching && (
-          <div className="mx-auto max-w-5xl text-sm text-muted-foreground">Aranıyor…</div>
+          <div className="mx-auto max-w-5xl">
+            <TableSkeleton rows={6} />
+          </div>
         )}
 
         {submitted && query.trim() && !isFetching && !isError && (companies.length + persons.length + historyEntries.length === 0) && (

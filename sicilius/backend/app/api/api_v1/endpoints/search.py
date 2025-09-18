@@ -1,16 +1,128 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from supabase import Client
 from typing import List, Dict, Any, Optional, Set
 from pydantic import BaseModel, Field
+import os
 from datetime import datetime
 import re
 import json
 import unicodedata
 import logging
+import time
+import threading
+from collections import deque
 from app.core.dependencies import get_supabase_client
+from app.core.config import settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# --- Config helpers ---
+def _int_from_settings_or_env(attr_name: str, env_names: list[str], default: int) -> int:
+    try:
+        start_ts = time.perf_counter()
+        val = getattr(settings, attr_name)
+        if isinstance(val, (int,)):
+            return int(val)
+    except Exception:
+        pass
+    for name in env_names:
+        # check both exact and upper-case variant
+        for key in {name, name.upper()}:
+            raw = os.getenv(key)
+            if raw is not None and str(raw).strip() != "":
+                try:
+                    return int(str(raw).strip())
+                except Exception:
+                    continue
+    return int(default)
+
+def _clamp(v: int, lo: int, hi: int) -> int:
+    return max(lo, min(hi, int(v)))
+
+# Arama sonuçlarındaki şirket sayısı sınırı (settings/env ile yönetilebilir)
+MAX_COMPANIES = _clamp(
+    _int_from_settings_or_env(
+        "search_max_companies",
+        ["tsg_search_max_companies", "SEARCH_MAX_COMPANIES", "TSG_SEARCH_MAX_COMPANIES"],
+        20,
+    ),
+    1,
+    200,
+)
+
+# --- Simple in-memory TTL cache (env: SEARCH_CACHE_TTL_SECONDS) ---
+class SimpleTTLCache:
+    def __init__(self, ttl_seconds: int):
+        self.ttl = max(0, ttl_seconds)
+        self._store: Dict[str, Any] = {}
+        self._lock = threading.Lock()
+
+    def get(self, key: str):
+        if self.ttl <= 0:
+            return None
+        now = time.time()
+        with self._lock:
+            item = self._store.get(key)
+            if not item:
+                return None
+            exp, val = item
+            if exp < now:
+                self._store.pop(key, None)
+                return None
+            return val
+
+    def set(self, key: str, value: Any):
+        if self.ttl <= 0:
+            return
+        exp = time.time() + self.ttl
+        with self._lock:
+            self._store[key] = (exp, value)
+
+SEARCH_CACHE_TTL_SECONDS = max(0, _int_from_settings_or_env(
+    "search_cache_ttl_seconds",
+    ["tsg_search_cache_ttl_seconds", "SEARCH_CACHE_TTL_SECONDS", "TSG_SEARCH_CACHE_TTL_SECONDS"],
+    30,
+))
+_cache_all = SimpleTTLCache(SEARCH_CACHE_TTL_SECONDS)
+_cache_all_legacy = SimpleTTLCache(SEARCH_CACHE_TTL_SECONDS)
+
+
+# --- Very simple per-IP rate limiter (env: SEARCH_RATE_LIMIT_RPM) ---
+class RateLimiter:
+    def __init__(self, rpm: int = 120, window: int = 60):
+        self.limit = max(0, rpm)
+        self.window = max(1, window)
+        self._buckets: Dict[str, deque] = {}
+        self._lock = threading.Lock()
+
+    def check(self, ip: str):
+        if self.limit == 0:
+            return  # disabled
+        now = time.time()
+        with self._lock:
+            dq = self._buckets.get(ip)
+            if dq is None:
+                dq = deque()
+                self._buckets[ip] = dq
+            # evict old
+            cutoff = now - self.window
+            while dq and dq[0] < cutoff:
+                dq.popleft()
+            if len(dq) >= self.limit:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Arama oran sınırı aşıldı. Lütfen kısa bir süre sonra tekrar deneyin.",
+                    headers={"Retry-After": str(int(self.window))},
+                )
+            dq.append(now)
+
+SEARCH_RATE_LIMIT_RPM = max(0, _int_from_settings_or_env(
+    "search_rate_limit_rpm",
+    ["tsg_search_rate_limit_rpm", "SEARCH_RATE_LIMIT_RPM", "TSG_SEARCH_RATE_LIMIT_RPM"],
+    0,
+))
+_limiter = RateLimiter(SEARCH_RATE_LIMIT_RPM, 60)
 
 class SearchResult(BaseModel):
     companies: List[Dict[str, Any]] = Field(default_factory=list)
@@ -21,6 +133,11 @@ class SearchResult(BaseModel):
     related_persons: List[Dict[str, Any]] = Field(default_factory=list)
     ocr_matches: List[Dict[str, Any]] = Field(default_factory=list)
     total_matches: int = 0
+
+# Config visibility
+logger.info(
+    f"[Search Config] MAX_COMPANIES={MAX_COMPANIES}, CACHE_TTL={SEARCH_CACHE_TTL_SECONDS}s, RATE_LIMIT_RPM={SEARCH_RATE_LIMIT_RPM}"
+)
 
 
 def tr_normalize_py(s: Optional[str]) -> str:
@@ -51,6 +168,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
     3) Unaccent generated kolonları varsa onları kullanır; yoksa Python tarafında normalize ederek filtreler.
     """
     result = SearchResult()
+    total_companies_pre_count: Optional[int] = None  # dilimlemeden önce toplam şirket sayısı
     q_raw = (query or "").strip()
     q_norm = tr_normalize_py(q_raw)
     tokens = [t for t in re.split(r"\s+", q_norm) if t]
@@ -289,13 +407,15 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                 if cid:
                     obj["match_strength"] = score_map.get(cid, obj.get("match_strength", 0))
             companies_fast.sort(key=lambda x: x.get("match_strength", 0), reverse=True)
+            total_companies_pre = len(companies_fast)
+            companies_fast = companies_fast[:MAX_COMPANIES]
 
             result.companies = companies_fast
             result.persons = persons_fast
             result.ocr_matches = []
             result.related_companies = []
             result.same_address_companies = []
-            result.total_matches = len(companies_fast) + len(persons_fast)
+            result.total_matches = total_companies_pre + len(persons_fast)
             logger.info(f"[Search Fast Numeric] companies={len(companies_fast)} persons={len(persons_fast)} for q={q_digits}")
             return result
     except Exception:
@@ -431,13 +551,15 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
 
             # 4) Skora göre sırala (yüksekten düşüğe)
             companies_fast.sort(key=lambda x: x.get("match_strength", 0), reverse=True)
+            total_companies_pre = len(companies_fast)
+            companies_fast = companies_fast[:MAX_COMPANIES]
 
             result.companies = companies_fast
             result.persons = []  # maskeli aramada ek kişi detayı döndürmüyoruz; istenirse genişletilir
             result.ocr_matches = []
             result.related_companies = []
             result.same_address_companies = []
-            result.total_matches = len(companies_fast)
+            result.total_matches = total_companies_pre
             logger.info(f"[Search Fast Mask] companies={len(companies_fast)} for q='{q_raw}'")
             return result
     except Exception:
@@ -696,11 +818,14 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
 
             # Skora göre sırala
             companies.sort(key=lambda x: x.get("match_strength", 0), reverse=True)
+            total_companies_pre_count = len(companies)
+            companies = companies[:MAX_COMPANIES]
     except Exception:
         pass
 
     result.companies = companies
-    company_ids = list(seen_company_ids)
+    # Yükü azaltmak için aşağıdaki sorgularda yalnızca en iyi şirketlerin id'lerini kullan
+    company_ids = [c.get("id") for c in companies if isinstance(c, dict) and c.get("id")]
 
     # 1b) Bulunan şirketlere ait duyuruları getir
     try:
@@ -961,10 +1086,14 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
             seen_company_ids.add(cid)
 
     result.ocr_matches = ocr_matches
+    # OCR eklemelerinden sonra da üst sınırı koru
+    if len(result.companies) > MAX_COMPANIES:
+        result.companies = result.companies[:MAX_COMPANIES]
 
     # 6) Toplam eşleşme sayısı
+    pre_companies = total_companies_pre_count if total_companies_pre_count is not None else len(result.companies)
     result.total_matches = (
-        len(result.companies)
+        pre_companies
         + len(result.related_companies)
         + len(result.same_address_companies)
         + len(result.persons)
@@ -1110,7 +1239,9 @@ def cross_company_persons(
 
 @router.get("/all", response_model=Dict[str, Any])
 def search_all(
+    request: Request,
     q: str = Query(..., min_length=2, description="Search across companies, persons, OCR and history (SPA payload)"),
+    limit: Optional[int] = Query(None, ge=1, le=200, description="Maksimum şirket sayısı (<= MAX_COMPANIES)."),
     supabase: Client = Depends(get_supabase_client),
 ):
     """
@@ -1147,8 +1278,11 @@ def search_all(
             logger.warning(f"[Unified Search] Gazette entries query failed: {he}")
             history_data = []
 
+        # Final safety cap at response time as well
+        eff_limit = _clamp(limit if limit is not None else MAX_COMPANIES, 1, MAX_COMPANIES)
+        capped_companies = result.companies[:eff_limit]
         payload = {
-            "companies": result.companies,
+            "companies": capped_companies,
             "persons": result.persons,
             "history": history_data,
             # Ekstra zengin alanlar (SPA şu an zorunlu tutmuyor ama advance kullanım için sağlıyoruz)
@@ -1157,7 +1291,13 @@ def search_all(
             "related_persons": result.related_persons,
             "ocr_matches": result.ocr_matches,
             "total_matches": result.total_matches,
+            "limit": eff_limit,
         }
+        dur_ms = int((time.perf_counter() - start_ts) * 1000)
+        logger.info(
+            f"[Unified Search /all] q='{q}' companies={len(capped_companies)} persons={len(result.persons)} history={len(history_data)} duration_ms={dur_ms} limit={eff_limit}"
+        )
+        _cache_all.set(cache_key, payload)
         return payload
     except Exception as e:
         logger.error(f"Error in unified search: {e}")
@@ -1165,7 +1305,9 @@ def search_all(
 
 @router.get("/all-legacy", summary="Unified search: companies, persons, history")
 def search_all_legacy(
+    request: Request,
     q: str = Query(..., min_length=2, description="Search term for companies, persons and history"),
+    limit: Optional[int] = Query(None, ge=1, le=200, description="Maksimum şirket sayısı (<= MAX_COMPANIES)."),
     supabase: Client = Depends(get_supabase_client),
 ):
     """
@@ -1193,6 +1335,10 @@ def search_all_legacy(
                 .limit(50)
                 .execute()
             ).data or []
+            total_companies_pre_legacy = len(companies_data)
+            # Legacy uçta skorlanmış sıralama yok; yine de yükü azaltmak için ilk N ile sınırla
+            eff_limit = _clamp(limit if limit is not None else MAX_COMPANIES, 1, MAX_COMPANIES)
+            companies_data = companies_data[:eff_limit]
         except Exception as ce:
             logger.warning(f"[Unified Search] Companies query failed: {ce}")
 
@@ -1239,10 +1385,14 @@ def search_all_legacy(
             "companies": companies_data,
             "persons": persons_data,
             "history": history_data,
+            # Bilgilendirme amaçlı toplam (legacy): sadece uzunlukların toplamı
+            "total_matches": total_companies_pre_legacy + len(persons_data) + len(history_data) if 'total_companies_pre_legacy' in locals() else len(companies_data) + len(persons_data) + len(history_data),
+            "limit": eff_limit if 'eff_limit' in locals() else MAX_COMPANIES,
         }
-
+        _cache_all_legacy.set(cache_key, payload)
+        dur_ms = int((time.perf_counter() - start_ts) * 1000)
         logger.info(
-            f"[Unified Search] Results — companies: {len(companies_data)}, persons: {len(persons_data)}, history: {len(history_data)}"
+            f"[Unified Search /all-legacy] q='{q}' companies: {len(companies_data)}, persons: {len(persons_data)}, history: {len(history_data)}, duration_ms={dur_ms}, limit={payload.get('limit')}"
         )
         return payload
 

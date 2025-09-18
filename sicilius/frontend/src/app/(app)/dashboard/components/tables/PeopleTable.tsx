@@ -7,7 +7,7 @@ interface PeopleTableProps {
 
 export function PeopleTable({ people = [] }: PeopleTableProps) {
   return (
-    <div className="rounded-md border bg-white">
+    <div className="rounded-md border bg-white dark:bg-slate-900 dark:border-slate-700">
       <Table aria-label="Kişiler tablosu">
         <TableHeader>
           <TableRow>
@@ -21,7 +21,7 @@ export function PeopleTable({ people = [] }: PeopleTableProps) {
           {people.map((row, idx) => (
             <TableRow
               key={row.id || idx}
-              className={`cursor-pointer hover:bg-muted/50 ${idx % 2 === 1 ? 'bg-muted/30' : ''} focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0A192F] focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
+              className={`cursor-pointer hover:bg-muted/50 dark:hover:bg-slate-800 ${idx % 2 === 1 ? 'bg-muted/30 dark:bg-slate-900/40' : ''} focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0A192F] focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
               onClick={() => console.log('Kişi detayına git:', row.id)}
               tabIndex={0}
               onKeyDown={(e) => {

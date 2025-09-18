@@ -1,5 +1,5 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableCaption } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
+import ScoreBadge from '../ScoreBadge';
 import type { Company } from '@/types/company.types';
 
 interface CompaniesTableProps {
@@ -21,24 +21,7 @@ const extractCityFromRegistryOffice = (office?: string | null): string => {
 };
 
 // Tarih/saat metnini kullanıcı dostu biçimde göster.
-const formatDateTime = (value?: string | null): string => {
-  if (!value || value === '-') return '-';
-  let d = new Date(value);
-  if (isNaN(d.getTime())) {
-    // Mikro saniyeleri veya saat dilimi eksiklerini normalize etmeyi dene
-    const base = value.slice(0, 19); // YYYY-MM-DDTHH:mm:ss
-    const tryDate = new Date(base);
-    if (!isNaN(tryDate.getTime())) d = tryDate;
-  }
-  if (isNaN(d.getTime())) return value; // son çare: ham metni göster
-  return new Intl.DateTimeFormat('tr-TR', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(d);
-};
+// Not: Liste görünümünden "Son Güncelleme" kaldırıldığı için tarih formatlayıcı kullanılmıyor.
 
 export default function CompaniesTable({ companies = [], onSelectCompany }: CompaniesTableProps) {
   // Eşleşme kuvveti varsa skoruna göre azalan sırada göster
@@ -51,14 +34,13 @@ export default function CompaniesTable({ companies = [], onSelectCompany }: Comp
     : [];
 
   return (
-    <div className="rounded-md border bg-white">
+    <div className="rounded-md border bg-white dark:bg-slate-900 dark:border-slate-700 mb-8 md:mb-12">
       <Table aria-label="Şirketler tablosu">
         <TableHeader>
           <TableRow>
             <TableHead>Unvan</TableHead>
             <TableHead>Eşleşme</TableHead>
             <TableHead>Şehir</TableHead>
-            <TableHead className="text-right">Son Güncelleme</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -66,7 +48,6 @@ export default function CompaniesTable({ companies = [], onSelectCompany }: Comp
             const title = (c as any).firma_unvani ?? (c as any).unvan ?? '-';
             const registryNo = (c as any).sicil_no ?? '-';
             const registryOffice = (c as any).sicil_mudurluk ?? '-';
-            const updatedAt = (c as any).updated_at ?? (c as any).last_scraped_at ?? (c as any).created_at ?? '-';
             const matchStrength = (c as any).match_strength as number | undefined;
             const rowKey = `${(c as any).id ?? registryNo ?? title}-${idx}`;
             const id = (c as any).id ?? '';
@@ -74,7 +55,7 @@ export default function CompaniesTable({ companies = [], onSelectCompany }: Comp
             return (
               <TableRow
                 key={rowKey}
-                className={`cursor-pointer hover:bg-muted/50 ${idx % 2 === 1 ? 'bg-muted/30' : ''} focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0A192F] focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
+                className={`group cursor-pointer hover:bg-muted/50 dark:hover:bg-slate-800 ${idx % 2 === 1 ? 'bg-muted/30 dark:bg-slate-900/40' : ''} focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0A192F] focus-visible:ring-offset-2 focus-visible:ring-offset-background transition-transform`}
                 data-testid={`company-row-${idx}`}
                 onClick={() => {
                   if (onSelectCompany && typeof id === 'string' && id) onSelectCompany(id);
@@ -92,22 +73,15 @@ export default function CompaniesTable({ companies = [], onSelectCompany }: Comp
               >
                 <TableCell className="font-medium">{title}</TableCell>
                 <TableCell>
-                  {typeof matchStrength === 'number' ? (
-                    <Badge variant="outline" title="Eşleşme kuvveti">
-                      {matchStrength}
-                    </Badge>
-                  ) : (
-                    '-'
-                  )}
+                  <ScoreBadge score={matchStrength} />
                 </TableCell>
                 <TableCell>{city}</TableCell>
-                <TableCell className="text-right">{formatDateTime(updatedAt)}</TableCell>
               </TableRow>
             );
           })}
         </TableBody>
         <TableCaption>
-          {companies.length === 0 ? 'Sonuç bulunamadı' : 'Son güncellenen şirket kayıtları'}
+          {companies.length === 0 ? 'Sonuç bulunamadı' : 'Şirket kayıtları'}
         </TableCaption>
       </Table>
     </div>

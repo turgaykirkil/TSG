@@ -22,6 +22,7 @@ export interface UnifiedSearchResult {
   companies: Company[];
   persons: PersonLite[];
   history: HistoryEntryLite[];
+  total_matches?: number;
 }
 
 const fetchUnified = async (searchTerm: string): Promise<UnifiedSearchResult> => {
@@ -44,6 +45,7 @@ const fetchUnified = async (searchTerm: string): Promise<UnifiedSearchResult> =>
     companies: Array.isArray(data?.companies) ? data.companies : [],
     persons: Array.isArray(data?.persons) ? data.persons : [],
     history: Array.isArray(data?.history) ? data.history : [],
+    total_matches: typeof data?.total_matches === 'number' ? data.total_matches : undefined,
   };
 };
 

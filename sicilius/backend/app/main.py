@@ -4,6 +4,9 @@ import os
 import httpx
 import base64
 import random
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.logging import LoggingIntegration
 
 from fastapi import FastAPI, Request, status, HTTPException
 from fastapi.exceptions import RequestValidationError
@@ -25,6 +28,17 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
+
+# --- Sentry Initialization (optional) ---
+if settings.sentry_dsn:
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        integrations=[FastApiIntegration(), LoggingIntegration(level=logging.INFO, event_level=logging.ERROR)],
+        traces_sample_rate=float(getattr(settings, "sentry_traces_sample_rate", 0.0) or 0.0),
+        environment=getattr(settings, "sentry_env", None),
+        release=getattr(settings, "sentry_release", None),
+    )
+    logger.info("Sentry initialized")
 
 # --- Application Event Handlers ---
 

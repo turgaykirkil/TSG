@@ -49,3 +49,11 @@ export const COOKIE_NAMES = {
   SESSION: 'session',
   REFRESH_TOKEN: 'refresh_token',
 } as const;
+
+// Search limits
+export const SEARCH_MAX_COMPANIES = (() => {
+  const raw = process.env.NEXT_PUBLIC_SEARCH_MAX_COMPANIES || '20';
+  const n = parseInt(raw, 10);
+  if (Number.isNaN(n)) return 20;
+  return Math.min(Math.max(n, 1), 200);
+})();

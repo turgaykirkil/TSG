@@ -34,6 +34,7 @@ pdf2image
 pdfplumber
 spacy
 python-magic
+sentry-sdk
 
 # Background Tasks
 celery

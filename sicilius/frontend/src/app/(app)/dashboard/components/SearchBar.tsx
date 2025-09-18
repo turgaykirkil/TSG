@@ -15,6 +15,9 @@ interface SearchBarProps {
   placeholderPhrases?: string[];
   rotateIntervalMs?: number;
   inputRef?: React.RefObject<HTMLInputElement>;
+  suggestions?: string[];
+  onPickSuggestion?: (value: string) => void;
+  disableSuggestions?: boolean;
 }
 
 export default function SearchBar({
@@ -28,12 +31,17 @@ export default function SearchBar({
   placeholderPhrases = [],
   rotateIntervalMs = 2000,
   inputRef,
+  suggestions = [],
+  onPickSuggestion,
+  disableSuggestions = false,
 }: SearchBarProps) {
   const [input, setInput] = useState(value);
   // Placeholder typing animation state
   const [tp, setTp] = useState({ phraseIndex: 0, charIndex: 0, deleting: false });
   const [typedPlaceholder, setTypedPlaceholder] = useState('');
   const showShortcutHint = input.length === 0;
+  const [sel, setSel] = useState<number>(-1); // selected suggestion index
+  const [focused, setFocused] = useState(false);
 
   useEffect(() => {
     setInput(value);
@@ -48,7 +56,14 @@ export default function SearchBar({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (sel >= 0 && filtered.length > 0) {
+      const pick = filtered[sel];
+      onPickSuggestion?.(pick);
+      setFocused(false);
+      return;
+    }
     onSubmit?.(input.trim());
+    setFocused(false);
   };
 
   const clear = () => {
@@ -99,50 +114,120 @@ export default function SearchBar({
       ? (typedPlaceholder || placeholderPhrases[0])
       : placeholder;
 
+  // Suggestions filtering (case-insensitive distinct)
+  const q = input.trim();
+  const filtered = q.length
+    ? Array.from(new Set(
+        (suggestions || [])
+          .filter(Boolean)
+          .map((s) => String(s))
+          .filter((s) => s.toLowerCase().includes(q.toLowerCase()))
+      )).slice(0, 8)
+    : [];
+
+  const onKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (e) => {
+    if (!filtered.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSel((v) => (v + 1) % filtered.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSel((v) => (v <= 0 ? filtered.length - 1 : v - 1));
+    } else if (e.key === 'Enter' && sel >= 0) {
+      e.preventDefault();
+      const pick = filtered[sel];
+      onPickSuggestion?.(pick);
+      setFocused(false);
+    } else if (e.key === 'Escape') {
+      setSel(-1);
+      setFocused(false);
+    }
+  };
+
+  const highlight = (text: string, query: string) => {
+    const i = text.toLowerCase().indexOf(query.toLowerCase());
+    if (i === -1) return text;
+    const before = text.slice(0, i);
+    const match = text.slice(i, i + query.length);
+    const after = text.slice(i + query.length);
+    return (
+      <>
+        {before}
+        <mark className="bg-amber-100 text-inherit rounded px-0.5">{match}</mark>
+        {after}
+      </>
+    );
+  };
+
   return (
     <form onSubmit={handleSubmit} role="search" aria-label="Genel arama" aria-controls="results" className={"w-full " + (className ?? '')}>
-      <div className="rounded-full p-[1.5px] animated-gradient-border">
-        <div className="relative rounded-full bg-white animated-gradient-bg">
-          <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={20} aria-hidden />
-          <SimpleTooltip content={<span>Kısayollar: <kbd>/</kbd>, <kbd>⌘K</kbd>, <kbd>Ctrl K</kbd></span>}>
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder={placeholderToShow}
-              autoFocus={autoFocus}
-              aria-label="Arama"
-              id="dashboard-search-input"
-              data-testid="search-input"
-              autoComplete="off"
-              enterKeyHint="search"
-              inputMode="search"
-              aria-keyshortcuts="/ Control+K Meta+K"
-              aria-describedby={showShortcutHint ? 'search-shortcut-hint' : undefined}
-              ref={inputRef}
-              title="Kısayol: / veya Cmd/Ctrl+K ile arama kutusuna odaklan"
-              className="w-full rounded-full bg-white pl-12 pr-28 py-4 md:py-5 text-base md:text-lg shadow-sm outline-none ring-offset-background transition focus:border-transparent focus:shadow focus-visible:ring-2 focus-visible:ring-[#0A192F] focus-visible:ring-offset-2"
-            />
-          </SimpleTooltip>
-          {input && (
-            <button
-              type="button"
-              onClick={clear}
-              aria-label="Aramayı temizle"
-              className="absolute right-20 top-1/2 -translate-y-1/2 rounded-full p-2 text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A192F] focus-visible:ring-offset-2"
-            >
-              <X size={16} />
-            </button>
-          )}
+      <div className="relative rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm transition-all duration-150 ease-out focus-within:shadow-md focus-within:scale-[1.005]">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} aria-hidden />
+        <SimpleTooltip content={<span>Kısayollar: <kbd>/</kbd>, <kbd>⌘K</kbd>, <kbd>Ctrl K</kbd></span>}>
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setTimeout(() => setFocused(false), 120)}
+            placeholder={placeholderToShow}
+            autoFocus={autoFocus}
+            aria-label="Arama"
+            id="dashboard-search-input"
+            data-testid="search-input"
+            autoComplete="off"
+            enterKeyHint="search"
+            inputMode="search"
+            aria-keyshortcuts="/ Control+K Meta+K"
+            aria-describedby={showShortcutHint ? 'search-shortcut-hint' : undefined}
+            ref={inputRef}
+            title="Kısayol: / veya Cmd/Ctrl+K ile arama kutusuna odaklan"
+            className="w-full rounded-full bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 pl-12 pr-28 py-3 md:py-3 text-sm md:text-base outline-none transition focus-visible:ring-2 focus-visible:ring-slate-300 dark:focus-visible:ring-slate-600"
+            onKeyDown={onKeyDown}
+          />
+        </SimpleTooltip>
+        {input && (
           <button
-            type="submit"
-            aria-label="Ara"
-            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full px-4 py-2 text-white text-sm font-medium bg-gradient-to-r from-[#1E3A8A] to-[#0EA5E9] shadow-sm hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0A192F] focus-visible:ring-offset-2"
+            type="button"
+            onClick={clear}
+            aria-label="Aramayı temizle"
+            className="absolute right-20 top-1/2 -translate-y-1/2 rounded-full p-2 text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
           >
-            Ara
+            <X size={16} />
           </button>
-        </div>
+        )}
+        <button
+          type="submit"
+          aria-label="Ara"
+          className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full px-4 py-2 text-white text-sm font-medium bg-blue-600 shadow-sm hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+        >
+          Ara
+        </button>
       </div>
+      {filtered.length > 0 && focused && !disableSuggestions && (
+        <div className="absolute mt-1 w-full max-w-inherit z-40">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg overflow-hidden">
+            <ul role="listbox" aria-label="Öneriler">
+              {filtered.map((s, i) => (
+                <li key={`${s}-${i}`}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={sel === i}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800 ${sel === i ? 'bg-slate-50 dark:bg-slate-800' : ''}`}
+                    onMouseEnter={() => setSel(i)}
+                    onMouseLeave={() => setSel(-1)}
+                    onClick={() => { onPickSuggestion?.(s); setFocused(false); }}
+                    title={s}
+                  >
+                    {highlight(s, q)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
       {showShortcutHint && (
         <div id="search-shortcut-hint" className="flex justify-end mt-1 pr-1 select-none text-[11px] text-slate-500">
           <span className="hidden sm:inline">Kısayol:</span>

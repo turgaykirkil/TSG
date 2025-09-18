@@ -12,7 +12,8 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         env_prefix='tsg_',
-        case_sensitive=False
+        case_sensitive=False,
+        extra='ignore',
     )
     
     # API Settings
@@ -73,9 +74,22 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = "INFO"
     LOG_FILE: str = "./logs/tsg_platform.log"
-    
+
+    # Sentry (optional)
+    sentry_dsn: Optional[str] = None
+    sentry_traces_sample_rate: float = 0.0
+    sentry_env: Optional[str] = None
+    sentry_release: Optional[str] = None
+
     # Redis
     REDIS_URL: RedisDsn = "redis://localhost:6379/0"
+
+    # Search (backend performance & security)
+    # Not: .env içinde anahtarlar 'tsg_search_max_companies' gibi prefix'li ya da prefix'siz olabilir.
+    # extra='ignore' sayesinde fazladan anahtarlar sorun yaratmaz.
+    search_max_companies: int = 20
+    search_cache_ttl_seconds: int = 30
+    search_rate_limit_rpm: int = 0
     
     # Background Tasks
     BACKGROUND_TASKS_MAX_WORKERS: int = Field(
