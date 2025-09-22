@@ -78,3 +78,16 @@ class Company(CompanyInDBBase):
 # Properties stored in DB
 class CompanyInDB(CompanyInDBBase):
     pass
+
+# ---------------------
+# Nearby Companies
+# ---------------------
+class NearbyCompany(BaseModel):
+    id: uuid.UUID
+    title: Optional[str] = None
+    trade_name: Optional[str] = None
+    unvan: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    distance_km: float = Field(..., description="Referans şirkete kuş uçuşu mesafe (km)")
+    koordinat: Optional[Point] = None

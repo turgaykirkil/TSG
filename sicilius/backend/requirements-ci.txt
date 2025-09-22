@@ -1,0 +1,29 @@
+# Minimal requirements for CI to run FastAPI backend & search endpoints
+fastapi
+uvicorn[standard]
+websockets<11.0
+pydantic
+pydantic-settings
+python-dotenv
+python-multipart
+itsdangerous
+email-validator
+
+sqlalchemy
+alembic
+psycopg2-binary
+redis
+
+python-jose[cryptography]
+passlib[bcrypt]
+
+supabase
+requests
+
+sentry-sdk
+
+# Utilities used by search
+orjson
+Unidecode
+rapidfuzz
+dateparser

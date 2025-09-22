@@ -73,7 +73,18 @@ export default function CompaniesTable({ companies = [], onSelectCompany }: Comp
               >
                 <TableCell className="font-medium">{title}</TableCell>
                 <TableCell>
-                  <ScoreBadge score={matchStrength} />
+                  <div className="flex items-center gap-2">
+                    <ScoreBadge score={matchStrength} />
+                    {typeof matchStrength === 'number' && matchStrength >= 96 && (
+                      <span
+                        className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200"
+                        title="Sayı ve metin yakında geçti (yüksek yakınlık skoru)"
+                        data-testid="near-badge"
+                      >
+                        Yakın
+                      </span>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell>{city}</TableCell>
               </TableRow>

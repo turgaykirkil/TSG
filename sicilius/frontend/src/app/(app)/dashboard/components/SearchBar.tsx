@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Search, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import SimpleTooltip from '@/components/ui/SimpleTooltip';
 
 interface SearchBarProps {
@@ -196,13 +197,14 @@ export default function SearchBar({
             <X size={16} />
           </button>
         )}
-        <button
+        <Button
           type="submit"
           aria-label="Ara"
-          className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full px-4 py-2 text-white text-sm font-medium bg-blue-600 shadow-sm hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+          variant="gradientText"
+          className="absolute right-3 top-1/2 -translate-y-1/2 px-4 py-2 text-sm font-medium"
         >
           Ara
-        </button>
+        </Button>
       </div>
       {filtered.length > 0 && focused && !disableSuggestions && (
         <div className="absolute mt-1 w-full max-w-inherit z-40">

@@ -131,7 +131,7 @@ export default function ContactPage() {
                 </div>
               </div>
               <div className="sm:col-span-2">
-                <Button type="submit" className="w-full sm:w-auto">
+                <Button type="submit" variant="gradient" className="w-full sm:w-auto">
                   Gönder
                 </Button>
               </div>

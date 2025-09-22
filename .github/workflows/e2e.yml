@@ -1,0 +1,102 @@
+name: E2E Tests (Playwright)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'yarn'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('sicilius/backend/requirements-ci.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install backend deps (CI minimal)
+        working-directory: sicilius/backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-ci.txt
+
+      - name: Start backend (FastAPI)
+        working-directory: sicilius/backend
+        env:
+          # Ensure our proximity thresholds are applied (can be overridden in repo .env)
+          SEARCH_PROXIMITY_STRONG: '8'
+          SEARCH_PROXIMITY_MEDIUM: '20'
+          SEARCH_PROXIMITY_WEAK: '40'
+        run: |
+          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 5001 >/tmp/backend.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:5001/health >/dev/null; then echo "Backend is up"; break; fi; sleep 1; done
+          curl -fsS http://127.0.0.1:5001/health
+
+      - name: Install frontend deps
+        working-directory: sicilius/frontend
+        run: |
+          yarn install --frozen-lockfile
+
+      - name: Install Playwright Browsers
+        working-directory: sicilius/frontend
+        run: npx playwright install --with-deps
+
+      - name: Run Playwright tests
+        working-directory: sicilius/frontend
+        env:
+          CI: '1'
+          NEXT_PUBLIC_API_URL: 'http://127.0.0.1:5001'
+        run: |
+          yarn test:e2e
+
+      - name: Stage report under /reports/e2e
+        run: |
+          mkdir -p pages/reports/e2e
+          cp -r sicilius/frontend/playwright-report/* pages/reports/e2e/
+
+      - name: Upload Pages artifact (Playwright report)
+        if: always()
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages
+
+  deploy-pages:
+    needs: e2e
+    if: always()
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

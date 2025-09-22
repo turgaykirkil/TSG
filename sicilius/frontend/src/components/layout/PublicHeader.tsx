@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Menu, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import { SiciliusLogo as Logo } from '@/components/icons/SiciliusLogo';
 
 export function PublicHeader() {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -22,11 +23,14 @@ export function PublicHeader() {
   const navItems = [
     { name: 'Anasayfa', href: '/' },
     { name: 'Hakkında', href: '/about' },
+    { name: 'SSS', href: '/sss' },
     { name: 'İletişim', href: '/contact' },
+    { name: 'İlkeler', href: '/#policies' },
   ];
 
   return (
     <header 
+      data-testid="public-header"
       className={cn(
         'fixed top-0 left-0 right-0 z-50 transition-all duration-300',
         isScrolled 
@@ -41,9 +45,8 @@ export function PublicHeader() {
               href="/" 
               className="flex items-center space-x-2 group"
             >
-              <span className="text-2xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-                Sicilius
-              </span>
+              <Logo className="h-7 w-auto text-primary" />
+              <span className="text-2xl font-bold gradient-text">Sicilius</span>
             </Link>
           </div>
 
@@ -55,27 +58,19 @@ export function PublicHeader() {
                 href={item.href}
                 className={cn(
                   'px-4 py-2 text-sm font-medium rounded-lg transition-colors',
-                  'text-foreground/80 hover:text-primary hover:bg-accent/50',
-                  'relative group overflow-hidden'
+                  'text-foreground/80 hover:text-foreground hover:bg-gray-100 dark:hover:bg-slate-800',
+                  'relative overflow-hidden'
                 )}
               >
                 {item.name}
-                <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-primary transition-all duration-300 group-hover:w-full"></span>
               </Link>
             ))}
           </nav>
 
           <div className="hidden md:flex items-center space-x-3">
-            <Link href="/login">
-              <Button variant="ghost" className="px-4">
-                Giriş Yap
-              </Button>
-            </Link>
-            <Link href="/register">
-              <Button className="gradient-primary px-6 hover:shadow-primary/40">
-                Kayıt Ol
-              </Button>
-            </Link>
+            <Button asChild variant="gradient" className="px-6">
+              <Link href="/login">Giriş Yap</Link>
+            </Button>
           </div>
 
           {/* Mobile menu button */}
@@ -83,6 +78,7 @@ export function PublicHeader() {
             <button
               onClick={() => setIsMenuOpen(!isMenuOpen)}
               className="inline-flex items-center justify-center p-2 rounded-md text-foreground/70 hover:text-foreground focus:outline-none"
+              data-testid="mobile-menu-button"
               aria-expanded="false"
             >
               <span className="sr-only">Menüyü aç</span>
@@ -96,6 +92,7 @@ export function PublicHeader() {
 
       {/* Mobile menu */}
       <div
+        data-testid="mobile-menu"
         className={cn(
           'md:hidden transition-all duration-300 ease-in-out overflow-hidden',
           isMenuOpen ? 'max-h-96' : 'max-h-0'
@@ -106,27 +103,16 @@ export function PublicHeader() {
             <Link
               key={item.href}
               href={item.href}
-              className="block px-3 py-2 rounded-md text-base font-medium text-foreground/90 hover:bg-accent hover:text-primary transition-colors"
+              className="block px-3 py-2 rounded-md text-base font-medium text-foreground/90 hover:bg-gray-100 dark:hover:bg-slate-800 hover:text-foreground transition-colors"
               onClick={() => setIsMenuOpen(false)}
             >
               {item.name}
             </Link>
           ))}
           <div className="pt-4 border-t border-border/30 mt-2 space-y-2">
-            <Link
-              href="/login"
-              className="block w-full px-4 py-2 text-center rounded-md bg-transparent border border-primary text-primary hover:bg-primary/10 transition-colors"
-              onClick={() => setIsMenuOpen(false)}
-            >
-              Giriş Yap
-            </Link>
-            <Link
-              href="/register"
-              className="block w-full px-4 py-2 text-center rounded-md gradient-primary text-white hover:shadow-primary/40 transition-all"
-              onClick={() => setIsMenuOpen(false)}
-            >
-              Kayıt Ol
-            </Link>
+            <Button asChild variant="gradient" className="w-full px-4 py-2 text-center" onClick={() => setIsMenuOpen(false)}>
+              <Link href="/login">Giriş Yap</Link>
+            </Button>
           </div>
         </div>
       </div>

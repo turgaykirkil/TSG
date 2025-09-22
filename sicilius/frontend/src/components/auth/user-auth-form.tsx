@@ -122,7 +122,7 @@ export function UserAuthForm({ className, mode, ...props }: UserAuthFormProps) {
               </p>
             )}
           </div>
-          <Button disabled={loading}>
+          <Button disabled={loading} variant="gradient">
             {loading && (
               <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
             )}

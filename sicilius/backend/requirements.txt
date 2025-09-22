@@ -22,6 +22,7 @@ passlib[bcrypt]
 
 # Supabase
 supabase
+requests
 
 # OCR & Data Processing
 torch==2.7.1
@@ -54,6 +55,12 @@ pytest-mock
 psutil
 pytesseract==0.3.10
 opencv-python==4.11.0.86
+Pillow==10.4.0
+playwright==1.48.0
+pytest-playwright==0.5.1
+
+# Optional local LLM client (Ollama)
+ollama==0.3.3
 
 # NLP segmentation deps
 numbers-parser

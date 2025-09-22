@@ -22,7 +22,8 @@ from app.api.api_v1.endpoints import (
     processing,
     parsing,
     utils,
-    nlp
+    nlp,
+    usage,
 )
 
 api_router = APIRouter()
@@ -57,3 +58,4 @@ api_router.include_router(nlp.router, prefix="/nlp", tags=["NLP"])
 api_router.include_router(stats.router, prefix="/stats", tags=["Statistics"])
 api_router.include_router(tools.router, prefix="/tools", tags=["Tools"])
 api_router.include_router(utils.router, prefix="/utils", tags=["Utilities"])
+api_router.include_router(usage.router, prefix="/usage", tags=["Usage"])

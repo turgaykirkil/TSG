@@ -3,32 +3,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Building2, Users, BarChart, Shield, Zap, Lightbulb, Handshake, Award } from 'lucide-react';
 
-const team = [
-  {
-    name: 'Ahmet Yılmaz',
-    role: 'Kurucu & CEO',
-    image: '/team/ahmet-yilmaz.jpg',
-    bio: '15+ yıllık yazılım ve veri analitiği deneyimi',
-  },
-  {
-    name: 'Ayşe Kaya',
-    role: 'Ürün Müdürü',
-    image: '/team/ayse-kaya.jpg',
-    bio: 'Kullanıcı deneyimi ve ürün stratejisi uzmanı',
-  },
-  {
-    name: 'Mehmet Demir',
-    role: 'Teknik Lider',
-    image: '/team/mehmet-demir.jpg',
-    bio: 'Full-stack geliştirme ve mimari tasarım',
-  },
-  {
-    name: 'Zeynep Şahin',
-    role: 'Veri Mühendisi',
-    image: '/team/zeynep-sahin.jpg',
-    bio: 'Büyük veri analitiği ve yapay zeka uzmanı',
-  },
-];
+// Hakkımızda sayfasını yalın ve doğru bilgi verecek şekilde sadeleştirdik.
 
 const features = [
   {
@@ -97,16 +72,14 @@ export default function AboutPage() {
               Hakkımızda
             </h1>
             <p className="mt-6 text-lg leading-8 text-gray-600">
-              Sicilius, şirket bilgilerine hızlı, güvenli ve etkili bir şekilde erişmenizi sağlayan 
-              öncü bir iş zekası platformudur. 2010 yılından bu yana, iş dünyasının ihtiyaçlarını 
-              anlayarak geliştirdğimiz çözümlerimizle binlerce kullanıcıya hizmet veriyoruz.
+              Sicilius bağımsız ve ücretsiz bir platformdur. Amacımız, kamuya açık kurumsal bilgilere
+              herkes için adil ve kesintisiz erişim sağlamaktır. Hızlı arama, detaylı şirket kartları ve
+              sade bir deneyim sunuyoruz; ticari satış, paket veya kurumsal plan sunmuyoruz.
             </p>
             <div className="mt-10 flex items-center gap-x-6">
-              <Link href="/register">
-                <Button size="lg" className="rounded-lg">
-                  Ücretsiz Deneyin
-                </Button>
-              </Link>
+              <Button asChild size="lg" variant="gradient" className="rounded-lg">
+                <Link href="/davet">Davet ile Katıl</Link>
+              </Button>
               <Link href="/contact" className="text-sm font-semibold leading-6 text-gray-900">
                 Bizimle İletişime Geçin <span aria-hidden="true">→</span>
               </Link>
@@ -159,30 +132,7 @@ export default function AboutPage() {
         </div>
       </div>
 
-      {/* Team Section */}
-      <div className="bg-gray-50 py-24 sm:py-32">
-        <div className="mx-auto max-w-7xl px-6 lg:px-8">
-          <div className="mx-auto max-w-2xl lg:mx-0">
-            <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">Ekibimizle Tanışın</h2>
-            <p className="mt-6 text-lg leading-8 text-gray-600">
-              Alanında uzman ekibimiz, size en iyi hizmeti sunmak için burada.
-            </p>
-          </div>
-          <ul
-            role="list"
-            className="mx-auto mt-20 grid max-w-2xl grid-cols-1 gap-x-8 gap-y-14 sm:grid-cols-2 lg:mx-0 lg:max-w-none lg:grid-cols-4 xl:grid-cols-4"
-          >
-            {team.map((person) => (
-              <li key={person.name}>
-                <Image className="aspect-[14/13] w-full rounded-2xl object-cover" src={person.image} alt={person.name} width={400} height={371} />
-                <h3 className="mt-6 text-lg font-semibold leading-8 tracking-tight text-gray-900">{person.name}</h3>
-                <p className="text-base leading-7 text-blue-600">{person.role}</p>
-                <p className="text-sm leading-6 text-gray-600">{person.bio}</p>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
+      {/* Team Section kaldırıldı: kurgu içerikler temizlendi */}
 
       {/* Values Section */}
       <div className="py-24 sm:py-32">
@@ -211,18 +161,15 @@ export default function AboutPage() {
       <div className="bg-white py-24 sm:py-32">
         <div className="relative isolate overflow-hidden bg-blue-600 px-6 py-24 text-center shadow-2xl sm:rounded-3xl sm:px-16">
           <h2 className="mx-auto max-w-2xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
-            Hemen Başlayın
+            Adil ve Kesintisiz Erişim İçin Birlikteyiz
           </h2>
           <p className="mx-auto mt-6 max-w-xl text-lg leading-8 text-blue-100">
-            Sicilius&apos;un tüm özelliklerini keşfetmek için hemen ücretsiz hesabınızı oluşturun.
+            Davet bağlantınızla hemen katılın; ücretli paket veya kurumsal plan yok. Sade, hızlı ve ücretsiz.
           </p>
           <div className="mt-10 flex items-center justify-center gap-x-6">
-            <Link
-              href="/register"
-              className="rounded-md bg-white px-3.5 py-2.5 text-sm font-semibold text-blue-600 shadow-sm hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-            >
-              Ücretsiz Üye Olun
-            </Link>
+            <Button asChild variant="gradient" className="px-3.5 py-2.5 text-sm font-semibold">
+              <Link href="/davet">Davet ile Katıl</Link>
+            </Button>
             <Link href="/contact" className="text-sm font-semibold leading-6 text-white">
               İletişime Geçin <span aria-hidden="true">→</span>
             </Link>

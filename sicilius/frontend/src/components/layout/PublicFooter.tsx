@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { Mail, Phone, MapPin, Twitter, Linkedin, Github } from 'lucide-react';
+import { SiciliusLogo as Logo } from '@/components/icons/SiciliusLogo';
 
 type FooterLink = {
   name: string;
@@ -23,15 +24,17 @@ export function PublicFooter() {
       links: [
         { name: 'Anasayfa', href: '/' },
         { name: 'Hakkında', href: '/about' },
+        { name: 'SSS', href: '/sss' },
         { name: 'İletişim', href: '/contact' },
       ],
     },
     {
       title: 'Yasal',
       links: [
-        { name: 'Gizlilik Politikası', href: '/privacy' },
-        { name: 'Kullanım Şartları', href: '/terms' },
-        { name: 'Çerez Politikası', href: '/cookies' },
+        { name: 'Gizlilik Politikası', href: '/gizlilik-politikasi' },
+        { name: 'Kullanıcı Sözleşmesi', href: '/kullanici-sozlesmesi' },
+        { name: 'Çerez Politikası', href: '/cerez-politikasi' },
+        { name: 'KVKK Aydınlatma', href: '/kvkk-aydinlatma' },
       ],
     },
     {
@@ -75,7 +78,7 @@ export function PublicFooter() {
   ];
 
   return (
-    <footer className="relative overflow-hidden bg-background border-t border-border/50">
+    <footer data-testid="public-footer" className="relative overflow-hidden bg-background border-t border-border/50">
       {/* Gradient background */}
       <div className="absolute inset-0 overflow-hidden opacity-10">
         <div className="absolute -top-1/2 left-1/2 w-[800px] h-[800px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-r from-primary/20 to-secondary/20 blur-3xl"></div>
@@ -86,9 +89,8 @@ export function PublicFooter() {
           {/* Logo and description */}
           <div className="space-y-5">
             <div className="flex items-center space-x-2">
-              <span className="text-2xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-                Sicilius
-              </span>
+              <Logo className="h-7 w-auto text-primary" />
+              <span className="text-2xl font-bold gradient-text">Sicilius</span>
             </div>
             <p className="text-foreground/70 text-sm leading-relaxed">
               Şirket bilgilerine kolay erişim için güçlü ve kullanıcı dostu bir platform.
@@ -102,7 +104,7 @@ export function PublicFooter() {
                   href={item.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-foreground/60 hover:text-primary transition-colors"
+                  className="text-foreground/60 hover:text-foreground transition-colors rounded p-1 -m-1 hover:bg-gray-100 dark:hover:bg-slate-800"
                   aria-label={item.name}
                 >
                   {item.icon}
@@ -122,7 +124,7 @@ export function PublicFooter() {
                   <li key={item.name}>
                     <Link
                       href={item.href}
-                      className="flex items-center text-sm text-foreground/60 hover:text-primary transition-colors group"
+                      className="flex items-center text-sm text-foreground/80 hover:text-foreground transition-colors group rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-slate-800"
                     >
                       {item.icon && (
                         <span className="mr-2 group-hover:translate-x-0.5 transition-transform">
@@ -147,13 +149,14 @@ export function PublicFooter() {
             &copy; {currentYear} Sicilius. Tüm hakları saklıdır.
           </p>
           
-          <div className="flex items-center space-x-6 mt-4 md:mt-0">
-            <Link href="/privacy" className="text-sm text-foreground/60 hover:text-primary transition-colors">
-              Gizlilik Politikası
-            </Link>
-            <Link href="/terms" className="text-sm text-foreground/60 hover:text-primary transition-colors">
-              Kullanım Şartları
-            </Link>
+          <div className="flex flex-wrap items-center gap-4 mt-4 md:mt-0">
+            <Link href="/gizlilik-politikasi" className="text-sm text-foreground/80 hover:text-foreground transition-colors rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-slate-800">Gizlilik Politikası</Link>
+            <span className="text-foreground/40">•</span>
+            <Link href="/kullanici-sozlesmesi" className="text-sm text-foreground/80 hover:text-foreground transition-colors rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-slate-800">Kullanıcı Sözleşmesi</Link>
+            <span className="text-foreground/40">•</span>
+            <Link href="/cerez-politikasi" className="text-sm text-foreground/80 hover:text-foreground transition-colors rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-slate-800">Çerez Politikası</Link>
+            <span className="text-foreground/40">•</span>
+            <Link href="/kvkk-aydinlatma" className="text-sm text-foreground/80 hover:text-foreground transition-colors rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-slate-800">KVKK Aydınlatma</Link>
           </div>
         </div>
       </div>

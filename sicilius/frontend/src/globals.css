@@ -54,6 +54,25 @@
   --chart-5: 283 39% 53%;
 }
 
+/* Dark theme tokens: override CSS variables under .dark */
+.dark {
+  --background: 222 47% 11%; /* slate-900-ish */
+  --foreground: 210 40% 98%; /* slate-50-ish */
+
+  --card: 222 47% 13%;
+  --card-foreground: 210 40% 98%;
+
+  --popover: 222 47% 13%;
+  --popover-foreground: 210 40% 98%;
+
+  --muted: 217 33% 17%;
+  --muted-foreground: 215 20% 65%;
+
+  --border: 217 33% 20%;
+  --input: 217 33% 20%;
+  --ring: 207 68% 53%; /* keep primary as ring */
+}
+
 /* 
   Dark theme is temporarily removed for the redesign. 
   It can be re-implemented later based on the new color palette.
@@ -368,7 +387,7 @@ button:disabled,
   background: linear-gradient(
     to right,
     hsl(var(--primary)),
-    hsl(var(--secondary))
+    hsl(263,70%,60%)
   );
   -webkit-background-clip: text;
   background-clip: text;
@@ -503,7 +522,8 @@ button:disabled,
 @layer utilities {
   /* Gradient Text */
   .gradient-text {
-    @apply bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-primary bg-clip-text text-transparent;
+    background-image: linear-gradient(to right, hsl(var(--primary)), hsl(263,70%,60%));
   }
   
   /* Gradient Background */
@@ -737,7 +757,7 @@ button:focus-visible {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
-  .dark html, .dark body {
+  html.dark, html.dark body {
     @apply bg-slate-950 text-slate-100;
   }
 }
@@ -1141,3 +1161,50 @@ html {
   background: linear-gradient(90deg, rgba(30,58,138,0.0), rgba(14,165,233,0.8), rgba(30,58,138,0.0));
   animation: headerLoading 1.2s ease-in-out infinite;
 }
+
+/* Leaflet zoom controls – themed & visible in light/dark */
+.leaflet-control-zoom {
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 6px 20px rgba(0,0,0,.15);
+}
+.leaflet-control-zoom a {
+  width: 34px;
+  height: 34px;
+  line-height: 34px;
+  text-align: center;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  border: 1px solid rgba(100,116,139,.35);
+  background: rgba(255,255,255,.95);
+  color: #0f172a; /* slate-900 */
+  backdrop-filter: blur(4px);
+}
+.leaflet-control-zoom a:hover { background: rgba(255,255,255,1); }
+.leaflet-control-zoom a:focus { outline: 2px solid rgba(59,130,246,.6); outline-offset: 0; }
+
+.dark .leaflet-control-zoom a {
+  border-color: rgba(148,163,184,.35);
+  background: rgba(2,6,23,.85); /* slate-950/85 */
+  color: #e2e8f0; /* slate-200 */
+}
+.dark .leaflet-control-zoom a:hover { background: rgba(2,6,23,.95); }
+
+.leaflet-top.leaflet-right { margin-top: 10px; margin-right: 10px; }
+
+/* Force visible + / − glyphs even if Leaflet background images are not resolved */
+.leaflet-control-zoom-in,
+.leaflet-control-zoom-out {
+  background-image: none !important;
+}
+.leaflet-control-zoom-in::before,
+.leaflet-control-zoom-out::before {
+  display: inline-block;
+  width: 100%;
+  height: 100%;
+  text-align: center;
+  line-height: 34px; /* match button height */
+  color: inherit; /* use themed color above */
+}
+.leaflet-control-zoom-in::before { content: '+'; font-size: 18px; font-weight: 800; }
+.leaflet-control-zoom-out::before { content: '−'; font-size: 20px; font-weight: 800; }

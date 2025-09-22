@@ -7,3 +7,5 @@ from .gazette import Gazette, GazetteEntry
 from .job_history import JobHistory
 from .person import Person
 from .relation import CompanyPersonRelation
+from .daily_usage import DailyUsage
+from .user_invite import UserInvite

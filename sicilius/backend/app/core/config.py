@@ -90,6 +90,8 @@ class Settings(BaseSettings):
     search_max_companies: int = 20
     search_cache_ttl_seconds: int = 30
     search_rate_limit_rpm: int = 0
+    # Query limits
+    daily_query_limit: int = 20
     
     # Background Tasks
     BACKGROUND_TASKS_MAX_WORKERS: int = Field(

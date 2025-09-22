@@ -5,9 +5,10 @@ import { Icons } from '@/components/icons';
 import { cn } from '@/lib/utils';
 
 const footerLinks = [
-  { name: 'Gizlilik Politikası', href: '/privacy' },
-  { name: 'Kullanım Koşulları', href: '/terms' },
-  { name: 'Çerez Politikası', href: '/cookies' },
+  { name: 'Gizlilik Politikası', href: '/gizlilik-politikasi' },
+  { name: 'Kullanıcı Sözleşmesi', href: '/kullanici-sozlesmesi' },
+  { name: 'Çerez Politikası', href: '/cerez-politikasi' },
+  { name: 'KVKK Aydınlatma', href: '/kvkk-aydinlatma' },
   { name: 'SSS', href: '/faq' },
 ];
 
@@ -145,12 +146,14 @@ export function Footer({ className }: FooterProps) {
 
         <div className="mt-12 pt-8 border-t text-center text-sm text-muted-foreground">
           <p>&copy; {currentYear} Sicilius. Tüm hakları saklıdır.</p>
-          <div className="mt-2 flex justify-center space-x-4 text-xs">
-            <Link href="/privacy" className="hover:underline">Gizlilik Politikası</Link>
+          <div className="mt-2 flex flex-wrap justify-center gap-2 text-xs">
+            <Link href="/gizlilik-politikasi" className="hover:underline">Gizlilik Politikası</Link>
             <span>•</span>
-            <Link href="/terms" className="hover:underline">Kullanım Koşulları</Link>
+            <Link href="/kullanici-sozlesmesi" className="hover:underline">Kullanıcı Sözleşmesi</Link>
             <span>•</span>
-            <Link href="/cookies" className="hover:underline">Çerez Politikası</Link>
+            <Link href="/cerez-politikasi" className="hover:underline">Çerez Politikası</Link>
+            <span>•</span>
+            <Link href="/kvkk-aydinlatma" className="hover:underline">KVKK Aydınlatma</Link>
           </div>
         </div>
       </div>

@@ -86,14 +86,17 @@ const fetchCompanyDetail = async (companyId: string): Promise<CompanyDetailPaylo
   const id = (companyId || '').trim();
   if (!id) throw new Error('Geçersiz şirket kimliği');
   const url = `${API_BASE_URL}/api/v1/search/company-detail?company_id=${encodeURIComponent(id)}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { credentials: 'include' });
   if (!res.ok) {
+    const status = res.status;
     let message = 'Şirket detayları getirilemedi';
     try {
       const data = await res.json();
       message = data?.detail || message;
     } catch {}
-    throw new Error(message);
+    const err: any = new Error(message);
+    err.status = status;
+    throw err;
   }
   const data = await res.json();
   return {

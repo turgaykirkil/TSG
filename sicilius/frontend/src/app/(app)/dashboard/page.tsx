@@ -6,8 +6,12 @@ import SearchHints from './components/SearchHints';
 import QueryInsights from './components/QueryInsights';
 import ResultStats from './components/ResultStats';
 import ThemeToggle from './components/ThemeToggle';
-import { Clock } from 'lucide-react';
-import { useUnifiedSearch } from '@/hooks/useUnifiedSearch';
+import { Clock, Heart } from 'lucide-react';
+import { useUnifiedSearchInfinite } from '@/hooks/useUnifiedSearchInfinite';
+import { useDailyUsage } from '@/hooks/useDailyUsage';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { SEARCH_MAX_COMPANIES } from '@/config/constants';
 import EmptyState from './components/EmptyState';
 import { useSearchHistory } from './hooks/useSearchHistory';
@@ -21,11 +25,15 @@ import TableSkeleton from './components/tables/TableSkeleton';
 export default function DashboardPage() {
   const [query, setQuery] = useState('');
   const [draft, setDraft] = useState('');
-  const { data: unified, isFetching, isError, error } = useUnifiedSearch(query);
-  const companies = unified?.companies ?? [];
-  const persons = unified?.persons ?? [];
-  const historyEntries = unified?.history ?? [];
-  const totalMatches = unified?.total_matches ?? undefined;
+  const { data: unifiedPages, isFetching, isError, error, fetchNextPage, hasNextPage, isFetchingNextPage } = useUnifiedSearchInfinite(query);
+  const firstPage = unifiedPages?.pages?.[0];
+  const companies = unifiedPages?.pages ? unifiedPages.pages.flatMap((p) => p.companies || []) : [];
+  const persons = firstPage?.persons ?? [];
+  const historyEntries = firstPage?.history ?? [];
+  const totalMatches = firstPage?.total_matches ?? undefined;
+  // İlk yükleme mi? (henüz hiç veri yokken isFetching)
+  const hasAnyResults = (companies.length + persons.length + historyEntries.length) > 0;
+  const initialLoading = isFetching && !hasAnyResults;
   const [submitted, setSubmitted] = useState(false);
   const history = useSearchHistory();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -33,6 +41,13 @@ export default function DashboardPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | undefined>(undefined);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const { data: daily, loading: usageLoading } = useDailyUsage();
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteResult, setInviteResult] = useState<{ token: string } | null>(null);
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [limitOpen, setLimitOpen] = useState(false);
 
   // Hero altında typing animasyonu için tek kaynaklı cümle listesi
   const phrases = useMemo(
@@ -117,6 +132,21 @@ export default function DashboardPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Sonsuz kaydırma: sentinel görünür olunca bir sonraki sayfayı çek
+  useEffect(() => {
+    if (!submitted || !query.trim()) return;
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries[0];
+      if (entry.isIntersecting && hasNextPage && !isFetchingNextPage) {
+        fetchNextPage();
+      }
+    }, { root: null, rootMargin: '200px', threshold: 0 });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [submitted, query, hasNextPage, isFetchingNextPage, fetchNextPage]);
+
   return (
     <div className={"min-h-screen relative overflow-x-hidden bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100"}>
       {isFetching && <div className="top-progress" aria-hidden />}
@@ -133,6 +163,7 @@ export default function DashboardPage() {
         aria-label="Arama geçmişi"
         className="fixed top-4 right-4 z-50 rounded-full p-2.5 bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow hover:bg-white dark:hover:bg-slate-900"
         onClick={() => setMobileOpen(true)}
+        data-testid="mobile-history-button"
       >
         <span className="relative inline-flex">
           <Clock size={18} />
@@ -142,6 +173,19 @@ export default function DashboardPage() {
         </span>
       </button>
       <ThemeToggle />
+      {/* Günlük kullanım rozeti: sağ üstteki kullanıcı/dark mode butonlarının ALTINDA */}
+      <div className="fixed top-16 right-4 z-50 rounded-full px-3 py-1 text-xs font-medium border border-slate-200 dark:border-slate-700 bg-white/90 dark:bg-slate-900/90 text-slate-700 dark:text-slate-200">
+        {usageLoading ? 'Kullanım yükleniyor…' : `Kalan: ${daily?.remaining ?? 0}/${daily?.limit ?? 20}`}
+      </div>
+      {/* Davet Et butonu */}
+      <Button
+        type="button"
+        onClick={() => setInviteOpen(true)}
+        variant="gradientText"
+        className="fixed top-4 right-28 z-50 rounded-full px-3 py-2 shadow"
+      >
+        Davet Et
+      </Button>
       <div className="flex flex-col gap-6 px-4 lg:px-6">
       {/* Hero / Centered Search */}
       <section
@@ -220,22 +264,40 @@ export default function DashboardPage() {
 
         {/* Başlangıç boş durumu gösterme: kullanıcı arama yapmadıysa hiç kart gösterme */}
 
-        {submitted && query.trim() && isFetching && (
+        {submitted && query.trim() && initialLoading && (
           <div className="mx-auto max-w-5xl">
             <TableSkeleton rows={6} />
           </div>
         )}
 
-        {submitted && query.trim() && !isFetching && !isError && (companies.length + persons.length + historyEntries.length === 0) && (
+        {submitted && query.trim() && !initialLoading && !isError && (companies.length + persons.length + historyEntries.length === 0) && (
           <div className="mx-auto max-w-5xl">
             <EmptyState type="no-results" query={query} />
           </div>
         )}
 
-        {submitted && query.trim() && !isFetching && !isError && (companies.length + persons.length + historyEntries.length > 0) && (
+        {submitted && query.trim() && !isError && (companies.length + persons.length + historyEntries.length > 0) && (
           <div className="mx-auto max-w-5xl space-y-8">
             {/* Şirketler */}
             <CompaniesTable companies={companies} onSelectCompany={handleSelectCompany} />
+            {hasNextPage && (
+              <div className="flex justify-center mt-2">
+                <Button
+                  type="button"
+                  variant="gradientText"
+                  className="px-4 py-2 text-sm rounded"
+                  onClick={() => fetchNextPage()}
+                  disabled={isFetchingNextPage}
+                  data-testid="load-more"
+                >
+                  {isFetchingNextPage ? 'Yükleniyor...' : 'Daha fazla yükle'}
+                </Button>
+              </div>
+            )}
+            {/* Sentinel: Görününce otomatik olarak bir sonraki sayfayı getirir */}
+            {hasNextPage && (
+              <div ref={sentinelRef} aria-hidden className="h-6" data-testid="infinite-sentinel" />
+            )}
 
             {/* Kişiler */}
             {persons.length > 0 && (
@@ -255,6 +317,73 @@ export default function DashboardPage() {
           </div>
         )}
       </section>
+      {/* Davet Dialog */}
+      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>E-posta ile Davet Et</DialogTitle>
+            <DialogDescription>
+              Aylık davet hakkı: mevcut kullanıcı ayda yalnızca 1 e-posta davet edebilir.
+            </DialogDescription>
+          </DialogHeader>
+          {!inviteResult ? (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm mb-1">E-posta</label>
+                <Input
+                  type="email"
+                  placeholder="ornek@alan.com"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                />
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="gradientText"
+                  onClick={async () => {
+                    try {
+                      setInviteBusy(true);
+                      const res = await fetch('/api/v1/auth/invite', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
+                        body: JSON.stringify({ email: inviteEmail }),
+                      });
+                      const json = await res.json();
+                      if (!res.ok) throw new Error(json?.detail || 'Davet oluşturulamadı');
+                      setInviteResult({ token: json.token });
+                    } catch (e: any) {
+                      alert(e?.message || 'Bilinmeyen hata');
+                    } finally {
+                      setInviteBusy(false);
+                    }
+                  }}
+                  disabled={!inviteEmail || inviteBusy}
+                >
+                  {inviteBusy ? 'Gönderiliyor…' : 'Davet Oluştur'}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-3 text-sm">
+              <p>Davet oluşturuldu. E-posta gönderimi henüz entegre edilmediği için bağlantıyı kendin iletebilirsin.</p>
+              <div className="p-3 rounded border bg-slate-50 dark:bg-slate-900/40 break-all">
+                {typeof window !== 'undefined' ? `${window.location.origin}/davet?token=${inviteResult.token}` : `/davet?token=${inviteResult.token}`}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const link = (typeof window !== 'undefined' ? `${window.location.origin}/davet?token=${inviteResult.token}` : `/davet?token=${inviteResult.token}`);
+                    navigator.clipboard?.writeText(link).then(() => alert('Bağlantı kopyalandı'));
+                  }}
+                >Bağlantıyı Kopyala</Button>
+                <Button variant="gradientText" onClick={() => setInviteOpen(false)}>Kapat</Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       <CompanyDetailModal
         open={detailOpen}
         onOpenChange={(o) => {
@@ -267,7 +396,35 @@ export default function DashboardPage() {
           setSelectedCompanyId(id);
           setDetailOpen(true);
         }}
+        onLimitReached={() => setLimitOpen(true)}
       />
+      {/* Günlük limit bilgilendirme dialogu */}
+      <Dialog open={limitOpen} onOpenChange={setLimitOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              <span className="inline-flex items-center gap-2">
+                <Heart size={18} className="text-emerald-600" />
+                Günlük sorgu limitine ulaştınız
+              </span>
+            </DialogTitle>
+            <DialogDescription>
+              {`Kalan: ${daily?.remaining ?? 0}/${daily?.limit ?? 20}`} — Sistemlerimizin yavaşlamasını engellemek ve
+              herkes için adil kullanım sağlamak amacıyla günlük bir sınır uyguluyoruz. Anlayışınız için teşekkür ederiz.
+              Limitler her gece otomatik olarak sıfırlanır. Yarın görüşmek üzere!
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 text-sm text-slate-600 dark:text-slate-300">
+            <p>
+              Sicilius bağımsız ve ücretsiz bir platformdur. Bilgiye erişiminizi kesintisiz ve adil bir şekilde
+              sürdürebilmek için bu günlük sınırı uyguluyoruz.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="gradientText" onClick={() => setLimitOpen(false)}>Tamam</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <MobileHistoryDrawer
         open={mobileOpen}
         onClose={() => setMobileOpen(false)}

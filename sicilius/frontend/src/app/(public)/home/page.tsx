@@ -58,13 +58,14 @@ export default function HomePage() {
               Ticaret Sicil Gazetesi kayıtlarına tek bir yerden erişin.
             </p>
             <div className="mt-10 flex items-center gap-x-6">
-              <Link href="/register">
-                <Button size="lg" className="rounded-lg">
-                  Ücretsiz Başla
-                </Button>
-              </Link>
+              <Button asChild size="lg" variant="gradient" className="rounded-lg">
+                <Link href="/davet">Davet ile Katıl</Link>
+              </Button>
               <Link href="/about" className="text-sm font-semibold leading-6 text-gray-900">
                 Daha fazla bilgi <span aria-hidden="true">→</span>
+              </Link>
+              <Link href="/sss" className="text-sm font-semibold leading-6 text-gray-900">
+                SSS <span aria-hidden="true">→</span>
               </Link>
             </div>
           </div>
@@ -129,11 +130,9 @@ export default function HomePage() {
                   Sicilius&apos;un tüm özelliklerini 14 gün boyunca ücretsiz deneyin. Kredi kartı bilgisi gerekmez.
                 </p>
                 <div className="mt-10 flex items-center gap-x-6">
-                  <Link href="/register">
-                    <Button size="lg" className="rounded-lg">
-                      Ücretsiz Başla
-                    </Button>
-                  </Link>
+                  <Button asChild size="lg" variant="gradient" className="rounded-lg">
+                    <Link href="/davet">Davet ile Katıl</Link>
+                  </Button>
                   <Link href="/contact" className="text-sm font-semibold leading-6 text-gray-900">
                     Bize ulaşın <span aria-hidden="true">→</span>
                   </Link>

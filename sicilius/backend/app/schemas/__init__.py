@@ -7,7 +7,7 @@ TSG Araştırma Platformu - Şemalar
 
 from .token import Token, TokenPayload
 from .user import User, UserCreate, UserInDB, UserUpdate
-from .company import Company, CompanyCreate, CompanyUpdate, CompanyInDB
+from .company import Company, CompanyCreate, CompanyUpdate, CompanyInDB, NearbyCompany
 from .utils import Coordinates
 from .gazette import Gazette, GazetteCreate, GazetteUpdate, GazetteInDB
 from .gazette_entry import GazetteEntry, GazetteEntryCreate, GazetteEntryUpdate, GazetteEntryInDB
@@ -34,7 +34,7 @@ from .msg import Msg
 __all__ = [
     'Token', 'TokenPayload',
     'User', 'UserCreate', 'UserInDB', 'UserUpdate',
-    'Company', 'CompanyCreate', 'CompanyUpdate', 'CompanyInDB',
+    'Company', 'CompanyCreate', 'CompanyUpdate', 'CompanyInDB', 'NearbyCompany',
     'Gazette', 'GazetteCreate', 'GazetteUpdate', 'GazetteInDB',
     'GazetteEntry', 'GazetteEntryCreate', 'GazetteEntryUpdate', 'GazetteEntryInDB',
     'Person', 'PersonCreate', 'PersonUpdate', 'PersonInDB',

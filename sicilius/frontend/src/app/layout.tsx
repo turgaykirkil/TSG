@@ -1,4 +1,5 @@
 import { Inter, Space_Grotesk } from 'next/font/google';
+import 'leaflet/dist/leaflet.css';
 import { cn } from '@/lib/utils';
 import '@/globals.css';
 import { AppProviders } from './AppProviders';
@@ -36,15 +37,30 @@ export default function RootLayout({
             (function(){
               try {
                 var key = 'sicilius.theme';
-                var saved = localStorage.getItem(key);
+                var path = window.location.pathname || '/';
+                var isPublic = (
+                  path === '/' ||
+                  path.startsWith('/about') ||
+                  path.startsWith('/contact') ||
+                  path.startsWith('/sss') ||
+                  path.startsWith('/davet') ||
+                  path.startsWith('/home') ||
+                  path.startsWith('/gizlilik-politikasi') ||
+                  path.startsWith('/kullanici-sozlesmesi') ||
+                  path.startsWith('/cerez-politikasi') ||
+                  path.startsWith('/kvkk-aydinlatma') ||
+                  path.startsWith('/login')
+                );
+                var saved = isPublic ? null : localStorage.getItem(key);
                 var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                var useDark = saved ? saved === 'dark' : prefersDark;
+                var useDark = saved ? (saved === 'dark') : prefersDark;
                 var root = document.documentElement;
                 if (useDark) root.classList.add('dark'); else root.classList.remove('dark');
               } catch(_) {}
             })();
           `}}
         />
+        {/* Leaflet CSS now imported locally; external link removed to satisfy CSP */}
       </head>
       <body
         className={cn(

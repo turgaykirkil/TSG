@@ -5,6 +5,8 @@ import logging
 from typing import Generator, Optional
 
 from fastapi import Depends, HTTPException, status, Request
+from datetime import datetime
+import os
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt
 from pydantic import ValidationError
@@ -114,3 +116,47 @@ def get_supabase_client() -> Generator[Client, None, None]:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not connect to Supabase service."
         )
+
+
+def enforce_daily_limit(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user),
+) -> None:
+    """Kullanıcı başına günlük sorgu limitini uygular ve sayacı arttırır.
+
+    Varsayılan limit 20'dir. ENV ile değiştirilebilir: TSG_DAILY_QUERY_LIMIT
+    Aşıldığında 429 döner.
+    """
+    # Öncelik: ENV > settings
+    limit_env = os.getenv("TSG_DAILY_QUERY_LIMIT")
+    if limit_env is not None:
+        try:
+            limit = int(limit_env)
+        except Exception:
+            limit = settings.daily_query_limit
+    else:
+        limit = settings.daily_query_limit
+
+    today = datetime.utcnow().date()
+    # Günlük kayıt mevcut mu kontrol et
+    usage = (
+        db.query(models.DailyUsage)
+        .filter(models.DailyUsage.user_id == current_user.id, models.DailyUsage.day == today)
+        .first()
+    )
+    if usage is None:
+        usage = models.DailyUsage(user_id=current_user.id, day=today, count=0)
+        db.add(usage)
+        db.commit()
+        db.refresh(usage)
+
+    if usage.count >= limit:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Günlük sorgu limitine ulaştınız ({limit}). Lütfen yarın tekrar deneyin.",
+            headers={"Retry-After": "86400"},
+        )
+
+    usage.count += 1
+    db.add(usage)
+    db.commit()

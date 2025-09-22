@@ -2,10 +2,10 @@
 Database session management
 """
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, scoped_session
 
 from app.core.config import settings
+from app.db.base import Base  # Use the unified Base for all models
 
 # Create database engine
 # Convert PostgresDsn to string for SQLite check
@@ -26,8 +26,6 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # Create a scoped session
 Session = scoped_session(SessionLocal)
 
-# Base class for models
-Base = declarative_base()
 
 def get_db():
     """
@@ -43,10 +41,8 @@ def init_db():
     """
     Initialize the database.
     """
-    from app.models import (
-        User, Company, Gazette, GazetteEntry, 
-        Person, CompanyPersonRelation, FileUpload, JobHistory
-    )
+    # Import models to ensure they are registered on Base
+    from app import models  # noqa: F401
     
     # Create all tables
     Base.metadata.create_all(bind=engine)

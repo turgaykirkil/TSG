@@ -29,3 +29,11 @@ export interface CompanyWithLocation {
   firma_unvani: string | null;
   koordinat: { x: number; y: number };
 }
+
+// Minimal company data shape used by admin file mappers
+export type CompanyData = {
+  sicil_no: string;
+  firma_unvani: string | null;
+  sicil_mudurluk?: string;
+  adres?: string | null;
+};

@@ -5,7 +5,10 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 5_000 },
   fullyParallel: true,
-  reporter: [['list']],
+  reporter: [
+    ['html', { open: 'never' }],
+    ['list'],
+  ],
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000',
     trace: 'on-first-retry',
@@ -20,10 +23,12 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: [/mobile-history\.spec\.ts$/],
     },
     {
       name: 'mobile',
       use: { ...devices['iPhone 12'] },
+      testIgnore: [/unified-search-infinite\.spec\.ts$/],
     },
   ],
 });

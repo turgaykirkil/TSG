@@ -21,6 +21,7 @@ export const API_ENDPOINTS = {
   COMPANIES: {
     BASE: '/api/v1/companies',
     UNCOORDINATED: '/api/v1/companies/uncoordinated/',
+    NEARBY: (id: string, max_km: number = 5, limit: number = 10) => `/api/v1/companies/${id}/nearby?max_km=${encodeURIComponent(String(max_km))}&limit=${encodeURIComponent(String(limit))}`,
   },
   STATS: {
     BASE: '/api/v1/stats',

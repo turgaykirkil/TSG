@@ -3,6 +3,7 @@ from supabase import Client
 from typing import List, Dict, Any, Optional, Set
 from pydantic import BaseModel, Field
 import os
+import requests
 from datetime import datetime
 import re
 import json
@@ -12,6 +13,7 @@ import time
 import threading
 from collections import deque
 from app.core.dependencies import get_supabase_client
+from app.api.deps import enforce_daily_limit
 from app.core.config import settings
 
 router = APIRouter()
@@ -124,6 +126,126 @@ SEARCH_RATE_LIMIT_RPM = max(0, _int_from_settings_or_env(
 ))
 _limiter = RateLimiter(SEARCH_RATE_LIMIT_RPM, 60)
 
+# Proximity thresholds (configurable)
+SEARCH_PROXIMITY_STRONG = max(1, _int_from_settings_or_env(
+    "search_proximity_strong",
+    ["tsg_search_proximity_strong", "SEARCH_PROXIMITY_STRONG", "TSG_SEARCH_PROXIMITY_STRONG"],
+    8,
+))
+SEARCH_PROXIMITY_MEDIUM = max(SEARCH_PROXIMITY_STRONG + 1, _int_from_settings_or_env(
+    "search_proximity_medium",
+    ["tsg_search_proximity_medium", "SEARCH_PROXIMITY_MEDIUM", "TSG_SEARCH_PROXIMITY_MEDIUM"],
+    20,
+))
+SEARCH_PROXIMITY_WEAK = max(SEARCH_PROXIMITY_MEDIUM + 1, _int_from_settings_or_env(
+    "search_proximity_weak",
+    ["tsg_search_proximity_weak", "SEARCH_PROXIMITY_WEAK", "TSG_SEARCH_PROXIMITY_WEAK"],
+    40,
+))
+
+# Simple synonym map (normalized) — 81 il + kısa varyantlar (3 harf kısaltma)
+_CITY_SYNONYMS = {
+    "adana": {"adana", "adn"},
+    "adiyaman": {"adiyaman", "ady"},
+    "afyonkarahisar": {"afyonkarahisar", "afyon", "afy"},
+    "agri": {"agri", "agr"},
+    "amasya": {"amasya", "ams"},
+    "ankara": {"ankara", "ank"},
+    "antalya": {"antalya", "ant"},
+    "artvin": {"artvin", "art"},
+    "aydin": {"aydin", "ayd"},
+    "balikesir": {"balikesir", "blk"},
+    "bilecik": {"bilecik", "blc"},
+    "bingol": {"bingol", "bng"},
+    "bitlis": {"bitlis", "btl"},
+    "bolu": {"bolu", "blu"},
+    "burdur": {"burdur", "brd"},
+    "bursa": {"bursa", "brs"},
+    "canakkale": {"canakkale", "cnk"},
+    "cankiri": {"cankiri", "ckr"},
+    "corum": {"corum", "crm"},
+    "denizli": {"denizli", "dnz"},
+    "diyarbakir": {"diyarbakir", "diy"},
+    "edirne": {"edirne", "edr"},
+    "elazig": {"elazig", "elz"},
+    "erzincan": {"erzincan", "erc"},
+    "erzurum": {"erzurum", "erz"},
+    "eskisehir": {"eskisehir", "esk"},
+    "gaziantep": {"gaziantep", "gaz"},
+    "giresun": {"giresun", "grs"},
+    "gumushane": {"gumushane", "gms"},
+    "hakkari": {"hakkari", "hkr"},
+    "hatay": {"hatay", "hty"},
+    "isparta": {"isparta", "isp"},
+    "mersin": {"mersin", "mrs", "icel"},
+    "istanbul": {"istanbul", "ist"},
+    "izmir": {"izmir", "izm"},
+    "kars": {"kars", "krs"},
+    "kastamonu": {"kastamonu", "ksm"},
+    "kayseri": {"kayseri", "kys"},
+    "kirklareli": {"kirklareli", "kkl"},
+    "kirsehir": {"kirsehir", "ksh"},
+    "kocaeli": {"kocaeli", "kcl"},
+    "konya": {"konya", "kny"},
+    "kutahya": {"kutahya", "kty"},
+    "malatya": {"malatya", "mal"},
+    "manisa": {"manisa", "man"},
+    "kahramanmaras": {"kahramanmaras", "maras", "kmar"},
+    "mardin": {"mardin", "mrn"},
+    "mugla": {"mugla", "mgl"},
+    "mus": {"mus", "mus"},
+    "nevsehir": {"nevsehir", "nvs"},
+    "nigde": {"nigde", "ngd"},
+    "ordu": {"ordu", "ord"},
+    "rize": {"rize", "rze"},
+    "sakarya": {"sakarya", "sky"},
+    "samsun": {"samsun", "sam"},
+    "siirt": {"siirt", "srt"},
+    "sinop": {"sinop", "sin"},
+    "sivas": {"sivas", "siv"},
+    "tekirdag": {"tekirdag", "tgd"},
+    "tokat": {"tokat", "tok"},
+    "trabzon": {"trabzon", "trb"},
+    "tunceli": {"tunceli", "tnc"},
+    "sanliurfa": {"sanliurfa", "urfa", "san"},
+    "usak": {"usak", "usk"},
+    "van": {"van", "van"},
+    "yozgat": {"yozgat", "yoz"},
+    "zonguldak": {"zonguldak", "zon"},
+    "aksaray": {"aksaray", "aks"},
+    "bayburt": {"bayburt", "byb"},
+    "karaman": {"karaman", "krm"},
+    "kirikkale": {"kirikkale", "kkl"},
+    "batman": {"batman", "btm"},
+    "sirnak": {"sirnak", "srn"},
+    "bartin": {"bartin", "brt"},
+    "ardahan": {"ardahan", "ard"},
+    "igdir": {"igdir", "igd"},
+    "yalova": {"yalova", "ylv"},
+    "karabuk": {"karabuk", "krb"},
+    "kilis": {"kilis", "kls"},
+    "osmaniye": {"osmaniye", "osm"},
+    "duzce": {"duzce", "dzc"},
+}
+
+def _token_variants(t: str) -> set:
+    base = tr_normalize_py(t)
+    out = {base}
+    # City synonyms
+    for canon, variants in _CITY_SYNONYMS.items():
+        if base == canon or base in variants:
+            out |= {canon} | set(variants)
+            break
+    # Common suffix handling for province/district phrases
+    # e.g., "ankara il", "ankara ilce", "ankara ilçe", "ankara merkez", "ankara sehir/şehir"
+    suffixes = [" il", " ilce", " ilçe", " merkez", " sehir", " sehir", " sehir merkezi", " şehir", " şehir merkezi"]
+    for sfx in suffixes:
+        if base.endswith(sfx.strip()):
+            trimmed = base.replace(sfx.strip(), "").strip()
+            if trimmed:
+                out.add(trimmed)
+    return out
+
 class SearchResult(BaseModel):
     companies: List[Dict[str, Any]] = Field(default_factory=list)
     persons: List[Dict[str, Any]] = Field(default_factory=list)
@@ -178,7 +300,8 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
 
     # Hızlı yol: Saf sayısal ve yeterince uzun sorgu ise doğrudan OCR (mersis_no, original_text) ve kimlik numarası taraması
     try:
-        pure_digits = q_digits and (q_digits == re.sub(r"\D+", "", q_raw)) and len(q_digits) >= 6
+        # Tüm sorgu sadece rakamlardan oluşuyorsa ve uzunluğu >=6 ise hızlı yol devreye girsin.
+        pure_digits = bool(re.fullmatch(r"\d{6,}", q_raw))
         if pure_digits:
             # Skor tabloları ve kaynak bayrakları
             score_map: Dict[str, int] = {}
@@ -565,6 +688,143 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
     except Exception:
         pass
 
+    # Akıllı karma arama: hem rakam hem metin tokenları varsa, aynı kayıtta ikisinin de bulunmasını şart koş
+    try:
+        has_digits = bool(q_digits)
+        has_text_tokens = len(tokens) > 0
+        if has_digits and has_text_tokens:
+            # Supabase tarafında geniş OR ile adayları getir, Python tarafında AND filtresi uygula
+            try:
+                conds = [
+                    f"sicil_no.ilike.%{q_digits}%",
+                ]
+                # opsiyonel kolon olabilir
+                conds.append(f"mersis_number.ilike.%{q_digits}%")
+                for t in tokens:
+                    vars_t = list(_token_variants(t))[:3]
+                    for v in vars_t:
+                        pat = f"%{v}%"
+                        conds.extend([
+                            f"unvan_unaccent.ilike.{pat}",
+                            f"address_unaccent.ilike.{pat}",
+                        ])
+                or_expr = ",".join(conds)
+                coarse = (
+                    supabase
+                    .table("companies")
+                    .select("*")
+                    .or_(or_expr)
+                    .limit(500)
+                    .execute()
+                ).data or []
+            except Exception:
+                # Unaccent kolonları yoksa orijinal kolonlarla dene
+                try:
+                    conds = [f"sicil_no.ilike.%{q_digits}%", f"mersis_number.ilike.%{q_digits}%"]
+                    for t in tokens:
+                        vars_t = list(_token_variants(t))[:3]
+                        for v in vars_t:
+                            pat = f"%{v}%"
+                            conds.extend([f"unvan.ilike.{pat}", f"address.ilike.{pat}"])
+                    or_expr = ",".join(conds)
+                    coarse = (
+                        supabase.table("companies").select("*").or_(or_expr).limit(500).execute()
+                    ).data or []
+                except Exception:
+                    coarse = []
+
+            def _norm_all(c: Dict[str, Any]) -> str:
+                return tr_normalize_py(
+                    " ".join([
+                        str(c.get("unvan", "") or c.get("firma_unvani", "")),
+                        str(c.get("address", "") or c.get("adres", "")),
+                        str(c.get("sicil_mudurluk", "")),
+                    ])
+                )
+
+            filtered: List[Dict[str, Any]] = []
+
+            def _find_all(hay: str, needle: str) -> List[int]:
+                out = []
+                if not hay or not needle:
+                    return out
+                start = 0
+                while True:
+                    idx = hay.find(needle, start)
+                    if idx == -1:
+                        break
+                    out.append(idx)
+                    start = idx + max(1, len(needle))
+                return out
+            for c in coarse:
+                try:
+                    num_ok = False
+                    if q_digits:
+                        s_no = str(c.get("sicil_no", ""))
+                        m_no = str(c.get("mersis_number", ""))
+                        num_ok = (q_digits in s_no) or (q_digits in m_no)
+                    s_all_norm = _norm_all(c) + " " + tr_normalize_py(str(c.get("sicil_no", ""))) + " " + tr_normalize_py(str(c.get("mersis_number", "")))
+                    # token eşleşmesi (sinonim varyantları dahil)
+                    text_ok = True
+                    for t in tokens:
+                        vars_t = _token_variants(t)
+                        if not any(v in s_all_norm for v in vars_t):
+                            text_ok = False
+                            break
+                    if num_ok and text_ok:
+                        # Yakınlık skorunu hesapla
+                        c = dict(c)
+                        base = int(c.get("match_strength", 0) or 0)
+                        score = max(base, 92)
+                        # Sayı pozisyonları
+                        digit_pos = _find_all(s_all_norm, tr_normalize_py(q_digits))
+                        if digit_pos:
+                            # Metin tokenları için en yakın mesafe
+                            min_gap = 1_000_000
+                            for t in tokens:
+                                tpos_all: list[int] = []
+                                for v in _token_variants(t):
+                                    tpos_all.extend(_find_all(s_all_norm, v))
+                                tpos = tpos_all
+                                if not tpos:
+                                    continue
+                                for dp in digit_pos:
+                                    for tp in tpos:
+                                        gap = abs(dp - tp)
+                                        if gap < min_gap:
+                                            min_gap = gap
+                            if min_gap <= SEARCH_PROXIMITY_STRONG:
+                                score = max(score, 99)
+                            elif min_gap <= SEARCH_PROXIMITY_MEDIUM:
+                                score = max(score, 96)
+                            elif min_gap <= SEARCH_PROXIMITY_WEAK:
+                                score = max(score, 94)
+                        # Alan bazlı bonus: sicil müdürlüğünde şehir geçiyorsa
+                        sm = tr_normalize_py(str(c.get("sicil_mudurluk", "")))
+                        if sm:
+                            for t in tokens:
+                                if any(v in sm for v in _token_variants(t)):
+                                    score = max(score, 98)
+                                    break
+                        c["match_strength"] = score
+                        filtered.append(c)
+                except Exception:
+                    continue
+
+            if filtered:
+                # Skora göre sırala ve erken dön
+                filtered.sort(key=lambda x: x.get("match_strength", 0), reverse=True)
+                result.companies = filtered[:MAX_COMPANIES]
+                result.persons = []
+                result.ocr_matches = []
+                result.related_companies = []
+                result.same_address_companies = []
+                result.total_matches = len(filtered)
+                logger.info(f"[Search Mixed] companies={len(filtered)} for q='{q_raw}'")
+                return result
+    except Exception:
+        pass
+
     # 1) Şirketler: önce unaccent kolonları dene, hata olursa orijinal kolonlar ve Python filtresi
     companies_data: List[Dict[str, Any]] = []
     try:
@@ -619,7 +879,29 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                 )
             ]
         except Exception:
-            pass
+            # Fallback: orijinal kolonlarla geniş arama yap ve Python tarafında AND ile filtrele
+            try:
+                conds = []
+                for t in tokens:
+                    pat = f"%{t}%"
+                    conds.extend([
+                        f"unvan.ilike.{pat}",
+                        f"sicil_no.ilike.{pat}",
+                        f"address.ilike.{pat}",
+                    ])
+                or_expr = ",".join(conds)
+                coarse_multi = (
+                    supabase.table("companies").select("*").or_(or_expr).limit(300).execute()
+                ).data or []
+                companies_data = [
+                    c for c in coarse_multi
+                    if all(
+                        t in tr_normalize_py(" ".join([c.get("unvan", ""), c.get("sicil_no", ""), c.get("address", "")]))
+                        for t in tokens
+                    )
+                ]
+            except Exception:
+                pass
 
     # Ek: MERSİS alt-dize araması (örn. 7221127826)
     try:
@@ -1109,7 +1391,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
 @router.get("/companies")
 def search_companies(
     q: str = Query(..., min_length=2, description="Search term for companies"),
-    supabase: Client = Depends(get_supabase_client)
+    supabase: Client = Depends(get_supabase_client),
 ):
     """
     Searches for companies in the database based on a query term.
@@ -1241,6 +1523,8 @@ def cross_company_persons(
 def search_all(
     request: Request,
     q: str = Query(..., min_length=2, description="Search across companies, persons, OCR and history (SPA payload)"),
+    cursor: Optional[int] = Query(None, ge=0, description="Sayfalama için opak imleç (cursor)."),
+    offset: Optional[int] = Query(0, ge=0, description="Şirketler için başlangıç ofseti (sayfalama)"),
     limit: Optional[int] = Query(None, ge=1, le=200, description="Maksimum şirket sayısı (<= MAX_COMPANIES)."),
     supabase: Client = Depends(get_supabase_client),
 ):
@@ -1256,6 +1540,18 @@ def search_all(
     }
     """
     try:
+        # Başlangıç zamanı + oran sınırı + önbellek anahtarı
+        start_ts = time.perf_counter()
+        try:
+            ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()) or (request.client.host if request.client else "unknown")
+        except Exception:
+            ip = "unknown"
+        _limiter.check(ip)
+        cache_key = f"all:{(q or '').strip().lower()}:{cursor if cursor is not None else (offset or 0)}:{limit or ''}"
+        cached = _cache_all.get(cache_key)
+        if cached is not None:
+            return cached
+
         # Geniş arama (şirket, kişi, OCR, ilişkiler)
         result = search_all_related(q, supabase)
 
@@ -1280,7 +1576,10 @@ def search_all(
 
         # Final safety cap at response time as well
         eff_limit = _clamp(limit if limit is not None else MAX_COMPANIES, 1, MAX_COMPANIES)
-        capped_companies = result.companies[:eff_limit]
+        start = int(cursor if cursor is not None else (offset or 0))
+        end = start + eff_limit
+        total_companies_pre = len(result.companies) if isinstance(result.companies, list) else 0
+        capped_companies = result.companies[start:end]
         payload = {
             "companies": capped_companies,
             "persons": result.persons,
@@ -1292,6 +1591,9 @@ def search_all(
             "ocr_matches": result.ocr_matches,
             "total_matches": result.total_matches,
             "limit": eff_limit,
+            # Sayfalama sadece companies için; o yüzden next_* hesaplarını şirket toplamına göre yap
+            "next_offset": (end if (isinstance(total_companies_pre, int) and total_companies_pre > end) else None),
+            "next_cursor": (end if (isinstance(total_companies_pre, int) and total_companies_pre > end) else None),
         }
         dur_ms = int((time.perf_counter() - start_ts) * 1000)
         logger.info(
@@ -1307,6 +1609,8 @@ def search_all(
 def search_all_legacy(
     request: Request,
     q: str = Query(..., min_length=2, description="Search term for companies, persons and history"),
+    cursor: Optional[int] = Query(None, ge=0, description="Sayfalama için opak imleç (cursor)."),
+    offset: Optional[int] = Query(0, ge=0, description="Şirketler için başlangıç ofseti (sayfalama)"),
     limit: Optional[int] = Query(None, ge=1, le=200, description="Maksimum şirket sayısı (<= MAX_COMPANIES)."),
     supabase: Client = Depends(get_supabase_client),
 ):
@@ -1319,6 +1623,18 @@ def search_all_legacy(
     }
     """
     try:
+        # Başlangıç zamanı + oran sınırı + önbellek anahtarı
+        start_ts = time.perf_counter()
+        try:
+            ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()) or (request.client.host if request.client else "unknown")
+        except Exception:
+            ip = "unknown"
+        _limiter.check(ip)
+        cache_key = f"all-legacy:{(q or '').strip().lower()}:{cursor if cursor is not None else (offset or 0)}:{limit or ''}"
+        cached = _cache_all_legacy.get(cache_key)
+        if cached is not None:
+            return cached
+
         search_term = q.strip()
         search_query = f"%{search_term.replace(' ', '%')}%"
         logger.info(f"[Unified Search] Executing search for: {search_query}")
@@ -1338,7 +1654,9 @@ def search_all_legacy(
             total_companies_pre_legacy = len(companies_data)
             # Legacy uçta skorlanmış sıralama yok; yine de yükü azaltmak için ilk N ile sınırla
             eff_limit = _clamp(limit if limit is not None else MAX_COMPANIES, 1, MAX_COMPANIES)
-            companies_data = companies_data[:eff_limit]
+            start = int(cursor if cursor is not None else (offset or 0))
+            end = start + eff_limit
+            companies_data = companies_data[start:end]
         except Exception as ce:
             logger.warning(f"[Unified Search] Companies query failed: {ce}")
 
@@ -1388,6 +1706,8 @@ def search_all_legacy(
             # Bilgilendirme amaçlı toplam (legacy): sadece uzunlukların toplamı
             "total_matches": total_companies_pre_legacy + len(persons_data) + len(history_data) if 'total_companies_pre_legacy' in locals() else len(companies_data) + len(persons_data) + len(history_data),
             "limit": eff_limit if 'eff_limit' in locals() else MAX_COMPANIES,
+            "next_offset": (end if ('total_companies_pre_legacy' in locals() and isinstance(total_companies_pre_legacy, int) and total_companies_pre_legacy > end) else None),
+            "next_cursor": (end if ('total_companies_pre_legacy' in locals() and isinstance(total_companies_pre_legacy, int) and total_companies_pre_legacy > end) else None),
         }
         _cache_all_legacy.set(cache_key, payload)
         dur_ms = int((time.perf_counter() - start_ts) * 1000)
@@ -1405,6 +1725,7 @@ def search_all_legacy(
 def company_detail(
     company_id: str = Query(..., description="UUID of the company"),
     supabase: Client = Depends(get_supabase_client),
+    _: None = Depends(enforce_daily_limit),
 ):
     """
     Fetch a single company and its related data from Supabase.
@@ -1436,6 +1757,54 @@ def company_detail(
         company = (company_resp.data or [None])[0]
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
+        # Attach koordinat {lat, lon} if present as GeoJSON; otherwise try LocationIQ geocoding (if configured)
+        def _ensure_company_coords(c: dict):
+            try:
+                geo = c.get("koordinat")
+                if isinstance(geo, dict):
+                    coords = geo.get("coordinates")
+                    if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                        lon, lat = coords[0], coords[1]
+                        if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
+                            c["koordinat"] = {"lat": float(lat), "lon": float(lon)}
+                            return
+            except Exception:
+                pass
+
+            # Fallback to LocationIQ (optional)
+            try:
+                api_key = (
+                    os.getenv("LOCATIONIQ_API_KEY")
+                    or os.getenv("TSG_LOCATIONIQ_TOKEN")
+                    or os.getenv("LOCATIONIQ_TOKEN")
+                )
+                if not api_key:
+                    return
+                base_url = os.getenv("LOCATIONIQ_BASE_URL", "https://us1.locationiq.com/v1")
+                q_parts = [str(c.get("address") or c.get("adres") or "").strip()]
+                # enrich with city/district if available
+                for k in ("district", "city", "sicil_mudurluk"):
+                    v = c.get(k)
+                    if isinstance(v, str) and v.strip():
+                        q_parts.append(v.strip())
+                q = ", ".join([p for p in q_parts if p])
+                if not q:
+                    return
+                params = {"key": api_key, "q": q, "format": "json", "limit": 1}
+                r = requests.get(f"{base_url}/search", params=params, timeout=6)
+                if r.ok:
+                    arr = r.json() if r.headers.get("content-type", "").startswith("application/json") else None
+                    if isinstance(arr, list) and arr:
+                        top = arr[0]
+                        lat = float(top.get("lat")) if top.get("lat") is not None else None
+                        lon = float(top.get("lon")) if top.get("lon") is not None else None
+                        if isinstance(lat, float) and isinstance(lon, float):
+                            c["koordinat"] = {"lat": lat, "lon": lon}
+            except Exception:
+                # do not fail company detail for geocoding errors
+                pass
+
+        _ensure_company_coords(company)
 
         # --- Relations -> Person IDs and relation meta ---
         rel_resp = (

@@ -45,10 +45,10 @@ export default function LoginPage() {
       <p className="mt-4 text-center text-sm text-muted-foreground">
         Hesabın yok mu?{' '}
         <Link
-          href="/register"
+          href="/davet"
           className="font-semibold text-[#1e3a8a] hover:underline"
         >
-          Kayıt Ol
+          Davet bağlantısı ile katıl
         </Link>
       </p>
     </AuthLayout>

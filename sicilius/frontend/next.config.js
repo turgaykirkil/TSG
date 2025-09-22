@@ -16,8 +16,9 @@ const nextConfig = {
   async rewrites() {
     return [
       {
-        source: '/api/:path*',
-        destination: 'http://localhost:5001/api/:path*',
+        // Only proxy backend API (FastAPI) which is mounted under /api/v1
+        source: '/api/v1/:path*',
+        destination: 'http://localhost:5001/api/v1/:path*',
       },
     ];
   },

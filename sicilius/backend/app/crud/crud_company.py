@@ -144,5 +144,56 @@ class CRUDCompany(CRUDBase[Company, CompanyCreate, CompanyUpdate]):
 
         return super().update(db, db_obj=db_obj, obj_in=update_data)
 
+    def get_nearby_by_id(self, db: Session, *, company_id: Union[str, uuid.UUID], max_km: float = 5.0, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Verilen şirketin koordinatına göre yakın şirketleri getirir.
+        PostGIS fonksiyonları (ST_DWithin, ST_DistanceSphere) kullanılır.
+        """
+        try:
+            # radius in meters
+            radius_m = max(0.1, float(max_km)) * 1000.0
+        except Exception:
+            radius_m = 5000.0
+
+        sql = text(
+            """
+            SELECT c.id,
+                   c.unvan,
+                   c.address,
+                   c.city,
+                   ST_Y(c.koordinat) AS lat,
+                   ST_X(c.koordinat) AS lon,
+                   ST_Distance(c.koordinat::geography, ref.koordinat::geography) AS distance_m
+            FROM companies c
+            JOIN companies ref ON ref.id = :company_id
+            WHERE c.id <> ref.id
+              AND c.koordinat IS NOT NULL
+              AND ref.koordinat IS NOT NULL
+              AND ST_DWithin(c.koordinat::geography, ref.koordinat::geography, :radius_m)
+            ORDER BY distance_m ASC
+            LIMIT :limit
+            """
+        )
+
+        res = db.execute(sql, {
+            "company_id": str(company_id),
+            "radius_m": radius_m,
+            "limit": int(limit),
+        })
+
+        items: List[Dict[str, Any]] = []
+        for row in res.mappings():
+            distance_km = float(row.get("distance_m", 0.0)) / 1000.0
+            items.append({
+                "id": row["id"],
+                "unvan": row.get("unvan"),
+                "address": row.get("address"),
+                "city": row.get("city"),
+                "distance_km": round(distance_km, 3),
+                "koordinat": {"lat": row.get("lat"), "lon": row.get("lon")} if row.get("lat") is not None and row.get("lon") is not None else None,
+            })
+
+        return items
+
 # Şirket CRUD işlemleri için singleton örneği
 company = CRUDCompany(Company)
