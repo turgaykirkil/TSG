@@ -32,7 +32,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }
 
     return (
-    <div className="flex h-screen">
+    <div className="flex h-screen bg-background text-foreground">
       <AppSidebar />
       <div className="flex flex-col flex-1 overflow-hidden">
         <AppHeader />

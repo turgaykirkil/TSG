@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import Any, Dict
 
 from app.scraping_browser import browser_manager, start_enhanced_scraping_process
+from app.scraping_state import scraping_state
 from app.api import deps
 from app.models import User
 
@@ -88,9 +89,12 @@ async def close_browser() -> Any:
 @router.get("/browser/status", response_model=Dict[str, Any])
 def get_browser_status() -> Any:
     """
-    Returns the current status of the browser.
+    Returns the current status of the browser and scraping process.
     """
-    return browser_manager.get_status()
+    return {
+        "browser": browser_manager.get_status(),
+        "scraping": scraping_state.get_status(),
+    }
 
 @router.post("/start")
 async def start_scraping(
@@ -101,12 +105,13 @@ async def start_scraping(
     """
     Starts the enhanced scraping process in the background.
     """
-    if not browser_manager.get_status()["is_open"]:
-        raise HTTPException(status_code=400, detail="Browser is not open. Please open the browser first.")
+    # If browser is not open, open it automatically (headed) and proceed for development visibility.
+    if not browser_manager.get_status().get("is_open"):
+        await browser_manager.open_browser(headless=False)
 
     logging.info(f"User {current_user.email} initiated enhanced scraping for {request.count} companies.")
-    
+
     # Run the scraping process in the background
     background_tasks.add_task(start_enhanced_scraping_process, count=request.count)
-    
+
     return {"message": f"Enhanced scraping process started in the background for {request.count} companies."}

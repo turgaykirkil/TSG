@@ -56,20 +56,20 @@
 
 /* Dark theme tokens: override CSS variables under .dark */
 .dark {
-  --background: 222 47% 11%; /* slate-900-ish */
-  --foreground: 210 40% 98%; /* slate-50-ish */
+  --background: 222 47% 12%; /* slightly brighter for readability */
+  --foreground: 210 40% 96%;
 
-  --card: 222 47% 13%;
-  --card-foreground: 210 40% 98%;
+  --card: 222 47% 14%;
+  --card-foreground: 210 40% 96%;
 
-  --popover: 222 47% 13%;
-  --popover-foreground: 210 40% 98%;
+  --popover: 222 47% 14%;
+  --popover-foreground: 210 40% 96%;
 
-  --muted: 217 33% 17%;
-  --muted-foreground: 215 20% 65%;
+  --muted: 217 33% 18%;
+  --muted-foreground: 210 20% 80%; /* brighten muted text */
 
-  --border: 217 33% 20%;
-  --input: 217 33% 20%;
+  --border: 217 33% 26%; /* slightly lighter borders */
+  --input: 217 33% 24%;
   --ring: 207 68% 53%; /* keep primary as ring */
 }
 
@@ -758,7 +758,7 @@ button:focus-visible {
     font-feature-settings: "rlig" 1, "calt" 1;
   }
   html.dark, html.dark body {
-    @apply bg-slate-950 text-slate-100;
+    @apply bg-background text-foreground;
   }
 }
 

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Icons } from '@/components/icons';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Building2, FileSearch, Activity, MapPin } from 'lucide-react';
+import { Building2, FileSearch, Activity, MapPin, Sun, Moon } from 'lucide-react';
 
 import FileUploadSection from './components/file-upload-section';
 import ScrapingDashboard from './components/scraping-dashboard';
@@ -14,16 +14,31 @@ import CoordinatesDashboard from './components/coordinates-dashboard';
 import { useAuth } from '@/contexts/AuthContext';
 import { StatCard } from './components/StatCard';
 import { useRealtimeStats } from '@/hooks/useRealtimeStats';
+import { Button } from '@/components/ui/button';
+import { useTheme } from '@/contexts/ThemeContext';
 
 const AdminPage = () => {
   const { stats, error } = useRealtimeStats();
   const { session } = useAuth();
   const user = session?.user;
+  const { theme, setTheme } = useTheme();
+  const toggleTheme = () => setTheme(theme === 'dark' ? 'light' : 'dark');
 
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold">Sicilius Admin Paneli</h1>
+        <Button variant="outline" onClick={toggleTheme} aria-label="Tema değiştir">
+          {theme === 'dark' ? (
+            <>
+              <Sun className="mr-2 h-4 w-4" /> Açık Tema
+            </>
+          ) : (
+            <>
+              <Moon className="mr-2 h-4 w-4" /> Koyu Tema
+            </>
+          )}
+        </Button>
       </div>
 
       <Tabs defaultValue="fileUpload" className="w-full">

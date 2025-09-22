@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -9,9 +9,9 @@ import LoadingSpinner from '@/components/ui/loading-spinner';
 
 export default function ScrapingDashboard() {
   const [error, setError] = useState<string | null>(null);
-  const [isBrowserReady, setIsBrowserReady] = useState<boolean>(false);
-  const [isNavigating, setIsNavigating] = useState<boolean>(false); // Re-using for loading state
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [scrapeCount, setScrapeCount] = useState<number>(10);
+  const [status, setStatus] = useState<any | null>(null);
 
   const getApiUrl = useCallback(() => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -24,82 +24,70 @@ export default function ScrapingDashboard() {
     return `${apiUrl}/api/v1`;
   }, []);
 
-  const handleOpenBrowser = async () => {
-    setError(null);
-    setIsNavigating(true);
-    try {
-      const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/scraping/browser/open`, {
-        method: 'POST',
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ detail: 'Failed to open browser.' }));
-        throw new Error(errorData.detail || `Server error: ${res.status}`);
-      }
-      toast.success('Tarayıcı başarıyla açıldı. Lütfen giriş yapın.');
-      setIsBrowserReady(true);
-    } catch (err: any) {
-      setError(err.message);
-      toast.error(err.message);
-    } finally {
-      setIsNavigating(false);
-    }
-  };
-
   const handleStartScraping = async () => {
-    if (isNavigating) return;
-
+    if (isLoading) return;
     if (scrapeCount <= 0) {
       toast.error('Lütfen geçerli bir adet girin.');
       return;
     }
-
     setError(null);
-    setIsNavigating(true);
+    setIsLoading(true);
     try {
       const apiUrl = getApiUrl();
-
-      // First, check browser status
-      const statusResponse = await fetch(`${apiUrl}/scraping/browser/status`);
-      const statusData = await statusResponse.json();
-
-      if (!statusData.is_open) {
-        throw new Error("Tarayıcı açık değil. Lütfen önce 'Giriş Sayfasını Aç' butonu ile tarayıcıyı açın.");
-      }
-
-      // If open, proceed to start enhanced scraping with count parameter
       const response = await fetch(`${apiUrl}/scraping/start`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ count: scrapeCount }),
-        credentials: 'include', // Send cookies for authentication
+        credentials: 'include',
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: 'Enhanced scraping başlatılamadı.' }));
+        const errorData = await response.json().catch(() => ({ detail: 'Scraping başlatılamadı.' }));
         throw new Error(errorData.detail || `Server error: ${response.status}`);
       }
-
       const result = await response.json();
-      toast.success(result.message);
+      toast.success(result.message || 'Scraping başlatıldı.');
     } catch (err: any) {
       setError(err.message);
       toast.error(err.message || 'Bir hata oluştu.');
     } finally {
-      setIsNavigating(false);
+      setIsLoading(false);
     }
   };
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const apiUrl = getApiUrl();
+      const res = await fetch(`${apiUrl}/scraping/browser/status`, { credentials: 'include' });
+      if (!res.ok) return;
+      const data = await res.json();
+      setStatus(data);
+    } catch (e) {
+      // sessiz geç
+    }
+  }, [getApiUrl]);
+
+  // İlk yüklemede bir kez durumu çek
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
+
+  // Sadece scraping.running=true iken 3 sn'de bir poll et
+  useEffect(() => {
+    if (status?.scraping?.running) {
+      const id = setInterval(fetchStatus, 3000);
+      return () => clearInterval(id);
+    }
+    return;
+  }, [status?.scraping?.running, fetchStatus]);
 
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>İnteraktif Web Scraping</CardTitle>
+          <CardTitle>Web Scraping</CardTitle>
           <CardDescription>
-            Ticaret Sicil Gazetesi'nden şirket verilerini adım adım kontrol ederek çekin.
+            Ticaret Sicil Gazetesi'nden şirket ilânları ve PDF'leri otomatik olarak çekin.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -109,40 +97,59 @@ export default function ScrapingDashboard() {
             </div>
           )}
 
-          <div className="space-y-6">
-            <div className="p-4 border rounded-lg bg-slate-50 dark:bg-slate-800/50">
-              <h3 className="font-semibold text-lg">Adım 1: Tarayıcıyı Başlat</h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                Veri çekme işlemine başlamadan önce, Sicil Gazetesi sitesine manuel giriş yapabilmeniz için Playwright tarayıcısını başlatın. Tarayıcı yeni bir pencerede açılacaktır.
-              </p>
-              <Button onClick={handleOpenBrowser} disabled={isNavigating || isBrowserReady} className="mt-3">
-                {isNavigating && !isBrowserReady ? <LoadingSpinner className="mr-2" /> : <Icons.externalLink className="mr-2 h-4 w-4" />}
-                {isBrowserReady ? 'Tarayıcı Açık' : 'Giriş Sayfasını Aç'}
+          <div className="p-4 border rounded-lg bg-slate-50 dark:bg-slate-800/50">
+            <p className="text-sm text-muted-foreground mt-1">
+              Taramak istediğiniz şirket adedini girin ve scraping işlemini başlatın. Sistem companies tablosundan sicil no ve sicil müdürlüğü olan şirketleri alacak, otomatik form doldurup ilân verileri ile PDF'leri Supabase'e yükleyecektir. Tarayıcı ve giriş işlemi otomatik olarak yönetilir (OCR CAPTCHA dahil).
+            </p>
+            <div className="flex items-center gap-4 mt-3">
+              <Input
+                type="number"
+                value={scrapeCount}
+                onChange={(e) => setScrapeCount(Math.max(0, Number(e.target.value)))}
+                placeholder="Adet"
+                className="w-28"
+                disabled={isLoading}
+              />
+              <Button onClick={handleStartScraping} disabled={isLoading || scrapeCount <= 0}>
+                {isLoading ? <LoadingSpinner className="mr-2" /> : <Icons.arrowRightCircle className="mr-2 h-4 w-4" />}
+                Scraping'i Başlat
               </Button>
             </div>
-
-            {isBrowserReady && (
-              <div className="p-4 border rounded-lg bg-slate-50 dark:bg-slate-800/50">
-                <h3 className="font-semibold text-lg">Adım 2: Enhanced Scraping'i Başlat</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Taramak istediğiniz şirket adedini girin ve enhanced scraping işlemini başlatın. Sistem companies tablosundan sicil no ve sicil müdürlüğü olan şirketleri alacak, otomatik form doldurup ilan verilerini çekecektir.
-                </p>
-                <div className="flex items-center gap-4 mt-3">
-                  <Input
-                    type="number"
-                    value={scrapeCount}
-                    onChange={(e) => setScrapeCount(Math.max(0, Number(e.target.value)))}
-                    placeholder="Adet"
-                    className="w-28"
-                    disabled={isNavigating}
-                  />
-                  <Button onClick={handleStartScraping} disabled={isNavigating || scrapeCount <= 0}>
-                    {isNavigating ? <LoadingSpinner className="mr-2" /> : <Icons.arrowRightCircle className="mr-2 h-4 w-4" />}
-                    Scraping'i Başlat
-                  </Button>
+            {/* Status panel */}
+            <div className="mt-4 rounded-md border bg-white/50 dark:bg-black/20 p-3 text-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-medium">Durum: </span>
+                  {status?.scraping?.running ? 'Çalışıyor' : 'Beklemede'}
+                </div>
+                <Button variant="secondary" size="sm" onClick={fetchStatus}>
+                  Durumu Yenile
+                </Button>
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-3">
+                <div className="rounded bg-slate-100 dark:bg-slate-900/40 p-2">
+                  <div className="text-xs text-muted-foreground">İşlenen</div>
+                  <div className="font-semibold">{status?.scraping?.processed ?? 0}</div>
+                </div>
+                <div className="rounded bg-slate-100 dark:bg-slate-900/40 p-2">
+                  <div className="text-xs text-muted-foreground">Toplam</div>
+                  <div className="font-semibold">{status?.scraping?.total ?? 0}</div>
+                </div>
+                <div className="rounded bg-slate-100 dark:bg-slate-900/40 p-2">
+                  <div className="text-xs text-muted-foreground">Hata</div>
+                  <div className="font-semibold truncate" title={status?.scraping?.error || '-'}>
+                    {status?.scraping?.error ? 'Var' : 'Yok'}
+                  </div>
                 </div>
               </div>
-            )}
+              {Array.isArray(status?.scraping?.logs) && status.scraping.logs.length > 0 && (
+                <div className="mt-3 max-h-48 overflow-auto border-t pt-2 text-xs">
+                  {status.scraping.logs.slice(-20).map((l: string, idx: number) => (
+                    <div key={idx} className="text-muted-foreground">• {l}</div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>

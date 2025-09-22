@@ -3,7 +3,9 @@ import logging
 import os
 import re
 import random
+import secrets
 import uuid
+import shutil
 import httpx
 import traceback
 from datetime import datetime, date
@@ -31,6 +33,13 @@ from app.schemas.announcement import AnnouncementCreate
 from app.scraping_state import scraping_state
 # from app.services.notification_service import notification_service
 from app.utils.office_normalization import normalize_office_freeform
+from app.utils.scrape_helpers_async import (
+    ensure_captcha,
+    open_pdf_in_new_tab,
+    handle_pdf_popup,
+    random_human_delay,
+    gentle_mouse_wiggle,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +47,139 @@ logger = logging.getLogger(__name__)
 # Not: Ofis normalizasyonu için merkezî kaynak kullanılmaktadır:
 #  - app.utils.office_normalization.normalize_office_freeform
 
+
+
+async def ensure_login(page: Page) -> None:
+    """Otomatik login (OCR ile CAPTCHA çözme). Idempotent: zaten login ise hızla devam eder."""
+    try:
+        await page.goto("https://www.ticaretsicil.gov.tr/", wait_until="domcontentloaded")
+
+        async def open_login_modal():
+            try:
+                await page.get_by_role("link", name=lambda n: n and "GİRİŞ" in n).click(timeout=10_000)
+            except Exception:
+                try:
+                    await page.locator("a:has-text('GİRİŞ')").first.click()
+                except Exception:
+                    return False
+            return True
+
+        async def login_error_present() -> bool:
+            # Önce verilen spesifik toast yapısını kontrol et
+            try:
+                toast = page.locator('div.toast.toast-error').first
+                if await toast.count() > 0:
+                    try:
+                        msg = (await toast.locator('.toast-message').first.text_content()) or ""
+                    except Exception:
+                        msg = ""
+                    if "Giriş Bilgileri Hatalı" in msg:
+                        try:
+                            # Kapat düğmesine bas (varsa)
+                            close_btn = toast.locator('.toast-close-button').first
+                            if await close_btn.count() > 0:
+                                await close_btn.click()
+                        except Exception:
+                            pass
+                        return True
+            except Exception:
+                pass
+
+            # Genel hata toast/alert göstergeleri (fallback)
+            selectors = [
+                ".toast-error",
+                "#toast-container .toast-error",
+                ".alert-danger",
+                ".swal2-popup.swal2-icon-error",
+                ".validation-summary-errors",
+            ]
+            try:
+                for sel in selectors:
+                    loc = page.locator(sel)
+                    if await loc.count() > 0:
+                        try:
+                            if await loc.first().is_visible():
+                                return True
+                        except Exception:
+                            return True
+            except Exception:
+                return False
+            return False
+
+        async def logged_in() -> bool:
+            # GİRİŞ linki kaybolduysa veya kullanıcı menüsü görünüyorsa giriş yapılmış kabul et
+            try:
+                if await page.locator("a:has-text('GİRİŞ')").count() == 0:
+                    return True
+            except Exception:
+                pass
+            # Alternatif bir kontrol daha eklenebilir
+            return False
+
+        # GİRİŞ modalini aç
+        opened = await open_login_modal()
+        if not opened:
+            return
+        await page.wait_for_selector("#LoginEmail", timeout=20_000)
+
+        async def human_type(sel: str, text: str) -> None:
+            try:
+                await page.click(sel)
+            except Exception:
+                pass
+            await random_human_delay(100, 220)
+            try:
+                await page.locator(sel).fill("")
+            except Exception:
+                pass
+            await random_human_delay(100, 220)
+            for ch in text:
+                try:
+                    await page.locator(sel).type(ch, delay=secrets.randbelow(120) + 30)
+                except Exception:
+                    break
+                await random_human_delay(20, 80)
+
+        if settings.SICIL_EMAIL and settings.SICIL_PASSWORD:
+            await human_type("#LoginEmail", settings.SICIL_EMAIL)
+            await random_human_delay()
+            await human_type("#LoginSifre", settings.SICIL_PASSWORD)
+            await random_human_delay()
+
+        # Hatalı doğrulama kodu olasılığına karşı 3 denemeye kadar tekrar dene
+        for _ in range(3):
+            await ensure_captcha(page)
+            try:
+                await page.locator("button.c-btn-login").first.click()
+            except Exception:
+                try:
+                    await page.get_by_role("button", name=lambda n: n and "GİRİŞ" in n).first.click()
+                except Exception:
+                    pass
+            try:
+                await page.wait_for_load_state("networkidle", timeout=10_000)
+            except Exception:
+                pass
+
+            if await login_error_present():
+                # Hata toast'u görüldü; sayfayı yenileyip yeniden dene
+                await page.reload(wait_until="domcontentloaded")
+                opened = await open_login_modal()
+                if not opened:
+                    return
+                await page.wait_for_selector("#LoginEmail", timeout=20_000)
+                if settings.SICIL_EMAIL and settings.SICIL_PASSWORD:
+                    await page.fill("#LoginEmail", settings.SICIL_EMAIL)
+                    await random_human_delay()
+                    await page.fill("#LoginSifre", settings.SICIL_PASSWORD)
+                    await random_human_delay()
+                continue
+
+            if await logged_in():
+                break
+    except Exception:
+        # Login başarısız olsa da akış devam edebilir (sekme bazlı CAPTCHA çözümleri var)
+        return
 
 
 class BrowserManager:
@@ -67,30 +209,22 @@ class BrowserManager:
                 logger.info("Initializing Playwright...")
                 self._playwright = await async_playwright().start()
                 
-                user_data_dir = os.path.join(settings.PROJECT_ROOT, ".playwright_user_data")
-                os.makedirs(user_data_dir, exist_ok=True)
-                logger.info(f"Using user data directory: {user_data_dir}")
+                # Tarayıcıyı görünür modda daha küçük pencerede aç (geliştirme için konforlu boyut)
+                launch_args = []
+                if not headless:
+                    launch_args = ["--window-size=1280,800"]
+                self._browser = await self._playwright.chromium.launch(headless=headless, slow_mo=100, args=launch_args)
 
-                self._browser = await self._playwright.webkit.launch(headless=headless)
-
-                storage_state = self._storage_state_path if os.path.exists(self._storage_state_path) else None
-                if storage_state:
-                    logger.info(f"Found existing session state at: {self._storage_state_path}")
-                else:
-                    logger.info("No session state found, starting a new session.")
-
+                # Oturum saklama/kullanma kaldırıldı; temiz bir context ile başla
                 self._context = await self._browser.new_context(
-                    storage_state=storage_state,
-                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
-                    viewport={"width": 1920, "height": 1080}
+                    ignore_https_errors=True,
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+                    viewport={"width": 1280, "height": 800}
                 )
                 
                 self._context.on("close", self._handle_close)
                 logger.info("Browser context launched successfully.")
 
-                # Start periodic saving
-                self._save_task = asyncio.create_task(self._periodic_save())
-                
                 # Open a default page
                 page = await self.get_page()
                 await page.goto("https://www.ticaretsicil.gov.tr/", wait_until="domcontentloaded")
@@ -104,8 +238,8 @@ class BrowserManager:
                 await self.close_browser()
                 return {"status": "error", "message": error_msg}
 
-    async def close_browser(self) -> Dict[str, str]:
-        """Closes the browser context and shuts down Playwright."""
+    async def close_browser(self, cleanup: bool = False) -> Dict[str, str]:
+        """Closes the browser context and shuts down Playwright. Optionally cleans up local artifacts."""
         async with self._lock:
             if self._save_task and not self._save_task.done():
                 self._save_task.cancel()
@@ -116,13 +250,7 @@ class BrowserManager:
                 logger.warning(msg)
                 return {"status": "not_open", "message": msg}
 
-            try:
-                # Save session state before closing
-                if self._context:
-                    logger.info(f"Saving session state to {self._storage_state_path}")
-                    await self._context.storage_state(path=self._storage_state_path)
-            except PlaywrightError as e:
-                logger.error(f"Failed to save session state: {e}", exc_info=True)
+            # Oturum kaydetme kaldırıldı
 
             try:
                 logger.info("Closing browser context...")
@@ -136,6 +264,31 @@ class BrowserManager:
                 logger.info("Stopping Playwright...")
                 await self._playwright.stop()
                 self._playwright = None
+
+            # Optional local cleanup of previous session artifacts inside project root
+            if cleanup:
+                try:
+                    # storage state file (legacy)
+                    if os.path.exists(self._storage_state_path):
+                        os.remove(self._storage_state_path)
+                    # user data dir (legacy)
+                    legacy_ud = os.path.join(settings.PROJECT_ROOT, ".playwright_user_data")
+                    if os.path.isdir(legacy_ud):
+                        shutil.rmtree(legacy_ud, ignore_errors=True)
+                    # any dot-playwright leftovers in project root
+                    for name in os.listdir(settings.PROJECT_ROOT):
+                        if name.startswith(".playwright_"):
+                            path = os.path.join(settings.PROJECT_ROOT, name)
+                            try:
+                                if os.path.isdir(path):
+                                    shutil.rmtree(path, ignore_errors=True)
+                                elif os.path.isfile(path):
+                                    os.remove(path)
+                            except Exception:
+                                pass
+                    logger.info("Local Playwright session/cache artifacts cleaned up.")
+                except Exception:
+                    logger.warning("Failed to clean some local artifacts. Proceeding anyway.")
 
             logger.info("Browser closed successfully.")
             return {"status": "closed", "message": "Browser closed successfully."}
@@ -244,13 +397,12 @@ class BrowserManager:
         logger.info("Periodic save task finished.")
 
     async def stop_periodic_save(self):
-        """Stops the periodic saving of the browser session state."""
+        """Deprecated: session periodic save is disabled."""
         if self._save_task and not self._save_task.done():
             self._save_task.cancel()
             self._save_task = None
             logger.info("Periodic session saving has been stopped.")
-        else:
-            logger.info("Periodic session saving was not running or was already stopped.")
+        # No further action
 
     async def _handle_close(self):
         """Callback function for when the browser context is closed."""
@@ -271,7 +423,7 @@ async def start_enhanced_scraping_process(count: int):
     This function is intended for robust, production-like scraping.
     """
     logger.info(f"Starting scraping process for up to {count} companies with DB saving.")
-    await browser_manager.stop_periodic_save()
+    # Session periodic save disabled; no-op
     db: Session = SessionLocal()
     page = await browser_manager.get_page()
 
@@ -283,6 +435,8 @@ async def start_enhanced_scraping_process(count: int):
         return
 
     try:
+        # Otomatik login (gerekirse)
+        await ensure_login(page)
         companies = crud.company.get_unscraped_with_sicil_info(db, limit=count)
         scraping_state.start(total_count=len(companies))
 
@@ -324,6 +478,11 @@ async def start_enhanced_scraping_process(count: int):
         db.close()
         scraping_state.finish()
         logger.info("Scraping process with DB saving has finished.")
+        # Close browser and cleanup project-local artifacts
+        try:
+            await browser_manager.close_browser(cleanup=True)
+        except Exception:
+            logger.warning("Failed to close browser during finalization.")
 
 
 
@@ -404,32 +563,48 @@ async def scrape_company(page: Page, db: Session, company):
                         pdf_href = await pdf_link_element.get_attribute('href')
                         if pdf_href:
                             try:
-                                # Start waiting for both the download and the new page (popup) that the click triggers.
-                                async with page.expect_popup() as popup_info, page.expect_download() as download_info:
-                                    await pdf_link_element.click() # This click opens a new tab and starts a download.
-                                
-                                new_page = await popup_info.value
-                                download = await download_info.value
+                                # Önce sayfadaki olası CAPTCHA'yı çöz (overlay/pop-up engel olmasın)
+                                await ensure_captcha(page)
+                                # İnsanî şekilde yeni sekme aç
+                                new_page = await open_pdf_in_new_tab(page, pdf_href)
+                                if not new_page:
+                                    scraping_state.add_log(f"PDF_WARN: Yeni sekme açılamadı. href={pdf_href}")
+                                    raise RuntimeError("Yeni sekme açılamadı.")
 
-                                # We have the download, so we no longer need the new page.
-                                await new_page.close()
+                                content, captcha_solved = await handle_pdf_popup(page, new_page)
+                                # Sekme handle_pdf_popup içinde kapanır ya da burada kapatılır
+                                try:
+                                    if not new_page.is_closed():
+                                        await new_page.close()
+                                except Exception:
+                                    pass
 
-                                # Read the downloaded content into memory
-                                download_path = await download.path()
-                                with open(download_path, "rb") as f:
-                                    pdf_content = f.read()
-                                scraping_state.add_log(f"Playwright captured download for '{title}'.")
+                                if content is None and captcha_solved:
+                                    # Aynı linki bir kez daha dene
+                                    await random_human_delay(300, 800)
+                                    await ensure_captcha(page)
+                                    retry_page = await open_pdf_in_new_tab(page, pdf_href)
+                                    if retry_page:
+                                        try:
+                                            content, _ = await handle_pdf_popup(page, retry_page)
+                                        finally:
+                                            try:
+                                                if not retry_page.is_closed():
+                                                    await retry_page.close()
+                                            except Exception:
+                                                pass
 
-                                file_name = f"announcement_{company.id}_{uuid.uuid4()}.pdf"
-                                bucket_name = "gazette-pdfs"
-
-                                # Upload to Supabase
-                                supabase.storage.from_(bucket_name).upload(
-                                    file=pdf_content, path=file_name, file_options={"content-type": "application/pdf"}
-                                )
-
-                                pdf_url = supabase.storage.from_(bucket_name).get_public_url(file_name)
-                                scraping_state.add_log(f"PDF_SUCCESS: PDF for '{title}' downloaded and uploaded.")
+                                if content:
+                                    file_name = f"announcement_{company.id}_{uuid.uuid4()}.pdf"
+                                    bucket_name = "gazette-pdfs"
+                                    # Upload to Supabase
+                                    supabase.storage.from_(bucket_name).upload(
+                                        file=content, path=file_name, file_options={"content-type": "application/pdf"}
+                                    )
+                                    pdf_url = supabase.storage.from_(bucket_name).get_public_url(file_name)
+                                    scraping_state.add_log(f"PDF_SUCCESS: PDF for '{title}' downloaded and uploaded.")
+                                else:
+                                    scraping_state.add_log(f"PDF_SKIP: '{title}' için PDF alınamadı.")
 
                             except Exception as pdf_error:
                                 scraping_state.add_log(f"PDF_ERROR: Failed to download/upload PDF for '{title}'. Reason: {pdf_error}")

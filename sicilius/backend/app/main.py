@@ -29,6 +29,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Reduce noisy access logs from Uvicorn in development
+try:
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+except Exception:
+    pass
+
 # --- Sentry Initialization (optional) ---
 if settings.sentry_dsn:
     sentry_sdk.init(
@@ -80,6 +86,9 @@ app = FastAPI(
 # --- Logging Middleware ---
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
+    # Skip verbose logs for frequent polling endpoint
+    if request.url.path == f"{settings.API_V1_STR}/scraping/browser/status":
+        return await call_next(request)
     logger.info(f"--> Incoming request: {request.method} {request.url.path}")
     response = await call_next(request)
     logger.info(f"<-- Response status: {response.status_code} for path: {request.url.path}")

@@ -5,12 +5,13 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Bell, Search, Menu, User, Settings, LogOut, CreditCard, LifeBuoy } from 'lucide-react';
+import { Bell, Search, Menu, User, Settings, LogOut, CreditCard, LifeBuoy, Sun, Moon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTheme } from '@/contexts/ThemeContext';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,6 +31,9 @@ export function AppHeader() {
   const router = useRouter();
     const { session, logout } = useAuth();
   const user = session?.user;
+  const { theme, setTheme } = useTheme();
+
+  const toggleTheme = () => setTheme(theme === 'dark' ? 'light' : 'dark');
 
   const navigation = [
     { name: 'Raporlar', href: '/reports' },
@@ -45,7 +49,7 @@ export function AppHeader() {
   };
 
   return (
-    <header className="sticky top-0 z-10 flex-shrink-0 flex h-16 bg-white shadow">
+    <header className="sticky top-0 z-10 flex-shrink-0 flex h-16 bg-background border-b">
       <div className="flex-1 px-4 flex justify-between">
         <div className="flex items-center">
           <Button
@@ -61,11 +65,24 @@ export function AppHeader() {
 
 
 
-        <div className="flex items-center">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleTheme}
+            aria-label="Tema değiştir"
+            title={theme === 'dark' ? 'Açık tema' : 'Koyu tema'}
+          >
+            {theme === 'dark' ? (
+              <Sun className="h-5 w-5" />
+            ) : (
+              <Moon className="h-5 w-5" />
+            )}
+          </Button>
           <Button
             variant="ghost"
             onClick={logout}
-            className="ml-4 text-sm font-medium text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-50"
+            className="ml-1 text-sm font-medium text-foreground"
           >
             <LogOut className="mr-2 h-5 w-5" />
             Çıkış Yap

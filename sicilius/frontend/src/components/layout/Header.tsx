@@ -12,7 +12,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/contexts/AuthContext';
-import { Menu, Search, Settings, LogOut } from 'lucide-react';
+import { Menu, Search, Settings, LogOut, Sun, Moon } from 'lucide-react';
+import { useTheme } from '@/contexts/ThemeContext';
 import Link from 'next/link';
 
 interface HeaderProps {
@@ -23,6 +24,12 @@ interface HeaderProps {
 export function Header({ onMenuClick, isMenuOpen }: HeaderProps) {
   const { session, logout } = useAuth();
   const user = session.user;
+  const { theme, setTheme } = useTheme();
+
+  const toggleTheme = () => {
+    // Toggle only between light and dark for admin; ignore 'system'
+    setTheme(theme === 'dark' ? 'light' : 'dark');
+  };
 
   return (
     <header
@@ -58,6 +65,21 @@ export function Header({ onMenuClick, isMenuOpen }: HeaderProps) {
             aria-label="Arama"
           />
         </div>
+
+        {/* Theme Toggle */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleTheme}
+          aria-label="Tema değiştir"
+          title={theme === 'dark' ? 'Açık tema' : 'Koyu tema'}
+        >
+          {theme === 'dark' ? (
+            <Sun className="h-5 w-5" />
+          ) : (
+            <Moon className="h-5 w-5" />
+          )}
+        </Button>
 
         {/* User Dropdown Menu */}
         <DropdownMenu>

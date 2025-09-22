@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     # OCR
     TESSERACT_CMD: str = "/usr/bin/tesseract"
     TESSDATA_PREFIX: str = "/usr/share/tesseract-ocr/4.00/tessdata/"
+
+    # Sicil login credentials (provide via environment)
+    SICIL_EMAIL: str = ""
+    SICIL_PASSWORD: str = ""
     
     # Logging
     LOG_LEVEL: str = "INFO"

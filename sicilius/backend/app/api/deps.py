@@ -49,13 +49,14 @@ def get_current_user(
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    logging.info(f"[deps.py] Attempting to get current user with token: {token[:10]}...")
+    # Avoid noisy logs and leaking token content; keep as DEBUG with minimal info
+    logging.debug("[deps.py] Resolving current user from token (masked)")
     try:
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
         )
         token_data = schemas.TokenPayload(**payload)
-        logging.info(f"[deps.py] Token payload decoded successfully: {token_data}")
+        logging.debug("[deps.py] Token payload decoded successfully")
     except (jwt.JWTError, ValidationError) as e:
         logging.error(f"[deps.py] Token validation failed. Error: {e}", exc_info=True)
         raise HTTPException(
@@ -71,7 +72,7 @@ def get_current_user(
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
 
-    logging.info(f"[deps.py] User {user.email} found and is active.")
+    logging.debug(f"[deps.py] User {user.email} found and is active.")
     return user
 
 def get_current_active_superuser(

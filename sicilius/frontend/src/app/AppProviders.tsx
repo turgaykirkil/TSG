@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/toaster';
 import { FullScreenLoader } from '@/components/ui/loading-spinner';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import { ThemeProvider } from '@/contexts/ThemeContext';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,10 +30,12 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <AuthWrapper>
-          {children}
-          <Toaster />
-        </AuthWrapper>
+        <ThemeProvider defaultTheme="system" storageKey="sicilius.theme">
+          <AuthWrapper>
+            {children}
+            <Toaster />
+          </AuthWrapper>
+        </ThemeProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

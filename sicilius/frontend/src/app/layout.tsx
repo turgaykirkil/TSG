@@ -65,8 +65,7 @@ export default function RootLayout({
       <body
         className={cn(
           'min-h-[100svh] font-sans antialiased',
-          // Light: gradient background, Dark: solid slate background
-          'bg-gradient-to-b from-[#FAFCFF] via-[#F7FAFF] to-[#EFF4FF] text-slate-900 dark:bg-slate-950 dark:text-slate-100',
+          'bg-background text-foreground',
           inter.variable,
           spaceGrotesk.variable
         )}
