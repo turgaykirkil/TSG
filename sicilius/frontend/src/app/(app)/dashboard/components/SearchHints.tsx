@@ -5,6 +5,7 @@ interface SearchHintsProps {
 }
 
 const HINTS: string[] = [
+  "BARLAK AND BARLAK İÇ VE DIŞ TİCARET LİMİTED ŞİRKETİ",
   "pars global",
   "675******38",
   "67572947938",

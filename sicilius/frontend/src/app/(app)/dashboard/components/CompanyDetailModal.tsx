@@ -61,6 +61,33 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
     limit: 10,
   });
 
+  // Başlıkta kullanılmak üzere "Tescil Edilen Hususlar" metnini çıkar
+  const extractHusus = (text?: string | null): string | null => {
+    if (!text) return null;
+    try {
+      // Aynı satırda değer
+      const m1 = text.match(/Tescil\s*Edilen\s*Hususlar?\s*[:\-]\s*([^\n\r]+)/i);
+      if (m1 && m1[1]) return m1[1].trim();
+      // Etiketi bul, bir sonraki dolu satırı al
+      const lines = text.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+        const L = lines[i];
+        if (/Tescil\s*Edilen\s*Hususlar?/i.test(L)) {
+          const after = L.split(/[:\-]/).slice(1).join(":").trim();
+          if (after) return after;
+          let j = i + 1;
+          while (j < lines.length) {
+            const candidate = (lines[j] || '').trim();
+            if (candidate) return candidate;
+            j++;
+          }
+          break;
+        }
+      }
+    } catch {}
+    return null;
+  };
+
   // Şirket detayı başarıyla yüklendiğinde günlük kullanım bilgisini yenile (badge güncelleme)
   const lastRefreshedId = useRef<string | null>(null);
   useEffect(() => {
@@ -313,12 +340,15 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
                 <div className="mt-2 space-y-2">
                   {data.announcements.map((a: any, idx: number) => {
                     const date = a.publication_date ? new Date(a.publication_date).toLocaleDateString('tr-TR') : '-';
+                    const husus = extractHusus(a.original_text);
                     return (
                       <details key={a.id || idx} className="rounded border bg-white dark:bg-slate-900 dark:border-slate-700 p-3" open={annOpenAll}>
                         <summary className="cursor-pointer select-none list-none">
                           <div className="flex items-center justify-between">
                             <div className="min-w-0 pr-2">
-                              <div className="font-medium truncate" title={a.title || 'Başlık yok'}>{a.title || 'Başlık yok'}</div>
+                              <div className="font-medium truncate" title={husus ? `Tescil Edilen Hususlar: ${husus}` : 'İlan'}>
+                                {husus ? `Tescil Edilen Hususlar: ${husus}` : 'İlan'}
+                              </div>
                               <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                                 {a.announcement_type ? `${a.announcement_type} • ` : ''}
                                 {a.issue_number ? `Sayı: ${a.issue_number} • ` : ''}

@@ -1956,10 +1956,11 @@ def company_detail(
         # --- Announcements --- (fallback'lı)
         announcements = []
         try:
+            # '*' seçerek tabloda varsa original_text gibi ek alanları da alalım.
             ann_resp = (
                 supabase
                 .table("announcements")
-                .select("id, title, announcement_type, publication_date, issue_number, page_number, newspaper_name, pdf_url, ocr_status, created_at, trade_registry_number")
+                .select("*")
                 .eq("company_id", cid)
                 .order("publication_date", desc=True)
                 .limit(100)
@@ -1998,7 +1999,7 @@ def company_detail(
                     ann_by_title = (
                         supabase
                         .table("announcements")
-                        .select("id, title, announcement_type, publication_date, issue_number, page_number, newspaper_name, pdf_url, ocr_status, created_at, trade_registry_number")
+                        .select("*")
                         .ilike("title", pat)
                         .order("publication_date", desc=True)
                         .limit(50)
@@ -2042,12 +2043,14 @@ def company_detail(
                             .select("id, original_text, created_at")
                             .eq("company_id", cid)
                             .order("created_at", desc=True)
-                            .limit(min(100, len(missing) * 2))
+                            .limit(50)
                             .execute()
                         ).data or []
-                        for i, a in enumerate(missing):
-                            if i < len(ocr_recent):
-                                a["original_text"] = ocr_recent[i].get("original_text") or a.get("original_text")
+                        # Tüm eksiklere sırayla doldur, yetmezse ilk metni yay
+                        if ocr_recent:
+                            for i, a in enumerate(missing):
+                                src = ocr_recent[i] if i < len(ocr_recent) else ocr_recent[0]
+                                a["original_text"] = (src.get("original_text") or a.get("original_text") or "")
                     except Exception:
                         pass
         except Exception as _e_enrich:
@@ -2297,16 +2300,17 @@ def company_detail(
                     first_line = txt.splitlines()[0][:140]
                     ann_from_ocr.append({
                         'id': f"ocr-{ocr.get('id')}",
-                        'title': first_line or 'OCR Snippet',
-                        'announcement_type': 'OCR_SNIPPET',
+                        'title': first_line or 'Metin Özeti',
+                        'announcement_type': None,
                         'publication_date': None,
                         'issue_number': None,
                         'page_number': None,
-                        'newspaper_name': 'OCR',
+                        'newspaper_name': None,
                         'pdf_url': None,
-                        'ocr_status': 'extracted',
+                        'ocr_status': None,
                         'created_at': None,
                         'trade_registry_number': company.get('sicil_no'),
+                        'original_text': txt,
                     })
                 if ann_from_ocr:
                     announcements = ann_from_ocr

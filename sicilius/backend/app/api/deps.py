@@ -151,7 +151,10 @@ def enforce_daily_limit(
         db.commit()
         db.refresh(usage)
 
-    if usage.count >= limit:
+    # Süper kullanıcılar için limit uygulanmaz (sınırsız), fakat sayaç artmaya devam eder
+    is_admin = crud.user.is_superuser(current_user)
+
+    if usage.count >= limit and not is_admin:
         raise HTTPException(
             status_code=429,
             detail=f"Günlük sorgu limitine ulaştınız ({limit}). Lütfen yarın tekrar deneyin.",

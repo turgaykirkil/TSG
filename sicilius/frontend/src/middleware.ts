@@ -5,6 +5,14 @@ export function middleware(request: NextRequest) {
   const token = request.cookies.get('auth_token')?.value;
   const { pathname } = request.nextUrl;
 
+  // Production hard block for /admin routes (admin only used locally)
+  if (pathname.startsWith('/admin')) {
+    const disableAdmin = process.env.NEXT_PUBLIC_DISABLE_ADMIN === 'true';
+    if (disableAdmin) {
+      return new NextResponse('Not Found', { status: 404 });
+    }
+  }
+
   // If there's a token and the user is trying to access the login page,
   // redirect them to the dashboard.
   if (token && pathname.startsWith('/login')) {

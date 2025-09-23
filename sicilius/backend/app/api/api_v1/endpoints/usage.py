@@ -41,6 +41,40 @@ def my_usage(
     }
 
 
+@router.post("/reset-me", summary="Reset today's usage counter for current user")
+def reset_my_usage(
+    db: Session = Depends(deps.get_db),
+    current_user: models.User = Depends(deps.get_current_active_user),
+):
+    """
+    Bugünün kullanım sayacını 0'a çeker. Geliştirme/test amaçlıdır.
+    """
+    today = datetime.utcnow().date()
+    usage = (
+        db.query(models.DailyUsage)
+        .filter(models.DailyUsage.user_id == current_user.id, models.DailyUsage.day == today)
+        .first()
+    )
+    if usage is None:
+        usage = models.DailyUsage(user_id=current_user.id, day=today, count=0)
+        db.add(usage)
+        db.commit()
+        db.refresh(usage)
+    else:
+        usage.count = 0
+        db.add(usage)
+        db.commit()
+
+    limit = _limit_from_env()
+    return {
+        "date": str(today),
+        "count": 0,
+        "limit": int(limit),
+        "remaining": int(limit),
+        "reset": True,
+    }
+
+
 @router.get("/supabase-overview", summary="Supabase veritabanı ve storage kullanım özeti (admin)")
 def supabase_overview(
     db: Session = Depends(deps.get_db),
