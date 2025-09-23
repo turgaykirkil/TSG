@@ -53,6 +53,14 @@ class ScrapingState:
         with self.lock:
             self.logs.append(message)
 
+    def update_progress(self, processed: int):
+        with self.lock:
+            try:
+                p = int(processed)
+            except Exception:
+                p = self.processed
+            self.processed = max(0, p)
+
     def get_status(self):
         with self.lock:
             return {

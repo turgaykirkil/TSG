@@ -14,6 +14,7 @@ import {
   type LucideIcon,
   ScanText,
   ArrowRight,
+  Database,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Logo } from '@/components/ui/logo';
@@ -44,6 +45,7 @@ const adminNavigation: NavItem[] = [
   { name: 'Admin Paneli', href: '/admin', icon: Home },
   { name: 'OCR Yönetimi', href: '/admin/ocr', icon: ScanText },
   { name: 'Raporlar', href: '/admin/reports', icon: BarChart3 },
+  { name: 'Supabase Kullanımı', href: '/admin/usage', icon: Database },
   { name: 'Kaydedilenler', href: '/admin/favorites', icon: Bookmark },
   { name: 'Ayarlar', href: '/admin/settings', icon: Settings },
 ];

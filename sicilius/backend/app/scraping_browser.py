@@ -9,7 +9,7 @@ import shutil
 import httpx
 import traceback
 from datetime import datetime, date
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from urllib.parse import urljoin
 
 from storage3.utils import StorageException
@@ -417,12 +417,12 @@ class BrowserManager:
 browser_manager = BrowserManager()
 
 
-async def start_enhanced_scraping_process(count: int):
+async def start_enhanced_scraping_process(count: int, city: Optional[str] = None, mode: Optional[str] = 'normal'):
     """
     Fetches unscraped companies, scrapes their announcements, and saves them to the database.
     This function is intended for robust, production-like scraping.
     """
-    logger.info(f"Starting scraping process for up to {count} companies with DB saving.")
+    logger.info(f"Starting scraping process: mode={mode}, city={city}, attempts/count={count}")
     # Session periodic save disabled; no-op
     db: Session = SessionLocal()
     page = await browser_manager.get_page()
@@ -437,6 +437,73 @@ async def start_enhanced_scraping_process(count: int):
     try:
         # Otomatik login (gerekirse)
         await ensure_login(page)
+
+        # City-fill modu: sayısal sicil boşluklarını doldurmak için ardışık denemeler
+        if mode == 'city_fill' and city:
+            from app.utils.office_normalization import normalize_office_freeform
+
+            office_label = normalize_office_freeform(city)
+            if not office_label:
+                scraping_state.start(total_count=count)
+                msg = f"CITY_FILL_ERROR: Verilen şehir normalize edilemedi: {city}"
+                scraping_state.add_log(msg)
+                logger.error(msg)
+                return
+
+            # Aday sicil numaralarını hazırla (gaps + max'tan itibaren)
+            # İstanbul için en az 6 haneli (>=100000) kısıtını uygula
+            min_threshold = 100000 if office_label == 'İSTANBUL' else 1
+            candidates: List[int] = _compute_candidate_sicil_numbers(db, office_label, count, min_threshold=min_threshold)
+            if not candidates:
+                scraping_state.start(total_count=count)
+                scraping_state.add_log("CITY_FILL_INFO: Aday sicil numarası üretilemedi.")
+                return
+
+            scraping_state.start(total_count=count)
+            # Ensure the Supabase bucket exists before starting to scrape
+            bucket_name = "gazette-pdfs"
+            try:
+                buckets = supabase.storage.list_buckets()
+                if not any(b.name == bucket_name for b in buckets):
+                    logger.info(f"Bucket '{bucket_name}' not found. Creating it...")
+                    supabase.storage.create_bucket(id=bucket_name, name=bucket_name, options={"public": True})
+                    logger.info(f"Bucket '{bucket_name}' created successfully.")
+                else:
+                    logger.info(f"Bucket '{bucket_name}' already exists.")
+            except StorageException as e:
+                logger.error(f"An error occurred while checking or creating bucket '{bucket_name}': {e}")
+                # RLS hatası gibi kritik bir durumda işlemi durdurmak için hatayı yükselt
+                raise e
+            processed = 0
+            for num in candidates:
+                if scraping_state.should_stop:
+                    scraping_state.add_log("STOP_SIGNAL_RECEIVED: Stopping task.")
+                    break
+                try:
+                    found = await search_by_office_and_sicil(page, office_label, num)
+                    if found:
+                        scraping_state.add_log(f"CITY_FILL_FOUND: {office_label} #{num} için sonuç bulundu.")
+                        # Minimal company oluştur/çek ve detaylı scrape yap
+                        company = crud.company.get_or_create_minimal_by_sicil(db, office_label=office_label, sicil_no=str(num))
+                        await scrape_company(page, db, company)
+                    else:
+                        scraping_state.add_log(f"CITY_FILL_EMPTY: {office_label} #{num} için sonuç yok. Tekrar denememek için işaretleniyor.")
+                        # Boş sonuçta da tekrar denememek için minimal şirket kaydı oluştur ve scraped olarak işaretle
+                        empty_company = crud.company.get_or_create_minimal_by_sicil(db, office_label=office_label, sicil_no=str(num))
+                        try:
+                            crud.company.mark_as_scraped(db, company_id=empty_company.id)
+                        except Exception:
+                            pass
+                except Exception as e:
+                    scraping_state.add_log(f"CITY_FILL_ERROR: {office_label} #{num} denemesinde hata: {e}")
+                finally:
+                    processed += 1
+                    scraping_state.update_progress(processed)
+                    if processed >= count:
+                        break
+            return
+
+        # Normal mod: mevcut akış
         companies = crud.company.get_unscraped_with_sicil_info(db, limit=count)
         scraping_state.start(total_count=len(companies))
 
@@ -483,6 +550,100 @@ async def start_enhanced_scraping_process(count: int):
             await browser_manager.close_browser(cleanup=True)
         except Exception:
             logger.warning("Failed to close browser during finalization.")
+
+
+def _compute_candidate_sicil_numbers(db: Session, office_label: str, count: int, min_threshold: int = 1) -> List[int]:
+    """Verilen ofis için DB'deki sayısal sicil_no'ları toplayıp aralıklardaki boşlukları (gaps)
+    üretir; gerekirse en büyük numaradan itibaren yukarı doğru tamamlayarak toplam 'count' aday üretir.
+    """
+    try:
+        # Ofis eşleşmesi: öncelik sicil_office_code, yoksa sicil_mudurluk ilk kelime eşleşmesi
+        from app.models.company import Company
+        q = (
+            db.query(Company.sicil_no, Company.sicil_office_code, Company.sicil_mudurluk)
+            .filter(
+                (Company.sicil_office_code == office_label) |
+                (Company.sicil_mudurluk.ilike(f"{office_label}%"))
+            )
+        )
+        rows = q.all()
+        nums: List[int] = []
+        for sicil_no, _, _ in rows:
+            try:
+                s = (sicil_no or "").strip()
+                if not s:
+                    continue
+                # sadece tam sayısal sicil no'ları al
+                if s.isdigit():
+                    val = int(s)
+                    if val >= max(1, int(min_threshold)):
+                        nums.append(val)
+            except Exception:
+                continue
+        if not nums:
+            # hiç veri yoksa 1'den başlayarak count kadar üret
+            start_n = max(1, int(min_threshold))
+            return list(range(start_n, start_n + max(1, count)))[:count]
+        nums = sorted(set(nums))
+        candidates: List[int] = []
+        # Başlangıç boşluğu: min_threshold .. ilk mevcut-1
+        start_n = max(1, int(min_threshold))
+        first = nums[0]
+        if first > start_n:
+            for n in range(start_n, first):
+                candidates.append(n)
+                if len(candidates) >= count:
+                    return candidates[:count]
+        # Aralıklardaki boşlukları sayac dolana kadar doldur
+        prev = nums[0]
+        for current in nums[1:]:
+            gap_start = prev + 1
+            gap_end = current - 1
+            if gap_end >= gap_start:
+                for n in range(gap_start, gap_end + 1):
+                    candidates.append(n)
+                    if len(candidates) >= count:
+                        return candidates[:count]
+            prev = current
+        # Gaps yetmezse max'tan itibaren devam
+        max_n = nums[-1]
+        n = max_n + 1
+        while len(candidates) < count:
+            candidates.append(n)
+            n += 1
+        return candidates[:count]
+    except Exception:
+        logger.exception("Failed to compute candidate sicil numbers.")
+        return []
+
+
+async def search_by_office_and_sicil(page: Page, office_label: str, sicil_no: int) -> bool:
+    """Verilen ofis ve sicil numarası için ilan araması yapar. Sonuç varsa True, yoksa False döner.
+    CAPTCHA ve ufak gecikmeler mevcut yardımcılarla yönetilir.
+    """
+    try:
+        await page.goto("https://www.ticaretsicil.gov.tr/view/hizlierisim/ilangoruntuleme.php", wait_until="domcontentloaded")
+        await ensure_captcha(page)
+        await page.select_option('select#SicilMudurluguId', label=office_label)
+        await random_human_delay(80, 180)
+        await page.fill('input#TicSicNo', str(sicil_no))
+        await random_human_delay(80, 180)
+        await page.click('button[data-message="İlan Ara"]')
+        try:
+            await page.wait_for_selector('table#tblIlanGoruntuleme tbody tr', timeout=15000)
+        except PlaywrightTimeoutError:
+            return False
+
+        rows = await page.query_selector_all('table#tblIlanGoruntuleme tbody tr')
+        if not rows:
+            return False
+        first_text = (await rows[0].inner_text()).strip().upper()
+        if "EŞLEŞEN KAYIT BULUNAMADI" in first_text:
+            return False
+        return True
+    except Exception:
+        # Ağır hatalarda False dön, üst katmanda loglanır
+        return False
 
 
 

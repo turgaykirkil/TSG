@@ -12,6 +12,7 @@ export default function ScrapingDashboard() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [scrapeCount, setScrapeCount] = useState<number>(10);
   const [status, setStatus] = useState<any | null>(null);
+  const [selectedCity, setSelectedCity] = useState<'İSTANBUL' | 'ANKARA' | 'İZMİR' | null>(null);
 
   const getApiUrl = useCallback(() => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -47,6 +48,37 @@ export default function ScrapingDashboard() {
       }
       const result = await response.json();
       toast.success(result.message || 'Scraping başlatıldı.');
+    } catch (err: any) {
+      setError(err.message);
+      toast.error(err.message || 'Bir hata oluştu.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleStartCityFill = async (city: 'İSTANBUL' | 'ANKARA' | 'İZMİR') => {
+    if (isLoading) return;
+    if (scrapeCount <= 0) {
+      toast.error('Lütfen geçerli bir adet girin.');
+      return;
+    }
+    setError(null);
+    setIsLoading(true);
+    setSelectedCity(city);
+    try {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/scraping/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: scrapeCount, mode: 'city_fill', city }),
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Scraping başlatılamadı.' }));
+        throw new Error(errorData.detail || `Server error: ${response.status}`);
+      }
+      const result = await response.json();
+      toast.success(result.message || `${city} için city_fill scraping başlatıldı.`);
     } catch (err: any) {
       setError(err.message);
       toast.error(err.message || 'Bir hata oluştu.');
@@ -101,7 +133,7 @@ export default function ScrapingDashboard() {
             <p className="text-sm text-muted-foreground mt-1">
               Taramak istediğiniz şirket adedini girin ve scraping işlemini başlatın. Sistem companies tablosundan sicil no ve sicil müdürlüğü olan şirketleri alacak, otomatik form doldurup ilân verileri ile PDF'leri Supabase'e yükleyecektir. Tarayıcı ve giriş işlemi otomatik olarak yönetilir (OCR CAPTCHA dahil).
             </p>
-            <div className="flex items-center gap-4 mt-3">
+            <div className="flex flex-wrap items-center gap-3 mt-3">
               <Input
                 type="number"
                 value={scrapeCount}
@@ -113,6 +145,16 @@ export default function ScrapingDashboard() {
               <Button onClick={handleStartScraping} disabled={isLoading || scrapeCount <= 0}>
                 {isLoading ? <LoadingSpinner className="mr-2" /> : <Icons.arrowRightCircle className="mr-2 h-4 w-4" />}
                 Scraping'i Başlat
+              </Button>
+              <div className="h-6 w-px bg-border" />
+              <Button variant={selectedCity === 'İSTANBUL' ? 'default' : 'outline'} disabled={isLoading || scrapeCount <= 0} onClick={() => handleStartCityFill('İSTANBUL')}>
+                İstanbul
+              </Button>
+              <Button variant={selectedCity === 'ANKARA' ? 'default' : 'outline'} disabled={isLoading || scrapeCount <= 0} onClick={() => handleStartCityFill('ANKARA')}>
+                Ankara
+              </Button>
+              <Button variant={selectedCity === 'İZMİR' ? 'default' : 'outline'} disabled={isLoading || scrapeCount <= 0} onClick={() => handleStartCityFill('İZMİR')}>
+                İzmir
               </Button>
             </div>
             {/* Status panel */}

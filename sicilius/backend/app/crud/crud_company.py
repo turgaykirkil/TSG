@@ -108,6 +108,36 @@ class CRUDCompany(CRUDBase[Company, CompanyCreate, CompanyUpdate]):
             db.add(company)
             db.commit()
             db.refresh(company)
+
+    def get_by_sicil_composite(self, db: Session, *, office_label: str, sicil_no: str) -> Optional[Company]:
+        """Composite unique (sicil_no, sicil_office_code) ile şirket getirir."""
+        return (
+            db.query(Company)
+            .filter(
+                Company.sicil_no == sicil_no,
+                Company.sicil_office_code == office_label,
+            )
+            .first()
+        )
+
+    def get_or_create_minimal_by_sicil(self, db: Session, *, office_label: str, sicil_no: str) -> Company:
+        """Şehir (ofis) ve sicil_no ile minimal bir şirket döndürür; yoksa oluşturur.
+        unvan gibi alanlar boş kalabilir; scraping sonrası duyuru/pdflere bağlanır.
+        """
+        obj = self.get_by_sicil_composite(db, office_label=office_label, sicil_no=sicil_no)
+        if obj:
+            return obj
+        obj = Company(
+            unvan=None,
+            sicil_no=sicil_no,
+            sicil_mudurluk=office_label,
+            sicil_office_code=office_label,
+            is_active=True,
+        )
+        db.add(obj)
+        db.commit()
+        db.refresh(obj)
+        return obj
     
     def update(
         self,

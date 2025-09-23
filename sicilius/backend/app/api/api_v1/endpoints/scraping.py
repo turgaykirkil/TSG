@@ -2,6 +2,7 @@ import logging
 import asyncio
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends, Body
 from pydantic import BaseModel
+from typing import Optional, Literal
 from typing import Any, Dict
 
 from app.scraping_browser import browser_manager, start_enhanced_scraping_process
@@ -18,6 +19,8 @@ class LoginSessionResponse(BaseModel):
 
 class ScrapingRequest(BaseModel):
     count: int = 10
+    mode: Optional[Literal['normal', 'city_fill']] = 'normal'
+    city: Optional[str] = None
 
 # Endpoints
 @router.post("/start-login", response_model=LoginSessionResponse)
@@ -109,9 +112,15 @@ async def start_scraping(
     if not browser_manager.get_status().get("is_open"):
         await browser_manager.open_browser(headless=False)
 
-    logging.info(f"User {current_user.email} initiated enhanced scraping for {request.count} companies.")
+    logging.info(f"User {current_user.email} initiated scraping: mode={request.mode}, count={request.count}, city={request.city}")
 
-    # Run the scraping process in the background
+    # Route by mode
+    if request.mode == 'city_fill':
+        if not request.city:
+            raise HTTPException(status_code=400, detail="city is required when mode=city_fill")
+        background_tasks.add_task(start_enhanced_scraping_process, count=request.count, city=request.city, mode='city_fill')
+        return {"message": f"City-fill scraping started for {request.city} with {request.count} attempts."}
+
+    # Default: normal mode
     background_tasks.add_task(start_enhanced_scraping_process, count=request.count)
-
     return {"message": f"Enhanced scraping process started in the background for {request.count} companies."}
