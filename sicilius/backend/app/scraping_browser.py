@@ -73,7 +73,7 @@ async def ensure_login(page: Page) -> None:
                         msg = (await toast.locator('.toast-message').first.text_content()) or ""
                     except Exception:
                         msg = ""
-                    if "Giriş Bilgileri Hatalı" in msg:
+                    if ("Giriş Bilgileri Hatalı" in msg) or ("Güvenlik Kodu Hatalı" in msg):
                         try:
                             # Kapat düğmesine bas (varsa)
                             close_btn = toast.locator('.toast-close-button').first

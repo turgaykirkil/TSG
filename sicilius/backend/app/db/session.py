@@ -3,21 +3,47 @@ Database session management
 """
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 from app.db.base import Base  # Use the unified Base for all models
 
 # Create database engine
-# Convert PostgresDsn to string for SQLite check
+# Convert PostgresDsn to string for checks
 DATABASE_URL_STR = str(settings.DATABASE_URL)
+
+# Build connect args
+connect_args = {}
+if "sqlite" in DATABASE_URL_STR:
+    connect_args["check_same_thread"] = False
+
+# Supabase requires SSL; also serverless Postgres benefits from avoiding long-lived pools
+is_supabase = ("supabase.co" in DATABASE_URL_STR) or ("supabase" in DATABASE_URL_STR)
+if is_supabase and "sslmode=" not in DATABASE_URL_STR:
+    # Ensure SSL for psycopg2
+    connect_args["sslmode"] = "require"
+
+engine_kwargs = {
+    "pool_pre_ping": True,
+}
+
+if is_supabase:
+    # Avoid stale pooled connections on serverless DBs
+    engine_kwargs.update({
+        "poolclass": NullPool,
+    })
+else:
+    # Regular pooling for local/managed Postgres
+    engine_kwargs.update({
+        "pool_recycle": 600,  # Recycle connections more aggressively
+        "pool_size": 10,
+        "max_overflow": 20,
+    })
 
 engine = create_engine(
     DATABASE_URL_STR,
-    pool_pre_ping=True,
-    pool_recycle=1800,  # Recycle connections every 30 minutes
-    pool_size=10,         # Default is 5
-    max_overflow=20,      # Default is 10
-    connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL_STR else {}
+    connect_args=connect_args,
+    **engine_kwargs,
 )
 
 # Create a configured "Session" class

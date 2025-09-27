@@ -80,6 +80,8 @@ export interface CompanyDetailPayload {
   history: HistoryEntryLite[];
   related_companies: RelatedCompany[];
   same_address_companies: SameAddressCompany[];
+  old_addresses: { address: string; matched_company_id?: string | null; matched_company?: any }[];
+  old_trade_names?: string[];
 }
 
 const fetchCompanyDetail = async (companyId: string): Promise<CompanyDetailPayload> => {
@@ -106,6 +108,8 @@ const fetchCompanyDetail = async (companyId: string): Promise<CompanyDetailPaylo
     history: Array.isArray(data?.history) ? data.history : (Array.isArray(data?.gazette_entries) ? data.gazette_entries : []),
     related_companies: Array.isArray(data?.related_companies) ? data.related_companies : [],
     same_address_companies: Array.isArray(data?.same_address_companies) ? data.same_address_companies : [],
+    old_addresses: Array.isArray(data?.old_addresses) ? data.old_addresses : [],
+    old_trade_names: Array.isArray(data?.old_trade_names) ? data.old_trade_names : [],
   };
 };
 
@@ -114,6 +118,9 @@ export const useCompanyDetail = (companyId: string | undefined, enabled: boolean
     queryKey: ['company-detail', companyId],
     queryFn: () => fetchCompanyDetail(companyId as string),
     enabled: !!companyId && enabled,
-    staleTime: 60_000,
+    staleTime: 0, // her açılışta güncel veriyi tercih et
+    refetchOnMount: 'always',
+    refetchOnReconnect: true,
+    refetchOnWindowFocus: false,
   });
 };

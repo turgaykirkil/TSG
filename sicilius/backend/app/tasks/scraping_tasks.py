@@ -12,6 +12,7 @@ from playwright._impl._errors import TargetClosedError
 from app.core.celery_app import celery_app
 from app.core.supabase_client import supabase
 from app.utils.text_utils import normalize_city, CITY_VALUE_MAP
+from app.utils.scrape_helpers_async import ensure_captcha  # CAPTCHA otomasyonu
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,11 @@ def run_scraping_task(self: Task, count: int):
                 log_and_update_state("NAVIGATING: İlan görüntüleme sayfasına gidiliyor...")
                 await page.goto("https://www.ticaretsicil.gov.tr/view/hizlierisim/ilangoruntuleme.php", wait_until="domcontentloaded", timeout=60000)
                 log_and_update_state("NAVIGATION_SUCCESS: Sayfa başarıyla yüklendi.")
+                # İlk ekranda olası CAPTCHA'yı çöz
+                try:
+                    await ensure_captcha(page)
+                except Exception:
+                    pass
 
 
 
@@ -77,10 +83,20 @@ def run_scraping_task(self: Task, count: int):
                             log_and_update_state(f"SKIPPING_COMPANY: Eksik bilgi: Şehir='{company.sicil_mudurluk}', SicilNo='{company.trade_registry_number}'")
                             continue
 
-                        await page.select_option('select[name=\"SicilMudurluguId\"]', value=city_value, timeout=30000)
-                        await page.fill('input[name=\"SicilNo\"]', company.trade_registry_number)
+                        await page.select_option('select[name="SicilMudurluguId"]', value=city_value, timeout=30000)
+                        await page.fill('input[name="SicilNo"]', company.trade_registry_number)
+                        # Form submit öncesi olası CAPTCHA
+                        try:
+                            await ensure_captcha(page)
+                        except Exception:
+                            pass
                         await page.click('button:has-text("Sorgula")')
                         await page.wait_for_load_state('networkidle', timeout=30000)
+                        # Sonrasında tekrar kontrol (bazı durumlarda submit sonrası da CAPTCHA çıkabiliyor)
+                        try:
+                            await ensure_captcha(page)
+                        except Exception:
+                            pass
                         log_and_update_state(f"FORM_SUBMITTED: {company.title} için form gönderildi.")
 
                         # 2. Sonuçları işleme (sayfa sayfa)
@@ -113,10 +129,20 @@ def run_scraping_task(self: Task, count: int):
                                 pdf_link = await cells[7].query_selector('a')
                                 if pdf_link:
                                     try:
+                                        # PDF bağlantısına tıklamadan önce CAPTCHA kontrolü
+                                        try:
+                                            await ensure_captcha(page)
+                                        except Exception:
+                                            pass
                                         async with page.context.expect_page(timeout=60000) as new_page_info:
                                             await pdf_link.click()
                                         new_page = await new_page_info.value
                                         await new_page.wait_for_load_state('domcontentloaded', timeout=60000)
+                                        # Popup sayfasında da CAPTCHA kontrolü yap
+                                        try:
+                                            await ensure_captcha(new_page)
+                                        except Exception:
+                                            pass
 
                                         pdf_content = await new_page.pdf(format='A4')
                                         pdf_name = f"gazette_{uuid.uuid4()}.pdf"
@@ -141,6 +167,11 @@ def run_scraping_task(self: Task, count: int):
                                 log_and_update_state("INFO: Son sayfaya ulaşıldı.")
                                 break
                             
+                            # Sayfa değişmeden önce bir kontrol daha
+                            try:
+                                await ensure_captcha(page)
+                            except Exception:
+                                pass
                             await next_page_link.click()
                             await page.wait_for_load_state('networkidle', timeout=30000)
                             page_number += 1

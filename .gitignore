@@ -48,6 +48,10 @@ yarn-error.log*
 
 # Environment variables
 .env
+.env.*
+**/.env
+**/.env.*
+sicilius/backend/.env
 .env.local
 .env.development.local
 .env.test.local

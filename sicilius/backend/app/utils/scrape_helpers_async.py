@@ -102,7 +102,7 @@ async def ensure_captcha(p: Page, max_tries: int = 3) -> bool:
             if img_el is None:
                 img_el = await p.query_selector('#CaptchaImg')
 
-            # Captcha yoksa
+            # Captcha yoksa veya görünür değilse: önce formu görünür alana getirip tekrar kontrol et
             visible = False
             if img_el is not None:
                 try:
@@ -110,6 +110,21 @@ async def ensure_captcha(p: Page, max_tries: int = 3) -> bool:
                 except Exception:
                     visible = False
             if (img_el is None) or (not visible):
+                try:
+                    if form is not None:
+                        await form.scroll_into_view_if_needed()
+                        await random_human_delay(150, 350)
+                        # Yeniden bulmayı dene (bazı sayfalarda DOM değişebiliyor)
+                        img_el = await p.query_selector('#FormGuvenlikKodu #CaptchaImg') or await p.query_selector('#CaptchaImg')
+                        if img_el is not None:
+                            try:
+                                visible = await img_el.is_visible()
+                            except Exception:
+                                visible = False
+                except Exception:
+                    pass
+            if (img_el is None) or (not visible):
+                # Hala görünür değilse, mevcut davranışı koruyup CAPTCHA olmadığını varsay
                 return True
 
             print(f"[INFO] CAPTCHA tespit edildi. Deneme {attempt}/{max_tries}")

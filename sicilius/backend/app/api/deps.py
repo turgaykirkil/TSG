@@ -11,6 +11,7 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import jwt
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import OperationalError, DBAPIError
 
 from app import crud, models, schemas
 from app.core import security
@@ -35,7 +36,12 @@ def get_db() -> Generator:
         db = SessionLocal()
         yield db
     finally:
-        db.close()
+        try:
+            db.close()
+        except (OperationalError, DBAPIError):
+            # Connection might already be closed by the server (e.g., Supabase idle timeout)
+            # Suppress to avoid noisy shutdown tracebacks
+            pass
 
 def get_current_user(
     db: Session = Depends(get_db), token: str = Depends(cookie_or_header_scheme)

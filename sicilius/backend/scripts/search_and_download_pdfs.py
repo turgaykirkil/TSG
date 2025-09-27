@@ -13,9 +13,18 @@ import re
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout, Page
 import pytesseract  # type: ignore
 
+# Backend kökünü sys.path'e ekle ki 'app.core.config' importu çalışsın
+import sys
+import os as _os
+_BACKEND_ROOT = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+if _BACKEND_ROOT not in sys.path:
+    sys.path.insert(0, _BACKEND_ROOT)
+
+from app.core.config import settings
+
 SITE = "https://www.ticaretsicil.gov.tr/"
-EMAIL = "turgaykirkil@gmail.com"
-PASSWORD = "29769000"
+EMAIL = settings.SICIL_EMAIL
+PASSWORD = settings.SICIL_PASSWORD
 MAX_LOGIN_TRIES = 3
 MAX_CAPTCHA_TRIES = 3
 DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "./downloads")).resolve()
@@ -103,7 +112,16 @@ def ensure_captcha(p: Page, max_tries: int = MAX_CAPTCHA_TRIES) -> bool:
         try:
             form = p.query_selector('#FormGuvenlikKodu')
             img_el = p.query_selector('#FormGuvenlikKodu #CaptchaImg') or p.query_selector('#CaptchaImg')
-            # Captcha yoksa
+            # Captcha yoksa veya görünür değilse: önce formu görünür alana getirip tekrar kontrol et
+            if (img_el is None) or (not img_el.is_visible()):
+                try:
+                    if form is not None:
+                        form.scroll_into_view_if_needed()
+                        random_human_delay(150, 350)
+                        # yeniden seçici dene
+                        img_el = p.query_selector('#FormGuvenlikKodu #CaptchaImg') or p.query_selector('#CaptchaImg')
+                except Exception:
+                    pass
             if (img_el is None) or (not img_el.is_visible()):
                 return True
 

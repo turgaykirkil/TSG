@@ -10,9 +10,18 @@ from playwright.sync_api import sync_playwright
 from PIL import Image, ImageFilter  # type: ignore
 import pytesseract  # type: ignore
 
+# Backend kökünü sys.path'e ekle ki 'app.core.config' importu çalışsın
+import sys
+import os as _os
+_BACKEND_ROOT = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), ".."))
+if _BACKEND_ROOT not in sys.path:
+    sys.path.insert(0, _BACKEND_ROOT)
+
+from app.core.config import settings
+
 SITE = "https://www.ticaretsicil.gov.tr/"
-EMAIL = "turgaykirkil@gmail.com"
-PASSWORD = "29769000"
+EMAIL = settings.SICIL_EMAIL
+PASSWORD = settings.SICIL_PASSWORD
 
 
 def preprocess(img: Image.Image) -> Image.Image:

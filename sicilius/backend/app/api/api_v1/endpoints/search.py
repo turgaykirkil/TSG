@@ -706,7 +706,9 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                         pat = f"%{v}%"
                         conds.extend([
                             f"unvan_unaccent.ilike.{pat}",
+                            f"firma_unvani_unaccent.ilike.{pat}",
                             f"address_unaccent.ilike.{pat}",
+                            f"adres_unaccent.ilike.{pat}",
                         ])
                 or_expr = ",".join(conds)
                 coarse = (
@@ -725,7 +727,10 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                         vars_t = list(_token_variants(t))[:3]
                         for v in vars_t:
                             pat = f"%{v}%"
-                            conds.extend([f"unvan.ilike.{pat}", f"address.ilike.{pat}"])
+                            conds.extend([
+                                f"unvan.ilike.{pat}",
+                                f"address.ilike.{pat}",
+                            ])
                     or_expr = ",".join(conds)
                     coarse = (
                         supabase.table("companies").select("*").or_(or_expr).limit(500).execute()
@@ -736,8 +741,11 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
             def _norm_all(c: Dict[str, Any]) -> str:
                 return tr_normalize_py(
                     " ".join([
-                        str(c.get("unvan", "") or c.get("firma_unvani", "")),
+                        str(c.get("unvan", "")),
                         str(c.get("address", "") or c.get("adres", "")),
+                        str(c.get("adres", "")),
+                        str(c.get("city", "")),
+                        str(c.get("district", "")),
                         str(c.get("sicil_mudurluk", "")),
                     ])
                 )
@@ -829,8 +837,8 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
     companies_data: List[Dict[str, Any]] = []
     try:
         filter_expr = (
-            f"unvan_unaccent.ilike.%{q_norm}%,"
-            f"sicil_no_unaccent.ilike.%{q_norm}%,"
+            f"unvan_unaccent.ilike.%{q_norm}%",
+            f"sicil_no_unaccent.ilike.%{q_norm}%",
             f"address_unaccent.ilike.%{q_norm}%"
         )
         companies_data = (
@@ -852,8 +860,10 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
         companies_data = [
             c for c in coarse
             if q_norm in tr_normalize_py(c.get("unvan", ""))
+            or q_norm in tr_normalize_py(c.get("firma_unvani", ""))
             or q_norm in tr_normalize_py(c.get("sicil_no", ""))
             or q_norm in tr_normalize_py(c.get("address", ""))
+            or q_norm in tr_normalize_py(c.get("adres", ""))
         ]
 
     # Çok kelimeli sorgu: ilk sorgu sonuç vermediyse, token bazlı geniş OR + Python AND filtresi
@@ -874,7 +884,14 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
             companies_data = [
                 c for c in coarse_multi
                 if all(
-                    t in tr_normalize_py(" ".join([c.get("unvan", ""), c.get("sicil_no", ""), c.get("address", "")]))
+                    t in tr_normalize_py(" ".join([
+                        c.get("unvan", ""),
+                        c.get("sicil_no", ""),
+                        c.get("address", ""),
+                        c.get("adres", ""),
+                        c.get("city", ""),
+                        c.get("district", ""),
+                    ]))
                     for t in tokens
                 )
             ]
@@ -896,7 +913,14 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                 companies_data = [
                     c for c in coarse_multi
                     if all(
-                        t in tr_normalize_py(" ".join([c.get("unvan", ""), c.get("sicil_no", ""), c.get("address", "")]))
+                        t in tr_normalize_py(" ".join([
+                            c.get("unvan", ""),
+                            c.get("sicil_no", ""),
+                            c.get("address", ""),
+                            c.get("adres", ""),
+                            c.get("city", ""),
+                            c.get("district", ""),
+                        ]))
                         for t in tokens
                     )
                 ]
@@ -1062,7 +1086,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                 except Exception:
                     base_score = 0
                 score = base_score
-                unv = (c.get("unvan") or c.get("firma_unvani") or "").strip()
+                unv = (c.get("unvan") or "").strip()
                 s_unv = tr_normalize_py(unv)
                 # 1) Tam ifade prefix eşleşmesi
                 if q_norm and s_unv.startswith(q_norm):
@@ -2011,28 +2035,53 @@ def company_detail(
             except Exception as _e:
                 logger.warning(f"[Company Detail] announcements by title failed: {_e}")
 
-        # Enrichment: announcements -> original_text (from ocr_results by announcement_id)
+        # Enrichment: announcements -> original_text & hususlar (from ocr_results by announcement_id)
         try:
             ann_ids = [a.get("id") for a in announcements if isinstance(a, dict) and a.get("id")]
             if ann_ids:
                 ocr_by_ann = (
                     supabase
                     .table("ocr_results")
-                    .select("announcement_id, original_text")
+                    .select("announcement_id, original_text, hususlar")
                     .in_("announcement_id", ann_ids)
                     .limit(min(2000, len(ann_ids) * 5))
                     .execute()
                 ).data or []
                 # Son ilanın metnini tercih et (aynı announcement_id için birden fazla satır olabilir)
-                ocr_map: Dict[Any, str] = {}
+                ocr_text_map: Dict[Any, str] = {}
+                ocr_husus_map: Dict[Any, str] = {}
                 for row in ocr_by_ann:
                     aid = row.get("announcement_id")
-                    if aid and not ocr_map.get(aid):
-                        ocr_map[aid] = row.get("original_text") or ""
+                    if aid:
+                        if not ocr_text_map.get(aid):
+                            ocr_text_map[aid] = row.get("original_text") or ""
+                        if not ocr_husus_map.get(aid):
+                            hus = row.get("hususlar")
+                            hus_text = ""
+                            try:
+                                if isinstance(hus, str):
+                                    hus_text = hus.strip()
+                                elif isinstance(hus, list):
+                                    # Join list items into a single line
+                                    hus_text = ", ".join([str(x).strip() for x in hus if str(x).strip()])[:300]
+                                elif isinstance(hus, dict):
+                                    # Prefer common keys if present
+                                    pref = hus.get("text") or hus.get("value") or ""
+                                    if isinstance(pref, str):
+                                        hus_text = pref.strip()
+                                    else:
+                                        hus_text = str(hus)
+                                elif hus is not None:
+                                    hus_text = str(hus)
+                            except Exception:
+                                hus_text = ""
+                            ocr_husus_map[aid] = hus_text
                 for a in announcements:
                     aid = a.get("id")
-                    if aid and aid in ocr_map:
-                        a["original_text"] = ocr_map[aid]
+                    if aid and aid in ocr_text_map:
+                        a["original_text"] = ocr_text_map[aid]
+                    if aid and aid in ocr_husus_map and ocr_husus_map[aid]:
+                        a["hususlar"] = ocr_husus_map[aid]
                 # Fallback: Hala metni olmayan ilanlar için şirketin en yeni OCR kayıtlarından sırayla doldur
                 missing = [a for a in announcements if isinstance(a, dict) and not a.get("original_text")]
                 if missing:
@@ -2061,7 +2110,7 @@ def company_detail(
             ocr_resp = (
                 supabase
                 .table("ocr_results")
-                .select("id, original_text, persons, masked_ids, created_at")
+                .select("id, original_text, persons, masked_ids, created_at, old_trade_name")
                 .eq("company_id", cid)
                 .order("created_at", desc=True)
                 .limit(100)
@@ -2289,7 +2338,106 @@ def company_detail(
         except Exception as e:
             logger.warning(f"[Company Detail] OCR-based related companies failed: {e}")
 
-        # Announcements boşsa, OCR snippet'larından pseudo-ilan üret
+        # Derivations from OCR results
+        # 1) Eski unvanlar listesi
+        try:
+            ocr_rows = (ocr_resp.data or []) if 'ocr_resp' in locals() and hasattr(ocr_resp, 'data') else []
+            old_names: list[str] = []
+
+            # Prefer materialized view (fast path)
+            try:
+                mv = (
+                    supabase
+                    .table('company_old_trade_names_mv')
+                    .select('old_trade_names')
+                    .eq('company_id', cid)
+                    .limit(1)
+                    .execute()
+                )
+                mv_list = (mv.data[0] or {}).get('old_trade_names') if (mv and mv.data) else []
+                if isinstance(mv_list, list):
+                    for item in mv_list:
+                        if isinstance(item, str):
+                            v = item.strip()
+                            if v and v not in old_names:
+                                old_names.append(v)
+            except Exception:
+                pass
+            for r in ocr_rows:
+                name = (r.get('old_trade_name') or '').strip()
+                if name and name not in old_names:
+                    old_names.append(name)
+            # Fallback: company_id üzerinden bulunamadıysa, mersis_no ile direkt tara
+            if not old_names:
+                try:
+                    mersis_vals_fb: list[str] = []
+                    for k in ("mersis_number", "mersis_number_ocr"):
+                        v = company.get(k)
+                        if isinstance(v, str) and v.strip():
+                            vv = v.strip()
+                            if vv not in mersis_vals_fb:
+                                mersis_vals_fb.append(vv)
+                    if mersis_vals_fb:
+                        fb_rows = (
+                            supabase
+                            .table('ocr_results')
+                            .select('old_trade_name, mersis_no, created_at')
+                            .in_('mersis_no', mersis_vals_fb)
+                            .order('created_at', desc=True)
+                            .limit(200)
+                            .execute()
+                        ).data or []
+                        for r in fb_rows:
+                            nm = (r.get('old_trade_name') or '').strip()
+                            if nm and nm not in old_names:
+                                old_names.append(nm)
+                except Exception:
+                    pass
+            # Second fallback: derive mersis_no directly from this company's OCR rows
+            if not old_names:
+                try:
+                    mers_set: Set[str] = set()
+                    for r in ocr_rows:
+                        mv = r.get('mersis_no')
+                        if isinstance(mv, str) and mv.strip():
+                            mers_set.add(mv.strip())
+                    if mers_set:
+                        fb_rows2 = (
+                            supabase
+                            .table('ocr_results')
+                            .select('old_trade_name, mersis_no, created_at')
+                            .in_('mersis_no', list(mers_set))
+                            .order('created_at', desc=True)
+                            .limit(200)
+                            .execute()
+                        ).data or []
+                        for r in fb_rows2:
+                            nm = (r.get('old_trade_name') or '').strip()
+                            if nm and nm not in old_names:
+                                old_names.append(nm)
+                except Exception:
+                    pass
+            # Final fallback: RPC function (SQL) — get_company_old_trade_names(uuid)
+            if not old_names:
+                try:
+                    rpc_resp = supabase.rpc('get_company_old_trade_names', { 'p_company_id': cid }).execute()
+                    arr = []
+                    try:
+                        arr = rpc_resp.data or []
+                    except Exception:
+                        arr = []
+                    if isinstance(arr, list):
+                        for item in arr:
+                            if isinstance(item, str):
+                                v = item.strip()
+                                if v and v not in old_names:
+                                    old_names.append(v)
+                except Exception:
+                    pass
+        except Exception:
+            old_names = []
+
+        # 2) Announcements boşsa, OCR snippet'larından pseudo-ilan üret
         try:
             if not announcements:
                 ann_from_ocr = []
@@ -2376,17 +2524,318 @@ def company_detail(
             logger.warning(f"[Company Detail] Error fetching gazette entries: {e}")
             gazette_entries = []
 
+        # --- Old addresses: prefer ocr_results.old_addresses, fallback to text heuristics ---
+        old_addresses = []
+        try:
+            curr_addr = (company.get('address') or company.get('adres') or '').strip()
+            seen_norm: Set[str] = set()
+            candidates: list[str] = []
+
+            # 0) From ocr_results.old_addresses JSONB (preferred)
+            try:
+                ocr_oa_resp = (
+                    supabase
+                    .table('ocr_results')
+                    .select('old_addresses, created_at')
+                    .eq('company_id', cid)
+                    .order('created_at', desc=True)
+                    .limit(50)
+                    .execute()
+                )
+                for row in (ocr_oa_resp.data or []):
+                    oa = row.get('old_addresses')
+                    if isinstance(oa, list):
+                        for item in oa:
+                            if isinstance(item, str):
+                                v = item.strip()
+                                if v:
+                                    candidates.append(v)
+                            elif isinstance(item, dict):
+                                v = (item.get('address') or item.get('adres') or '').strip()
+                                if v:
+                                    candidates.append(v)
+                            elif isinstance(item, list):
+                                for sub in item:
+                                    if isinstance(sub, str) and sub.strip():
+                                        candidates.append(sub.strip())
+                                    elif isinstance(sub, dict):
+                                        v = (sub.get('address') or sub.get('adres') or '').strip()
+                                        if v:
+                                            candidates.append(v)
+            except Exception as _e_ocr_oa:
+                logger.warning(f"[Company Detail] reading ocr_results.old_addresses failed: {_e_ocr_oa}")
+
+            # Not: OCR old_addresses boş ise heuristik üretim yapılmaz (kullanıcı isteği)
+
+            # Deduplicate and exclude current address (normalized)
+            uniq: list[str] = []
+            curr_norm = tr_normalize_py(curr_addr)
+            for caddr in candidates:
+                n = tr_normalize_py(caddr)
+                if not n or n == curr_norm:
+                    continue
+                if n in seen_norm:
+                    continue
+                seen_norm.add(n)
+                uniq.append(caddr)
+
+            # Try to link to existing companies at same address
+            for addr in uniq[:20]:  # limit
+                linked_company = None
+                linked_company_id = None
+                try:
+                    cands = (
+                        supabase
+                        .table('companies')
+                        .select('id, unvan, address, sicil_no, mersis_number')
+                        .eq('address', addr)
+                        .limit(1)
+                        .execute()
+                    ).data or []
+                    if cands:
+                        linked_company = cands[0]
+                        linked_company_id = linked_company.get('id')
+                    else:
+                        # Fallback 1: address_unaccent ilike normalized pattern
+                        try:
+                            norm = tr_normalize_py(addr)
+                            pat = f"%{norm[:80]}%"
+                            cands2 = (
+                                supabase
+                                .table('companies')
+                                .select('id, unvan, address, sicil_no, mersis_number')
+                                .ilike('address_unaccent', pat)
+                                .limit(1)
+                                .execute()
+                            ).data or []
+                            if cands2:
+                                linked_company = cands2[0]
+                                linked_company_id = linked_company.get('id')
+                        except Exception:
+                            pass
+                        # Fallback 2: address ilike raw snippet
+                        if not linked_company_id:
+                            try:
+                                pat2 = f"%{addr[:80]}%"
+                                cands3 = (
+                                    supabase
+                                    .table('companies')
+                                    .select('id, unvan, address, sicil_no, mersis_number')
+                                    .ilike('address', pat2)
+                                    .limit(1)
+                                    .execute()
+                                ).data or []
+                                if cands3:
+                                    linked_company = cands3[0]
+                                    linked_company_id = linked_company.get('id')
+                            except Exception:
+                                pass
+                        # Fallback 3: başka şirketlerin old_addresses (OCR) içinde ara
+                        if not linked_company_id:
+                            try:
+                                occ_data: list[dict] = []
+                                # array of strings
+                                occ1 = (
+                                    supabase
+                                    .table('ocr_results')
+                                    .select('company_id, companies(*)')
+                                    .filter('old_addresses', 'cs', json.dumps([addr]))
+                                    .limit(50)
+                                    .execute()
+                                )
+                                occ_data.extend(occ1.data or [])
+                                # array of objects with address/adres
+                                occ2 = (
+                                    supabase
+                                    .table('ocr_results')
+                                    .select('company_id, companies(*)')
+                                    .filter('old_addresses', 'cs', json.dumps([{ 'address': addr }]))
+                                    .limit(50)
+                                    .execute()
+                                )
+                                occ_data.extend(occ2.data or [])
+                                occ3 = (
+                                    supabase
+                                    .table('ocr_results')
+                                    .select('company_id, companies(*)')
+                                    .filter('old_addresses', 'cs', json.dumps([{ 'adres': addr }]))
+                                    .limit(50)
+                                    .execute()
+                                )
+                                occ_data.extend(occ3.data or [])
+                                # pick first different company
+                                for row in occ_data:
+                                    rcid = row.get('company_id')
+                                    if not rcid or rcid == cid:
+                                        continue
+                                    comp_obj = row.get('companies') if isinstance(row.get('companies'), dict) else None
+                                    if not comp_obj:
+                                        try:
+                                            comp_f = (
+                                                supabase
+                                                .table('companies')
+                                                .select('id, unvan, address, sicil_no, mersis_number')
+                                                .eq('id', rcid)
+                                                .limit(1)
+                                                .execute()
+                                            ).data or []
+                                            comp_obj = comp_f[0] if comp_f else None
+                                        except Exception:
+                                            comp_obj = None
+                                    if comp_obj:
+                                        linked_company = comp_obj
+                                        linked_company_id = comp_obj.get('id') or rcid
+                                        break
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                old_addresses.append({
+                    'address': addr,
+                    'matched_company_id': linked_company_id,
+                    'matched_company': linked_company,
+                })
+        except Exception as e:
+            logger.warning(f"[Company Detail] old_addresses derivation failed: {e}")
+
+        # --- Registry-related companies (MERSIS / Sicil) ---
+        registry_related_companies = []
+        try:
+            existing_rr_ids: Set[str] = set()
+
+            # MERSIS match
+            mersis_vals: list[str] = []
+            try:
+                for k in ("mersis_number", "mersis_number_ocr"):
+                    v = company.get(k)
+                    if isinstance(v, str) and v.strip():
+                        vv = v.strip()
+                        if vv not in mersis_vals:
+                            mersis_vals.append(vv)
+            except Exception:
+                pass
+            if mersis_vals:
+                try:
+                    mresp = (
+                        supabase
+                        .table('companies')
+                        .select('id, unvan, address, sicil_no, mersis_number, sicil_mudurluk, sicil_office_code')
+                        .in_('mersis_number', mersis_vals)
+                        .neq('id', cid)
+                        .limit(500)
+                        .execute()
+                    )
+                    for row in (mresp.data or []):
+                        rid = row.get('id')
+                        if not rid or rid in existing_rr_ids:
+                            continue
+                        registry_related_companies.append({**row, 'match_reason': 'MERSIS_MATCH'})
+                        existing_rr_ids.add(rid)
+                except Exception as _e_mersis:
+                    logger.warning(f"[Company Detail] registry mersis match failed: {_e_mersis}")
+
+            # Sicil match (same sicil_no and same office first token)
+            def _office_first_token(s: Any) -> str:
+                try:
+                    return str(s or '').strip().split()[0].upper()
+                except Exception:
+                    return ''
+
+            sicil_no = company.get('sicil_no')
+            office_norm = _office_first_token(company.get('sicil_mudurluk') or company.get('sicil_office_code'))
+            if isinstance(sicil_no, str) and sicil_no.strip():
+                try:
+                    sresp = (
+                        supabase
+                        .table('companies')
+                        .select('id, unvan, address, sicil_no, mersis_number, sicil_mudurluk, sicil_office_code')
+                        .eq('sicil_no', sicil_no.strip())
+                        .neq('id', cid)
+                        .limit(500)
+                        .execute()
+                    )
+                    for row in (sresp.data or []):
+                        rid = row.get('id')
+                        if not rid or rid in existing_rr_ids:
+                            continue
+                        other_off = _office_first_token(row.get('sicil_mudurluk') or row.get('sicil_office_code'))
+                        if office_norm and other_off and other_off != office_norm:
+                            continue
+                        registry_related_companies.append({**row, 'match_reason': 'SICIL_MATCH'})
+                        existing_rr_ids.add(rid)
+                except Exception as _e_sicil:
+                    logger.warning(f"[Company Detail] registry sicil match failed: {_e_sicil}")
+        except Exception as _e_rr:
+            logger.warning(f"[Company Detail] registry related companies failed: {_e_rr}")
+
+        # --- Final payload ---
         return {
             "company": company,
             "persons": persons,
             "announcements": announcements,
-            "gazette_entries": gazette_entries,
+            "history": gazette_entries,
             "related_companies": related_companies,
             "same_address_companies": same_address_companies,
+            "registry_related_companies": registry_related_companies,
+            "old_addresses": old_addresses,
+            "old_trade_names": old_names,
         }
 
-    except HTTPException as he:
+    except HTTPException:
         raise
     except Exception as e:
         logger.error(f"[Company Detail] Error for company_id '{company_id}': {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An error occurred while fetching company detail.")
+
+@router.get("/announcement-detail", summary="Announcement detail with OCR text")
+def announcement_detail(
+    announcement_id: str = Query(..., description="UUID of the announcement"),
+    supabase: Client = Depends(get_supabase_client),
+    _: None = Depends(enforce_daily_limit),
+):
+    try:
+        # 1) İlan kaydını getir
+        try:
+            ann_q = (
+                supabase
+                .table("announcements")
+                .select("*")
+                .eq("id", announcement_id)
+                .limit(1)
+                .execute()
+            )
+            ann = (ann_q.data or [None])[0]
+            if not ann:
+                raise HTTPException(status_code=404, detail="İlan bulunamadı")
+        except HTTPException:
+            raise
+        except Exception as ex_ann:
+            logger.error(f"[Announcement Detail] Fetch announcement failed: {ex_ann}")
+            raise HTTPException(status_code=500, detail="İlan getirilemedi")
+
+        # 2) OCR metni — announcement_id ile
+        original_text = None
+        try:
+            ocr_q = (
+                supabase
+                .table("ocr_results")
+                .select("id, original_text, created_at")
+                .eq("announcement_id", announcement_id)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if ocr_q.data:
+                original_text = (ocr_q.data[0] or {}).get("original_text")
+        except Exception as ex_ocr:
+            logger.warning(f"[Announcement Detail] OCR by announcement_id failed: {ex_ocr}")
+
+        return {
+            "announcement": ann,
+            "original_text": original_text,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Announcement Detail] Error for announcement_id '{announcement_id}': {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="An error occurred while fetching announcement detail.")
