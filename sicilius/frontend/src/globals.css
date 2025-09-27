@@ -483,15 +483,77 @@ button:disabled,
 
 /* Print Styles */
 @media print {
+  @page {
+    size: A4;
+    margin: 16mm;
+  }
   body {
     background-color: white;
     color: black;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
   
   .no-print {
     display: none !important;
   }
+
+  .print-only {
+    display: block !important;
+  }
+
+  /* Avoid element splitting across pages */
+  .print-avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Unclamp scroll areas in print */
+  .print-unclamp {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* Expand content boxes in print */
+  .print-expand {
+    max-height: none !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+
+  /* Print only the company detail modal when requested */
+  body.print-company-modal * {
+    visibility: hidden !important;
+  }
+  body.print-company-modal .company-modal-print-target,
+  body.print-company-modal .company-modal-print-target * {
+    visibility: visible !important;
+  }
+  body.print-company-modal .company-modal-print-target {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    background: white !important;
+    z-index: 0 !important;
+  }
+
+  /* Footer fixed at bottom for print */
+  .print-footer {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 6mm !important;
+    text-align: center !important;
+    z-index: 5 !important;
+    background: transparent !important;
+  }
 }
+
+/* Hide print-only content on screen */
+.print-only { display: none !important; }
 
 @layer base {
   * {

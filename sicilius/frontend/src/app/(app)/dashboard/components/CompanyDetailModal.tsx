@@ -1,5 +1,6 @@
 "use client";
 
+import React from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,13 +10,16 @@ import { useAnnouncementDetail } from '@/hooks/useAnnouncementDetail';
 import { API_BASE_URL } from '@/config/constants';
 import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { FileText, Users, Clock, MapPin } from 'lucide-react';
+import { FileText, Users, Clock, MapPin, FileDown } from 'lucide-react';
 
 const MiniMap = dynamic(() => import('@/components/maps/MiniMap').then(m => m.MiniMap), { ssr: false });
 
 // İlan öğesi: tıklanınca çekmece açılır ve detay (OCR metni) lazy-load edilir
-function AnnouncementItem({ ann, extractHususFn }: { ann: any; extractHususFn: (t?: string | null) => string | null }) {
+function AnnouncementItem({ ann, extractHususFn, forceOpenOnPrint = false }: { ann: any; extractHususFn: (t?: string | null) => string | null; forceOpenOnPrint?: boolean }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (forceOpenOnPrint) setOpen(true);
+  }, [forceOpenOnPrint]);
   const { data, isFetching, isError, error } = useAnnouncementDetail(ann?.id, open);
   // Normalize hususlar to a short, readable text. Prefer backend-provided hususlar; do not show company title in the list.
   let hususlarText = '' as string;
@@ -40,7 +44,7 @@ function AnnouncementItem({ ann, extractHususFn }: { ann: any; extractHususFn: (
   const dateText = dt ? new Date(dt).toLocaleDateString('tr-TR') : '-';
 
   return (
-    <li className="border rounded p-2 bg-white dark:bg-slate-900 dark:border-slate-700 text-left" style={{ textAlign: 'left' }}>
+    <li className="border rounded p-2 bg-white dark:bg-slate-900 dark:border-slate-700 text-left print-avoid-break" style={{ textAlign: 'left' }}>
       <button
         type="button"
         className="w-full text-left flex justify-start items-start"
@@ -72,7 +76,7 @@ function AnnouncementItem({ ann, extractHususFn }: { ann: any; extractHususFn: (
               const text = data?.original_text || ann?.original_text || null;
               if (text) {
                 return (
-                  <div className="whitespace-pre-wrap text-left text-[12px] leading-5 bg-slate-50 dark:bg-slate-800 rounded p-2 overflow-auto max-h-64">
+                  <div className="whitespace-pre-wrap text-left text-[12px] leading-5 bg-slate-50 dark:bg-slate-800 rounded p-2 overflow-auto max-h-64 print-expand">
                     {text}
                   </div>
                 );
@@ -104,6 +108,193 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
   const personsCount = Array.isArray(data?.persons) ? data!.persons.length : 0;
   const annCount = Array.isArray(data?.announcements) ? data!.announcements.length : 0;
   const histCount = Array.isArray((data as any)?.history) ? (data as any).history.length : 0;
+  const printRef = useRef<HTMLDivElement | null>(null);
+  const [printMode, setPrintMode] = useState(false);
+  
+  // Yazdırmaya özel: modal verilerinden tek sütunluk bağımsız HTML üret
+  const buildPrintHtml = () => {
+    try {
+      const title = (latestAnnTitle || company?.firma_unvani || company?.unvan || 'Şirket Detayı') as string;
+      const oldNames = Array.isArray(oldNamesAll) ? oldNamesAll : [];
+      const anns: any[] = Array.isArray((data as any)?.announcements) ? (data as any).announcements : [];
+      const persons: any[] = Array.isArray((data as any)?.persons) ? (data as any).persons : [];
+      const oldAddrs: any[] = Array.isArray((data as any)?.old_addresses) ? (data as any).old_addresses : [];
+      const sameAddr: any[] = Array.isArray((data as any)?.same_address_companies) ? (data as any).same_address_companies : [];
+      const regRel: any[] = Array.isArray((data as any)?.registry_related_companies) ? (data as any).registry_related_companies : [];
+      const rel: any[] = Array.isArray((data as any)?.related_companies) ? (data as any).related_companies : [];
+
+      const fmtDate = (v?: string | null) => {
+        if (!v) return '-';
+        const d = new Date(v);
+        return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('tr-TR');
+      };
+      const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+      const relStrong = rel.filter((rc: any) => {
+        const ps = Array.isArray(rc.shared_persons) ? rc.shared_persons : [];
+        return ps.some((sp: any) => (sp?.relation_type === 'OCR_ORTAK') || ((sp?.full_name && String(sp.full_name).trim().length > 0) && Array.isArray(sp?.masked_ids) && sp.masked_ids.length > 0));
+      });
+      const relWeak = rel.filter((rc: any) => !relStrong.includes(rc));
+      const nearbyList: any[] = Array.isArray(nearby) ? nearby : [];
+
+      const html = `<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${esc(title)} - PDF</title>
+  <style>
+    @page { size: A4; margin: 16mm; }
+    html, body { padding: 0; margin: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif; color: #0f172a; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 20px; margin: 0 0 8px 0; }
+    h2 { font-size: 16px; margin: 16px 0 8px 0; }
+    .muted { color: #475569; font-size: 12px; }
+    .row { margin: 4px 0; font-size: 13px; }
+    .section { margin-top: 14px; }
+    pre { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 12px; line-height: 1.5; background: #f8fafc; padding: 8px; border-radius: 4px; }
+    ul { margin: 6px 0; padding-left: 18px; }
+    li { margin: 4px 0; }
+  </style>
+  <style media="print">
+    .container { max-width: none; }
+  </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>${esc(title)}</h1>
+      ${oldNames.length ? `<div class="row"><strong>Eski Ünvan:</strong></div>` + oldNames.map((n: string) => `<div class="row">${esc(n)}</div>`).join('') : ''}
+      <div class="row muted">Bu içerik yalnızca bilgilendirme amaçlıdır; ayrıntılı hükümler ve koşullar için Kullanıcı Sözleşmesi'ni inceleyiniz.</div>
+
+      ${company ? `
+      <div class="section">
+        <h2>Şirket Bilgileri</h2>
+        <div class="row">Sicil No: ${esc(company.sicil_no || '-')}</div>
+        <div class="row">MERSİS No: ${esc(company.mersis_number || company.mersis_number_ocr || '-')}</div>
+        <div class="row">Müdürlük: ${esc(company.sicil_mudurluk || '-')}</div>
+        <div class="row">Adres: ${esc(company.adres || company.address || '-')}</div>
+        <div class="row">Son Güncelleme: ${esc(formatDateTime(company.updated_at || company.last_scraped_at || company.created_at || '-'))}</div>
+      </div>` : ''}
+
+      ${anns.length ? `
+      <div class="section">
+        <h2>İlanlar</h2>
+        ${anns.map(a => `
+          <div class="row"><strong>${esc(a?.title || a?.announcement_type || 'İlan')}</strong></div>
+          <div class="row muted">Tarih: ${esc(fmtDate(a?.publication_date || a?.created_at))}${a?.newspaper_name ? ` • Gazete: ${esc(a.newspaper_name)}` : ''}${a?.issue_number ? ` • Sayı: ${esc(a.issue_number)}` : ''}${a?.page_number ? ` • Sayfa: ${esc(a.page_number)}` : ''}</div>
+          ${a?.original_text ? `<pre>${esc(a.original_text)}</pre>` : ''}
+        `).join('')}
+      </div>` : ''}
+
+      <div class="section">
+        <h2>Konum ve Yakın Şirketler</h2>
+        <div class="row">Yarıçap: ${esc(String(radiusKM))} km</div>
+        ${centerLatLon ? (nearbyList.length ? `<ul>${nearbyList.map(c => `<li><div><strong>${esc(c.unvan || c.title || 'Şirket')}</strong></div><div class="muted">${esc(c.address || '-')}</div></li>`).join('')}</ul>` : `<div class="row muted">${esc(isNearbyFetching ? 'Yakın şirketler yükleniyor...' : 'Yakında şirket bulunamadı.')}</div>`) : `<div class="row muted">Harita için koordinat bulunamadı.</div>`}
+      </div>
+
+      ${persons.length ? `
+      <div class="section">
+        <h2>Kişiler</h2>
+        <ul>
+          ${persons.map((p: any) => {
+            const nameRaw = p.full_name || `${p.first_name || ''} ${p.last_name || ''}`.trim();
+            const name = nameRaw && nameRaw.length > 0 ? nameRaw : 'Ad Bilinmiyor';
+            const roleRaw = p.relation_type || p.position || '';
+            const role = (roleRaw === 'MASKELI_KIMLIK' || roleRaw === 'OCR') ? '' : roleRaw;
+            const status = p.is_current === false ? 'Geçmiş' : 'Aktif';
+            const mids: string[] = Array.isArray(p.masked_ids) ? p.masked_ids : [];
+            return `<li><span><strong>${esc(name)}</strong></span>${role ? ` • ${esc(role)}` : ''} • ${esc(status)}${mids.length ? ` • ${mids.map(m => `Kimlik: ${esc(m)}`).join(' • ')}` : ''}</li>`;
+          }).join('')}
+        </ul>
+      </div>` : ''}
+
+      ${oldAddrs ? `
+      <div class="section">
+        <h2>Eski Adresler</h2>
+        ${oldAddrs.length ? `<ul>${oldAddrs.map((oa: any) => `<li>${esc(oa?.address || '-')}</li>`).join('')}</ul>` : `<div class="row muted">Eski adres bulunamadı.</div>`}
+      </div>` : ''}
+
+      ${sameAddr ? `
+      <div class="section">
+        <h2>İlişkiler (Aynı Adres)</h2>
+        ${sameAddr.length ? `<ul>${sameAddr.map((c: any) => `<li><div><strong>${esc(c.firma_unvani || c.unvan || 'Bilinmeyen Firma')}</strong></div><div class="muted">MERSİS: ${esc(c.mersis_number || c.mersis_number_ocr || '-')}</div><div class="muted">${esc(c.adres || c.address || '-')}</div></li>`).join('')}</ul>` : `<div class="row muted">Aynı adres üzerinden ilişki bulunamadı.</div>`}
+      </div>` : ''}
+
+      ${regRel ? `
+      <div class="section">
+        <h2>İlişkiler (MERSİS/Sicil)</h2>
+        ${regRel.length ? `<ul>${regRel.map((c: any) => `<li><div><strong>${esc(c.firma_unvani || c.unvan || 'Bilinmeyen Firma')}</strong></div><div class="muted">MERSİS: ${esc(c.mersis_number || c.mersis_number_ocr || '-')}</div>${(c.adres || c.address) ? `<div class="muted">${esc(c.adres || c.address)}</div>` : ''}</li>`).join('')}</ul>` : `<div class="row muted">MERSİS/Sicil üzerinden ilişki bulunamadı.</div>`}
+      </div>` : ''}
+
+      ${(relStrong.length + relWeak.length) ? `
+      <div class="section">
+        <h2>İlişkiler (Ortak Kişiler)</h2>
+        ${relStrong.length ? `<div class="row"><strong>İsim + Kimlik ile eşleşenler (yüksek güven)</strong></div><ul>${relStrong.map((rc: any) => `<li><strong>${esc(rc.firma_unvani || rc.unvan || 'Şirket')}</strong>${Array.isArray(rc.shared_persons) && rc.shared_persons.length ? ` • ${rc.shared_persons.length} ortak kişi` : ''}</li>`).join('')}</ul>` : ''}
+        ${relWeak.length ? `<div class="row"><strong>Sadece Kimlik ile eşleşenler</strong></div><ul>${relWeak.map((rc: any) => `<li><strong>${esc(rc.firma_unvani || rc.unvan || 'Şirket')}</strong>${Array.isArray(rc.shared_persons) && rc.shared_persons.length ? ` • ${rc.shared_persons.length} ortak kişi` : ''}</li>`).join('')}</ul>` : ''}
+      </div>` : ''}
+
+    </div>
+    <script>
+      window.onload = function() {
+        try { window.focus(); } catch(e){}
+        setTimeout(function(){ try { window.print(); } catch(e){} }, 30);
+      };
+    </script>
+  </body>
+</html>`;
+      return html;
+    } catch {
+      return '<!doctype html><html><head><meta charset="utf-8" /></head><body>Yazdırma başarısız.</body></html>';
+    }
+  };
+
+
+  const handlePrint = () => {
+    try {
+      setPrintMode(true);
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = '0';
+      document.body.appendChild(iframe);
+      const doc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
+      if (!doc) throw new Error('Print iframe document not available');
+      doc.open();
+      doc.write(buildPrintHtml());
+      doc.close();
+      const cleanup = () => {
+        try { document.body.removeChild(iframe); } catch {}
+        setPrintMode(false);
+        window.removeEventListener('focus', cleanup);
+      };
+      window.addEventListener('focus', cleanup);
+      setTimeout(cleanup, 5000);
+    } catch {}
+  };
+
+  // PNG butonu kaldırıldı; snapshot sadece yazdırma sırasında oluşturuluyor
+
+  useEffect(() => {
+    // Ensure print mode + body scoping toggles also when user invokes print via browser menu
+    const before = () => {
+      try { document.body.classList.add('print-company-modal'); } catch {}
+      setPrintMode(true);
+    };
+    const after = () => {
+      try { document.body.classList.remove('print-company-modal'); } catch {}
+      setPrintMode(false);
+    };
+    window.addEventListener('beforeprint', before);
+    window.addEventListener('afterprint', after);
+    return () => {
+      window.removeEventListener('beforeprint', before);
+      window.removeEventListener('afterprint', after);
+    };
+  }, []);
 
   const centerLatLon = useMemo(() => {
     const c = company?.koordinat;
@@ -362,9 +553,10 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl w-[min(92vw,1100px)] max-h-[85vh] bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 p-0 overflow-y-auto">
+      <DialogContent className="company-modal-print-target max-w-5xl w-[min(92vw,1100px)] max-h-[85vh] bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 p-0 overflow-y-auto" ref={printRef}>
         <DialogHeader className="px-4 pt-4">
           <DialogTitle className="text-slate-900 dark:text-slate-100">{headerTitle}</DialogTitle>
+          
           {oldNamesAll.length > 0 && (
             <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">
               <div className="font-medium">Eski Ünvan:</div>
@@ -376,9 +568,8 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
             </div>
           )}
           <DialogDescription className="text-slate-600 dark:text-slate-300">
-            Bu içerik yalnızca bilgilendirme amaçlıdır; ayrıntılı hükümler ve koşullar için{' '}
-            <a href="/kullanici-sozlesmesi" target="_blank" rel="noopener noreferrer" className="underline text-primary">Kullanıcı Sözleşmesi</a>
-            'ni inceleyiniz.
+            Bu içerik yalnızca bilgilendirme amaçlıdır; ayrıntılı hükümler ve koşullar için
+            <a href="/kullanici-sozlesmesi" target="_blank" rel="noopener noreferrer" className="underline text-primary">Kullanıcı Sözleşmesi</a>'ni inceleyiniz.
           </DialogDescription>
         </DialogHeader>
 
@@ -388,6 +579,17 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
             <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-slate-700 dark:text-slate-200"><Users size={14} /> {personsCount} kişi</span>
             <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-slate-700 dark:text-slate-200"><FileText size={14} /> {annCount} ilan</span>
             <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-slate-700 dark:text-slate-200"><Clock size={14} /> {histCount} geçmiş</span>
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={handlePrint}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handlePrint(); } }}
+              className="inline-flex items-center gap-1 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              aria-label="PDF olarak indir"
+              title="PDF olarak indir"
+            >
+              <FileDown size={14} /> PDF
+            </div>
           </div>
         </div>
 
@@ -437,9 +639,9 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
                   ) : null}
                 </div>
                 {data.announcements.length ? (
-                  <ul className="mt-2 space-y-2 text-sm max-h-60 overflow-auto pr-1 text-left">
-                    {(annOpenAll ? data.announcements : data.announcements.slice(0, 5)).map((a: any) => (
-                      <AnnouncementItem key={a.id} ann={a} extractHususFn={extractHusus} />
+                  <ul className="mt-2 space-y-2 text-sm max-h-60 overflow-auto pr-1 text-left print-unclamp">
+                    {(annOpenAll || printMode ? data.announcements : data.announcements.slice(0, 5)).map((a: any) => (
+                      <AnnouncementItem key={a.id} ann={a} extractHususFn={extractHusus} forceOpenOnPrint={printMode} />
                     ))}
                   </ul>
                 ) : (
@@ -789,6 +991,245 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
             )}
           </div>
         )}
+
+        {/* Yazdırma için basitleştirilmiş tek sütun metin bloğu */}
+        {!isFetching && !isError && (
+          <div className="print-linear print-only p-4 text-slate-900">
+            <div className="text-xl font-semibold">{headerTitle}</div>
+            {oldNamesAll.length > 0 && (
+              <div className="mt-1 text-sm">
+                <div className="font-medium">Eski Ünvan:</div>
+                {oldNamesAll.map((n: string, i: number) => (
+                  <div key={`po-old-${i}`}>{n}</div>
+                ))}
+              </div>
+            )}
+            <div className="mt-2 text-sm">
+              Bu içerik yalnızca bilgilendirme amaçlıdır; ayrıntılı hükümler ve koşullar için Kullanıcı Sözleşmesi'ni inceleyiniz.
+            </div>
+
+            {company && (
+              <div className="mt-4">
+                <div className="text-base font-semibold">Şirket Bilgileri</div>
+                <div className="mt-1 text-sm space-y-1">
+                  <div>Sicil No: {company.sicil_no || '-'}</div>
+                  <div>MERSİS No: {company.mersis_number || company.mersis_number_ocr || '-'}</div>
+                  <div>Müdürlük: {company.sicil_mudurluk || '-'}</div>
+                  <div>Adres: {company.adres || company.address || '-'}</div>
+                  <div>Son Güncelleme: {formatDateTime(company.updated_at || company.last_scraped_at || company.created_at || '-')}</div>
+                </div>
+              </div>
+            )}
+
+            {Array.isArray((data as any)?.announcements) && (data as any).announcements.length > 0 && (
+              <div className="mt-4">
+                <div className="text-base font-semibold">İlanlar</div>
+                <div className="mt-1 text-sm space-y-2">
+                  {(data as any).announcements.map((a: any) => {
+                    const dt = a?.publication_date || a?.created_at || null;
+                    const issue = a?.issue_number || '';
+                    const page = a?.page_number || '';
+                    const gazette = a?.newspaper_name || '';
+                    const dateText = dt ? new Date(dt).toLocaleDateString('tr-TR') : '-';
+                    const title = a?.title || a?.announcement_type || 'İlan';
+                    return (
+                      <div key={`po-ann-${a?.id || Math.random()}`}>
+                        <div className="font-medium">{title}</div>
+                        <div className="text-[12px] text-slate-700">
+                          Tarih: {dateText}{gazette ? ` • Gazete: ${gazette}` : ''}{issue ? ` • Sayı: ${issue}` : ''}{page ? ` • Sayfa: ${page}` : ''}
+                        </div>
+                        {a?.original_text ? (
+                          <div className="mt-1 whitespace-pre-wrap text-[12px]">{a.original_text}</div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4">
+              <div className="text-base font-semibold">Konum ve Yakın Şirketler</div>
+              <div className="text-sm mt-1">Yarıçap: {radiusKM} km</div>
+              {centerLatLon ? (
+                Array.isArray(nearby) && nearby.length > 0 ? (
+                  <div className="mt-1 text-sm space-y-1">
+                    {nearby.map((c: any) => (
+                      <div key={`po-near-${c.id}`}>
+                        <div className="font-medium">{c.unvan || c.title || 'Şirket'}</div>
+                        <div className="text-[12px] text-slate-700">{c.address || '-'}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-1 text-sm text-slate-700">{isNearbyFetching ? 'Yakın şirketler yükleniyor...' : 'Yakında şirket bulunamadı.'}</div>
+                )
+              ) : (
+                <div className="mt-1 text-sm text-slate-700">Harita için koordinat bulunamadı.</div>
+              )}
+            </div>
+
+            {Array.isArray((data as any)?.persons) && (data as any).persons.length > 0 && (
+              <div className="mt-4">
+                <div className="text-base font-semibold">Kişiler</div>
+                <div className="mt-1 text-sm space-y-1">
+                  {(data as any).persons.map((p: any, i: number) => {
+                    const nameRaw = p.full_name || `${p.first_name || ''} ${p.last_name || ''}`.trim();
+                    const name = nameRaw && nameRaw.length > 0 ? nameRaw : 'Ad Bilinmiyor';
+                    const roleRaw = p.relation_type || p.position || '';
+                    const role = (roleRaw === 'MASKELI_KIMLIK' || roleRaw === 'OCR') ? '' : roleRaw;
+                    const status = p.is_current === false ? 'Geçmiş' : 'Aktif';
+                    const mids: string[] = Array.isArray(p.masked_ids) ? p.masked_ids : [];
+                    return (
+                      <div key={`po-person-${p.id || i}`}>
+                        <span className="font-medium">{name}</span>
+                        {role ? <span> • {role}</span> : null}
+                        <span> • {status}</span>
+                        {mids.length ? <span> • {mids.map(m => `Kimlik: ${m}`).join(' • ')}</span> : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {Array.isArray((data as any)?.old_addresses) && (
+              <div className="mt-4">
+                <div className="text-base font-semibold">Eski Adresler</div>
+                {(data as any).old_addresses.length ? (
+                  <div className="mt-1 text-sm space-y-1">
+                    {(data as any).old_addresses.map((oa: any, idx: number) => (
+                      <div key={`po-oldaddr-${idx}`}>{oa?.address || '-'}</div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-1 text-sm text-slate-700">Eski adres bulunamadı.</div>
+                )}
+              </div>
+            )}
+
+            {Array.isArray((data as any)?.same_address_companies) && (
+              <div className="mt-4">
+                <div className="text-base font-semibold">İlişkiler (Aynı Adres)</div>
+                {(data as any).same_address_companies.length ? (
+                  <div className="mt-1 text-sm space-y-2">
+                    {(data as any).same_address_companies.map((c: any) => (
+                      <div key={`po-sameaddr-${c.id}`}>
+                        <div className="font-medium">{c.firma_unvani || c.unvan || 'Bilinmeyen Firma'}</div>
+                        <div className="text-[12px] text-slate-700">MERSİS: {c.mersis_number || c.mersis_number_ocr || '-'}</div>
+                        <div className="text-[12px] text-slate-700">{c.adres || c.address || '-'}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-1 text-sm text-slate-700">Aynı adres üzerinden ilişki bulunamadı.</div>
+                )}
+              </div>
+            )}
+
+            {Array.isArray((data as any)?.registry_related_companies) && (
+              <div className="mt-4">
+                <div className="text-base font-semibold">İlişkiler (MERSİS/Sicil)</div>
+                {(data as any).registry_related_companies.length ? (
+                  <div className="mt-1 text-sm space-y-2">
+                    {(data as any).registry_related_companies.map((c: any) => (
+                      <div key={`po-regrel-${c.id}`}>
+                        <div className="font-medium">{c.firma_unvani || c.unvan || 'Bilinmeyen Firma'}</div>
+                        <div className="text-[12px] text-slate-700">MERSİS: {c.mersis_number || c.mersis_number_ocr || '-'}</div>
+                        {c.adres || c.address ? <div className="text-[12px] text-slate-700">{c.adres || c.address}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-1 text-sm text-slate-700">MERSİS/Sicil üzerinden ilişki bulunamadı.</div>
+                )}
+              </div>
+            )}
+
+            {Array.isArray((data as any)?.related_companies) && (
+              <div className="mt-4">
+                <div className="text-base font-semibold">İlişkiler (Ortak Kişiler)</div>
+                {(() => {
+                  const related = (data as any).related_companies as any[];
+                  const isNameMatch = (rc: any) => {
+                    const persons: any[] = Array.isArray(rc.shared_persons) ? rc.shared_persons : [];
+                    return persons.some((sp) => (
+                      (sp?.relation_type === 'OCR_ORTAK') ||
+                      ((sp?.full_name && String(sp.full_name).trim().length > 0) && Array.isArray(sp?.masked_ids) && sp.masked_ids.length > 0)
+                    ));
+                  };
+                  const strong = related.filter(isNameMatch);
+                  const weak = related.filter((rc) => !isNameMatch(rc));
+                  return (
+                    <div className="mt-1 text-sm space-y-2">
+                      {strong.length > 0 && (
+                        <div>
+                          <div className="font-semibold">İsim + Kimlik ile eşleşenler (yüksek güven)</div>
+                          {strong.map((rc: any) => (
+                            <div key={`po-rel-strong-${rc.id}`}>
+                              <span className="font-medium">{rc.firma_unvani || rc.unvan || 'Şirket'}</span>
+                              {Array.isArray(rc.shared_persons) && rc.shared_persons.length > 0 ? (
+                                <span> • {rc.shared_persons.length} ortak kişi</span>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {weak.length > 0 && (
+                        <div>
+                          <div className="font-semibold">Sadece Kimlik ile eşleşenler</div>
+                          {weak.map((rc: any) => (
+                            <div key={`po-rel-weak-${rc.id}`}>
+                              <span className="font-medium">{rc.firma_unvani || rc.unvan || 'Şirket'}</span>
+                              {Array.isArray(rc.shared_persons) && rc.shared_persons.length > 0 ? (
+                                <span> • {rc.shared_persons.length} ortak kişi</span>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+        )}
+
+        <style jsx global>{`
+          @media print {
+            /* Sayfanın geri kalanını tamamen gizle, sadece modal basılsın */
+            body.print-company-modal * { display: none !important; }
+            body.print-company-modal .company-modal-print-target,
+            body.print-company-modal .company-modal-print-target * { display: initial !important; }
+            body.print-company-modal .company-modal-print-target { display: block !important; width: 100% !important; }
+
+            /* Tek sütun zorla ve tüm içerikleri dikey akışa çevir */
+            .company-modal-print-target { width: 100% !important; }
+            .company-modal-print-target .sticky { position: static !important; top: auto !important; }
+            .company-modal-print-target .backdrop-blur { backdrop-filter: none !important; }
+            .company-modal-print-target .grid { display: block !important; }
+            .company-modal-print-target [class*="grid-cols-"] { grid-template-columns: 1fr !important; }
+            .company-modal-print-target .grid > * { width: 100% !important; }
+            .company-modal-print-target .flex { flex-direction: column !important; align-items: stretch !important; }
+            .company-modal-print-target .flex > * { width: 100% !important; }
+            .company-modal-print-target .truncate { overflow: visible !important; text-overflow: initial !important; white-space: normal !important; }
+            .company-modal-print-target .overflow-auto, 
+            .company-modal-print-target .overflow-y-auto, 
+            .company-modal-print-target .overflow-x-auto { overflow: visible !important; }
+            .company-modal-print-target .max-h-64, 
+            .company-modal-print-target .max-h-72, 
+            .company-modal-print-target .max-h-60, 
+            .company-modal-print-target .max-h-[85vh] { max-height: none !important; }
+            /* Kart/öğe kırılmalarını engelle */
+            .company-modal-print-target .print-avoid-break { break-inside: avoid !important; page-break-inside: avoid !important; }
+            /* Yalnızca print-linear kalsın: tüm içerikleri gizle, print-linear ve altını yeniden göster */
+            .company-modal-print-target * { display: none !important; }
+            .company-modal-print-target .print-linear, 
+            .company-modal-print-target .print-linear * { display: initial !important; }
+            .company-modal-print-target .print-linear { display: block !important; }
+          }
+        `}</style>
       </DialogContent>
     </Dialog>
   );
