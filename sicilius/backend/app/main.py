@@ -163,3 +163,8 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+# Convenience health endpoint for Caddy checks
+@app.get("/api/health")
+async def api_health_check():
+    return {"status": "healthy"}

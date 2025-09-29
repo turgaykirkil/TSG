@@ -1,0 +1,39 @@
+# Minimal API-only dependencies (no OCR/Playwright/Torch/Spacy etc.)
+# Core
+fastapi
+uvicorn[standard]
+websockets>=11,<16
+pydantic
+pydantic-settings
+python-dotenv
+python-multipart
+itsdangerous
+email-validator
+
+# Database
+sqlalchemy
+alembic
+psycopg2-binary
+redis
+GeoAlchemy2
+
+# Auth
+python-jose[cryptography]
+passlib[bcrypt]
+
+# Supabase
+supabase==2.20.0
+requests
+httpx
+python-magic
+
+# Logging / misc
+sentry-sdk
+
+# NLP segmentation deps (lightweight)
+numbers-parser
+orjson
+rapidfuzz
+dateparser
+Unidecode
+phonenumbers

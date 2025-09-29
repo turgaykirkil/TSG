@@ -1,0 +1,23 @@
+# Caddy reverse proxy for Sicilius on Oracle VPS
+# Domain is set to sslip.io for the server's public IP
+
+80.225.236.244.sslip.io {
+  encode zstd gzip
+
+  # Backend API
+  @api path /api*
+  handle @api {
+    reverse_proxy backend:5001
+  }
+
+  # Backend misc endpoints (health, docs)
+  @backend_misc path /health /docs
+  handle @backend_misc {
+    reverse_proxy backend:5001
+  }
+
+  # Frontend default
+  handle {
+    reverse_proxy frontend:3000
+  }
+}

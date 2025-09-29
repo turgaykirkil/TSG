@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
+    # Auth mode: 'local' (legacy DB users) or 'supabase' (Supabase Auth JWT)
+    auth_mode: str = "local"
+    # API-only mode (disable heavy OCR endpoints in prod containers)
+    API_ONLY: bool = False
     
     # Server
     HOST: str = "0.0.0.0"
@@ -40,6 +44,8 @@ class Settings(BaseSettings):
     supabase_url: str
     supabase_key: str  # Public anon key
     supabase_service_role_key: str  # Service role key for admin operations
+    # Supabase JWT secret for verifying access tokens locally (HS256). Optional fallback to auth.get_user if absent.
+    supabase_jwt_secret: str | None = None
 
     # Geocoding Services
     locationiq_token: str

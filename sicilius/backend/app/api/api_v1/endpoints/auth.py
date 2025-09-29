@@ -17,6 +17,8 @@ from app.core.config import settings
 from app.core.security import get_password_hash
 from app.schemas import user as user_schema, token as token_schema, msg as msg_schema
 from pydantic import BaseModel, EmailStr, Field
+from supabase import create_client
+import httpx
 
 router = APIRouter()
 
@@ -25,29 +27,46 @@ def login_access_token(
     db: Session = Depends(deps.get_db), form_data: OAuth2PasswordRequestForm = Depends()
 ) -> Any:
     """
-    OAuth2 compatible token login, get an access token for future requests
+    Issue an access token for future requests.
+    - local mode: legacy DB user auth
+    - supabase mode: proxy to Supabase Auth and return Supabase access_token
     """
-    user = crud.user.authenticate(
-        db, email=form_data.username, password=form_data.password
-    )
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Incorrect email or password",
+    if getattr(settings, "auth_mode", "local").lower() != "supabase":
+        user = crud.user.authenticate(
+            db, email=form_data.username, password=form_data.password
         )
-    elif not crud.user.is_active(user):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user"
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Incorrect email or password",
+            )
+        elif not crud.user.is_active(user):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user"
+            )
+        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = security.create_access_token(
+            user.id, expires_delta=access_token_expires
         )
-    
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = security.create_access_token(
-        user.id, expires_delta=access_token_expires
-    )
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-    }
+        return {"access_token": access_token, "token_type": "bearer"}
+
+    # Supabase Auth mode
+    try:
+        client = create_client(settings.supabase_url, settings.supabase_key)
+        res = client.auth.sign_in_with_password({
+            "email": form_data.username,
+            "password": form_data.password,
+        })
+        if not res or not getattr(res, "session", None) or not res.session:
+            raise HTTPException(status_code=400, detail="Incorrect email or password")
+        access_token = getattr(res.session, "access_token", None)
+        if not access_token:
+            raise HTTPException(status_code=400, detail="Incorrect email or password")
+        return {"access_token": access_token, "token_type": "bearer"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Incorrect email or password")
 
 @router.post("/login")
 def login(
@@ -56,24 +75,43 @@ def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
 ) -> Any:
     """
-    Get the access token for the user and set it in an HTTPOnly cookie.
+    Get access token and set it in an HTTPOnly cookie.
+    - local mode: issue our own JWT
+    - supabase mode: sign in via Supabase and set its access_token
     """
-    user = crud.user.authenticate(
-        db, email=form_data.username, password=form_data.password
-    )
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
+    if getattr(settings, "auth_mode", "local").lower() != "supabase":
+        user = crud.user.authenticate(
+            db, email=form_data.username, password=form_data.password
         )
-    elif not crud.user.is_active(user):
-        raise HTTPException(status_code=400, detail="Inactive user")
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect email or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        elif not crud.user.is_active(user):
+            raise HTTPException(status_code=400, detail="Inactive user")
 
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = security.create_access_token(
-        user.id, expires_delta=access_token_expires
-    )
+        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = security.create_access_token(
+            user.id, expires_delta=access_token_expires
+        )
+    else:
+        try:
+            client = create_client(settings.supabase_url, settings.supabase_key)
+            res = client.auth.sign_in_with_password({
+                "email": form_data.username,
+                "password": form_data.password,
+            })
+            if not res or not getattr(res, "session", None) or not res.session:
+                raise HTTPException(status_code=401, detail="Incorrect email or password")
+            access_token = getattr(res.session, "access_token", None)
+            if not access_token:
+                raise HTTPException(status_code=401, detail="Incorrect email or password")
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=401, detail="Incorrect email or password")
 
     response.set_cookie(
         "auth_token",
@@ -120,15 +158,105 @@ def register_user(
 ) -> Any:
     """
     Create new user.
+    - local mode: create row in our DB
+    - supabase mode: sign up via Supabase, then return a projection compatible with User schema
     """
-    user = crud.user.get_by_email(db, email=user_in.email)
-    if user:
-        raise HTTPException(
-            status_code=400,
-            detail="The user with this username already exists in the system.",
+    if getattr(settings, "auth_mode", "local").lower() != "supabase":
+        user = crud.user.get_by_email(db, email=user_in.email)
+        if user:
+            raise HTTPException(
+                status_code=400,
+                detail="The user with this username already exists in the system.",
+            )
+        user = crud.user.create(db, obj_in=user_in)
+        return user
+
+    # Supabase mode
+    client = create_client(settings.supabase_url, settings.supabase_key)
+    try:
+        res = client.auth.sign_up({
+            "email": str(user_in.email),
+            "password": user_in.password,
+        })
+        if not res or not getattr(res, "user", None):
+            raise HTTPException(status_code=400, detail="Could not sign up user")
+        # Build a lightweight response matching User schema
+        supa_user = res.user
+        from uuid import UUID
+        return user_schema.User(
+            id=UUID(str(supa_user.id)),
+            email=str(user_in.email),
+            full_name=user_in.full_name,
+            is_active=True,
+            role="user",
         )
-    user = crud.user.create(db, obj_in=user_in)
-    return user
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Could not sign up user")
+
+@router.post("/change-password", response_model=msg_schema.Msg)
+def change_password(
+    *,
+    db: Session = Depends(deps.get_db),
+    current_user: models.User = Depends(deps.get_current_user),
+    body: user_schema.PasswordChange,
+) -> Any:
+    """
+    Change current user's password.
+    - local mode: verify current password against local DB, then update hash
+    - supabase mode: verify by sign_in_with_password, then update via Admin API (service role)
+    """
+    # Basic policy: new password length validated by schema; optionally disallow same password
+    if body.current_password == body.new_password:
+        raise HTTPException(status_code=400, detail="New password must be different from current password")
+
+    if getattr(settings, "auth_mode", "local").lower() != "supabase":
+        # Local mode: verify and update
+        if not crud.user.authenticate(db, email=current_user.email, password=body.current_password):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+        crud.user.update(db, db_obj=current_user, obj_in={"password": body.new_password})
+        return {"msg": "Password changed successfully"}
+
+    # Supabase mode
+    client = create_client(settings.supabase_url, settings.supabase_key)
+    # 1) Verify current password at Supabase
+    try:
+        res = client.auth.sign_in_with_password({
+            "email": current_user.email,
+            "password": body.current_password,
+        })
+        if not res or not getattr(res, "session", None):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+    except HTTPException:
+        raise
+    except Exception:
+        # Hide internals
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    # 2) Update password via Admin API (service role)
+    admin_key = settings.supabase_service_role_key
+    if not admin_key:
+        raise HTTPException(status_code=500, detail="Supabase service role key is not configured")
+
+    url = f"{settings.supabase_url}/auth/v1/admin/users/{current_user.id}"
+    headers = {
+        "apikey": admin_key,
+        "Authorization": f"Bearer {admin_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {"password": body.new_password}
+    try:
+        with httpx.Client(timeout=15.0) as http:
+            resp = http.put(url, headers=headers, json=payload)
+            if resp.status_code // 100 != 2:
+                raise HTTPException(status_code=400, detail="Could not change password")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not change password")
+
+    return {"msg": "Password changed successfully"}
 
 @router.post("/password-recovery/{email}", response_model=msg_schema.Msg)
 def recover_password(email: str, db: Session = Depends(deps.get_db)) -> Any:

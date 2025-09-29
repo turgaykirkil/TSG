@@ -23,6 +23,7 @@ passlib[bcrypt]
 # Supabase
 supabase
 requests
+httpx
 
 # OCR & Data Processing
 torch==2.7.1
