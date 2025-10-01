@@ -2,6 +2,7 @@ import logging
 import uuid
 import hashlib
 import re
+import time
 from datetime import datetime
 from fastapi import APIRouter, Body, HTTPException, Depends, Query
 from pydantic import BaseModel
@@ -144,14 +145,32 @@ def _find_or_create_company(
         if not office_first or not sicil_canon:
             return None
         like_pat = _sicil_ilike_pattern_from_canonical(sicil_canon)
-        sel = (
-            supabase
-            .table("companies")
-            .select("id, sicil_mudurluk, sicil_no")
-            .ilike("sicil_no", f"%{like_pat}%")
-            .limit(100)
-            .execute()
-        )
+        # Cloudflare/edge kaynaklı arızi HTML/bağlantı hataları için küçük retry
+        sel = None
+        for attempt in range(3):
+            try:
+                sel = (
+                    supabase
+                    .table("companies")
+                    .select("id, sicil_mudurluk, sicil_no")
+                    .ilike("sicil_no", f"%{like_pat}%")
+                    .limit(100)
+                    .execute()
+                )
+                break
+            except Exception as e:
+                em = str(e)
+                transient = (
+                    "<!DOCTYPE html>" in em or
+                    "Worker threw exception" in em or
+                    "JSON could not be generated" in em or
+                    "json_invalid" in em or
+                    "connection reset by peer" in em
+                )
+                if transient and attempt < 2:
+                    time.sleep(0.2 * (attempt + 1))
+                    continue
+                raise
         candidates = getattr(sel, "data", None) or []
         for c in candidates:
             cm = _normalize_office_first(c.get("sicil_mudurluk"))
@@ -168,7 +187,25 @@ def _find_or_create_company(
         }
         if isinstance(mersis_no, str) and mersis_no.strip():
             insert_obj["mersis_number"] = mersis_no.strip()
-        ins = supabase.table("companies").insert(insert_obj).execute()
+        # Insert için de aynı transient hata toleransı
+        ins = None
+        for attempt in range(3):
+            try:
+                ins = supabase.table("companies").insert(insert_obj).execute()
+                break
+            except Exception as e:
+                em = str(e)
+                transient = (
+                    "<!DOCTYPE html>" in em or
+                    "Worker threw exception" in em or
+                    "JSON could not be generated" in em or
+                    "json_invalid" in em or
+                    "connection reset by peer" in em
+                )
+                if transient and attempt < 2:
+                    time.sleep(0.2 * (attempt + 1))
+                    continue
+                raise
         data = getattr(ins, "data", None) or []
         if data and isinstance(data, list):
             rid = data[0].get("id")
@@ -177,7 +214,8 @@ def _find_or_create_company(
         # Insert çağrısı istisnasız döndüyse ve data gelmediyse, ürettiğimiz UUID'yi döndür (idempotent bağlama için yeterli)
         return insert_obj["id"]
     except Exception:
-        logging.exception("_find_or_create_company failed")
+        # Gürültüyü azalt: terminale ERROR/stack trace basma; veri kaybı yok, None dönüyoruz
+        logger.debug("_find_or_create_company suppressed transient error", exc_info=False)
         return None
 
 def _pair_masked_ids_to_persons(text: str, persons: List[Dict[str, Any]], masked_ids: List[str]) -> List[Dict[str, Any]]:
@@ -1066,9 +1104,25 @@ async def ingest_structured(
                 rows.append(row)
                 if h and cid:
                     link_intents.append({"content_sha256": h, "company_id": cid})
-            up = supabase.table("ocr_results").upsert(rows, on_conflict="content_sha256").execute()
-            data = getattr(up, "data", None) or []
-            inserted = len(data)
+            # Küçük chunk'larla upsert ve hata halinde parçayı ikiye bölerek tek kayda kadar in
+            def _upsert_chunked_local(all_rows: List[Dict[str, Any]], chunk_size: int = 10) -> int:
+                def upsert_chunk(chunk: List[Dict[str, Any]]) -> int:
+                    if not chunk:
+                        return 0
+                    try:
+                        res = supabase.table("ocr_results").upsert(chunk, on_conflict="content_sha256").execute()
+                        return len(getattr(res, "data", None) or [])
+                    except Exception:
+                        if len(chunk) > 1:
+                            mid = len(chunk) // 2
+                            return upsert_chunk(chunk[:mid]) + upsert_chunk(chunk[mid:])
+                        return 0
+                total = 0
+                for i in range(0, len(all_rows), chunk_size):
+                    total += upsert_chunk(all_rows[i:i + chunk_size])
+                return total
+
+            inserted = _upsert_chunked_local(rows, chunk_size=10)
             # Güvence: company_id boş kalan satırlar için ikinci tur link
             for li in link_intents:
                 try:

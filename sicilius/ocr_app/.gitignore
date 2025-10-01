@@ -2,6 +2,7 @@
 .build/
 *.xcodeproj
 .swiftpm/
+release
 
 # Hassas Bilgiler
 # Supabase anahtarlarını içeren yapılandırma dosyasını dışarıda bırak.
