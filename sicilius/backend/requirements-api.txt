@@ -27,7 +27,7 @@ requests
 httpx
 python-magic
 
-# Logging / misc
+# Observability (optional, imported in app.main)
 sentry-sdk
 
 # NLP segmentation deps (lightweight)

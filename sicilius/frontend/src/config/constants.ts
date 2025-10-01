@@ -13,6 +13,19 @@ export const API_ENDPOINTS = {
     // Backend expects POST /reset-password/ with { token, new_password }
     RESET_PASSWORD: '/api/v1/auth/reset-password/',
     REFRESH: '/api/v1/auth/refresh', 
+    INVITE_CREATE: '/api/v1/auth/invite',
+    INVITE_LIST_MY: '/api/v1/auth/invite/my',
+    INVITE_REVOKE: (token: string) => `/api/v1/auth/invite/${encodeURIComponent(token)}`,
+  },
+  SETTINGS: {
+    EMAIL: '/api/v1/settings/email',
+    EMAIL_TEST: '/api/v1/settings/email/test',
+    USER: '/api/v1/settings/user',
+    SECURITY: '/api/v1/settings/security',
+    SSO: '/api/v1/settings/sso',
+    NOTIFICATIONS: '/api/v1/settings/notifications',
+    PRIVACY: '/api/v1/settings/privacy',
+    INTEGRATIONS: '/api/v1/settings/integrations',
   },
   USERS: {
     BASE: '/api/v1/users',

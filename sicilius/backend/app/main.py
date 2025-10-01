@@ -22,18 +22,32 @@ from app import models  # Bütün modelleri Base'e kaydetmek için
 from app.api import upload_api
 
 # --- Logging Configuration ---
+# LOG_LEVEL can be set to DEBUG/INFO/WARNING/ERROR. Default: WARNING
+log_level_str = os.getenv("LOG_LEVEL", "WARNING").upper()
+log_level = getattr(logging, log_level_str, logging.INFO)
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=log_level,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
 
-# Reduce noisy access logs from Uvicorn in development
-try:
-    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
-except Exception:
-    pass
+# Reduce noisy logs from common third-party libraries unless explicitly overridden
+for noisy_logger in [
+    "uvicorn",
+    "uvicorn.access",
+    "httpx",
+    "httpcore",
+    "anyio",
+    "asyncio",
+    "supabase",
+    "supabase_auth",
+    "sqlalchemy.engine",
+]:
+    try:
+        logging.getLogger(noisy_logger).setLevel(logging.WARNING)
+    except Exception:
+        pass
 
 # --- Sentry Initialization (optional) ---
 if settings.sentry_dsn:
@@ -53,21 +67,21 @@ async def startup_event():
     Actions to perform on application startup.
     - Create database tables.
     """
-    logger.info("Application startup event triggered.")
+    logger.debug("Application startup event triggered.")
     try:
-        logger.info("Synchronizing database tables...")
+        logger.debug("Synchronizing database tables...")
         Base.metadata.create_all(bind=engine)
-        logger.info("Database tables synchronized successfully.")
+        logger.debug("Database tables synchronized successfully.")
     except Exception as e:
         logger.error(f"Database error during startup: {e}", exc_info=True)
-    logger.info("Application startup event finished.")
+    logger.debug("Application startup event finished.")
 
 async def shutdown_event():
     """
     Actions to perform on application shutdown.
     """
-    logger.info("Application shutdown event triggered.")
-    logger.info("Application shutdown event finished.")
+    logger.debug("Application shutdown event triggered.")
+    logger.debug("Application shutdown event finished.")
 
 
 # --- FastAPI App Initialization ---
@@ -83,15 +97,24 @@ app = FastAPI(
     on_shutdown=[shutdown_event],
 )
 
+# --- Request Logging Toggle ---
+# REQUEST_LOGGING=true enables per-request logs; default is off to keep terminal clean.
+REQUEST_LOGGING = os.getenv("REQUEST_LOGGING", "false").lower() == "true"
+# Gate 422 detailed body logs behind an env flag (default off)
+LOG_422_DETAILS = os.getenv("LOG_422_DETAILS", "false").lower() == "true"
+
 # --- Logging Middleware ---
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
+    # If request logging is disabled, just continue
+    if not REQUEST_LOGGING:
+        return await call_next(request)
     # Skip verbose logs for frequent polling endpoint
     if request.url.path == f"{settings.API_V1_STR}/scraping/browser/status":
         return await call_next(request)
-    logger.info(f"--> Incoming request: {request.method} {request.url.path}")
+    logger.info(f"--> {request.method} {request.url.path}")
     response = await call_next(request)
-    logger.info(f"<-- Response status: {response.status_code} for path: {request.url.path}")
+    logger.info(f"<-- {response.status_code} {request.url.path}")
     return response
 
 # --- Exception Handlers ---
@@ -99,13 +122,14 @@ async def log_requests(request: Request, call_next):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """
-    Log 422 Unprocessable Entity errors to see the malformed request body.
+    422 Unprocessable Entity - detay gövde logları LOG_422_DETAILS=true ise yazılır.
     """
-    try:
-        body = await request.json()
-        logger.error(f"[422 HATA] Gelen hatalı istek body'si: {json.dumps(body)}")
-    except Exception as e:
-        logger.error(f"[422 HATA] İstek body'si JSON olarak parse edilemedi: {e}")
+    if LOG_422_DETAILS:
+        try:
+            body = await request.json()
+            logger.warning(f"[422 DETAY] Hatalı istek body: {json.dumps(body)}")
+        except Exception as e:
+            logger.warning(f"[422 DETAY] Body JSON parse edilemedi: {e}")
 
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -123,7 +147,7 @@ app.add_middleware(
 )
 
 # CORS Middleware Configuration
-logger.info(f"CORS ayarları kontrol ediliyor. Yüklenen originler: {settings.CORS_ORIGINS}")
+logger.debug(f"CORS ayarları kontrol ediliyor. Yüklenen originler: {settings.CORS_ORIGINS}")
 origins = [str(origin) for origin in settings.CORS_ORIGINS]
 # Add frontend origin as a fallback to ensure it's always allowed.
 if "http://localhost:3000" not in origins:
@@ -139,9 +163,9 @@ if origins:
     )
 
 # --- API Routers ---
-logger.info("Attempting to include main API router with prefix: %s", settings.API_V1_STR)
+logger.debug("Attempting to include main API router with prefix: %s", settings.API_V1_STR)
 app.include_router(api_router, prefix=settings.API_V1_STR)
-logger.info("Main API router included successfully.")
+logger.debug("Main API router included successfully.")
 
 
 

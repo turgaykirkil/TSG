@@ -3,6 +3,7 @@ import 'leaflet/dist/leaflet.css';
 import { cn } from '@/lib/utils';
 import '@/globals.css';
 import { AppProviders } from './AppProviders';
+import { Suspense } from 'react';
 
 // Font ayarları
 const inter = Inter({
@@ -70,7 +71,9 @@ export default function RootLayout({
           spaceGrotesk.variable
         )}
       >
-        <AppProviders>{children}</AppProviders>
+        <Suspense fallback={<div />}>
+          <AppProviders>{children}</AppProviders>
+        </Suspense>
       </body>
     </html>
   );

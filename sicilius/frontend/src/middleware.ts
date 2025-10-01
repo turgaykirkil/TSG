@@ -13,11 +13,8 @@ export function middleware(request: NextRequest) {
     }
   }
 
-  // If there's a token and the user is trying to access the login page,
-  // redirect them to the dashboard.
-  if (token && pathname.startsWith('/login')) {
-    return NextResponse.redirect(new URL('/dashboard', request.url));
-  }
+  // Allow accessing /login even if a stale token cookie exists.
+  // Do NOT auto-redirect to /dashboard; validity will be checked client-side.
 
   // Define protected paths that require authentication
   const protectedPaths = ['/dashboard', '/admin', '/profile']; // Örnek korumalı yollar

@@ -12,7 +12,13 @@ from pydantic import ValidationError
 from app.core.config import settings
 
 # Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Note: bcrypt has a 72-byte password limit. To avoid runtime errors during
+# verification, configure passlib to silently truncate inputs beyond 72 bytes.
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__truncate_error=False,
+)
 
 def create_access_token(
     subject: Union[str, Any], expires_delta: Optional[timedelta] = None

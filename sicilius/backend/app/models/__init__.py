@@ -9,3 +9,4 @@ from .person import Person
 from .relation import CompanyPersonRelation
 from .daily_usage import DailyUsage
 from .user_invite import UserInvite
+from .app_setting import AppSetting

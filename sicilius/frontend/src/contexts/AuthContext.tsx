@@ -2,7 +2,8 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { toast } from 'sonner';
+// Notifications are shown via modal alerts
+import { useAlert } from '@/contexts/AlertContext';
 import { AxiosError } from 'axios';
 import api from '@/lib/axios';
 import { API_ENDPOINTS } from '@/config/constants';
@@ -32,12 +33,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { showAlert } = useAlert();
 
   const checkAuth = useCallback(async () => {
     try {
       const response = await api.get(API_ENDPOINTS.USERS.ME);
       setSession({ user: response.data, status: 'authenticated' });
     } catch (error) {
+      // Clear stale cookie if backend rejects the token
+      try { await api.post(API_ENDPOINTS.AUTH.LOGOUT); } catch {}
       setSession({ user: null, status: 'unauthenticated' });
     } finally {
       setLoading(false);
@@ -86,14 +90,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
       });
-      await checkAuth();
-      const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
-      router.push(callbackUrl);
-      toast.success('Giriş başarılı!');
+      // Fetch user to decide the correct landing route (admin vs user)
+      let role: string | undefined;
+      try {
+        const me = await api.get(API_ENDPOINTS.USERS.ME);
+        role = me?.data?.role;
+        setSession({ user: me.data, status: 'authenticated' });
+      } catch {
+        await checkAuth();
+      }
+      const callbackUrl = searchParams.get('callbackUrl');
+      const defaultTarget = role === 'admin' ? '/admin' : '/dashboard';
+      router.push(callbackUrl || defaultTarget);
+      showAlert({ title: 'Giriş başarılı!', description: 'Hoş geldiniz.' , variant: 'success' });
       return { success: true };
     } catch (error) {
       const errorMessage = getErrorMessage(error);
-      toast.error(errorMessage);
+      showAlert({ title: 'Giriş başarısız', description: errorMessage, variant: 'destructive' });
       return { success: false, error: errorMessage };
     } finally {
       setLoading(false);
@@ -105,9 +118,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await api.post(API_ENDPOINTS.AUTH.LOGOUT);
       setSession({ user: null, status: 'unauthenticated' });
       router.push('/login');
-      toast.info('Başarıyla çıkış yapıldı.');
+      showAlert({ title: 'Çıkış yapıldı', description: 'Başarıyla çıkış yaptınız.', variant: 'info' });
     } catch (error) {
-      toast.error('Çıkış yapılırken bir hata oluştu.');
+      showAlert({ title: 'Hata', description: 'Çıkış yapılırken bir hata oluştu.', variant: 'destructive' });
     }
   };
 

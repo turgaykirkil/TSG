@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { FullScreenLoader } from '@/components/ui/loading-spinner';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
+import { AlertProvider } from '@/contexts/AlertContext';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,14 +30,16 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
 export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <ThemeProvider defaultTheme="system" storageKey="sicilius.theme">
-          <AuthWrapper>
-            {children}
-            <Toaster />
-          </AuthWrapper>
-        </ThemeProvider>
-      </AuthProvider>
+      <AlertProvider>
+        <AuthProvider>
+          <ThemeProvider defaultTheme="system" storageKey="sicilius.theme">
+            <AuthWrapper>
+              {children}
+              <Toaster />
+            </AuthWrapper>
+          </ThemeProvider>
+        </AuthProvider>
+      </AlertProvider>
     </QueryClientProvider>
   );
 }

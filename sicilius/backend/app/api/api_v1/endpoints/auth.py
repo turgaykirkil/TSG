@@ -19,8 +19,36 @@ from app.schemas import user as user_schema, token as token_schema, msg as msg_s
 from pydantic import BaseModel, EmailStr, Field
 from supabase import create_client
 import httpx
+import re
+from app.models.app_setting import AppSetting
 
 router = APIRouter()
+
+# --- Helpers to read app settings stored in app_settings ---
+def _get_app_settings(db: Session, key: str) -> dict:
+    row = db.query(AppSetting).filter(AppSetting.key == key).first()
+    return row.value if row and isinstance(row.value, dict) else {}
+
+def _get_user_settings(db: Session) -> dict:
+    return _get_app_settings(db, "user_settings")
+
+def _get_security_settings(db: Session) -> dict:
+    return _get_app_settings(db, "security_settings")
+
+def _validate_password_policy(new_password: str, policy: dict | None) -> None:
+    if not policy:
+        return
+    # Minimum length
+    min_len = int(policy.get("password_min_length", 8) or 8)
+    if len(new_password) < min_len:
+        raise HTTPException(status_code=400, detail=f"Password must be at least {min_len} characters")
+    # Character class requirements
+    if policy.get("password_require_upper", True) and not re.search(r"[A-Z]", new_password):
+        raise HTTPException(status_code=400, detail="Password must include an uppercase letter")
+    if policy.get("password_require_number", True) and not re.search(r"[0-9]", new_password):
+        raise HTTPException(status_code=400, detail="Password must include a number")
+    if policy.get("password_require_symbol", True) and not re.search(r"[^A-Za-z0-9]", new_password):
+        raise HTTPException(status_code=400, detail="Password must include a symbol")
 
 @router.post("/login/access-token", response_model=token_schema.Token)
 def login_access_token(
@@ -44,6 +72,9 @@ def login_access_token(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user"
             )
+        # Ban enforcement
+        if getattr(user, "is_banned", False):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is banned")
         access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = security.create_access_token(
             user.id, expires_delta=access_token_expires
@@ -62,6 +93,16 @@ def login_access_token(
         access_token = getattr(res.session, "access_token", None)
         if not access_token:
             raise HTTPException(status_code=400, detail="Incorrect email or password")
+        # Ban enforcement against local user record (if exists)
+        try:
+            db_user = crud.user.get_by_email(db, email=form_data.username)
+            if db_user and getattr(db_user, "is_banned", False):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is banned")
+        except HTTPException:
+            raise
+        except Exception:
+            # If lookup fails, do not leak internal errors; allow sign-in to continue
+            pass
         return {"access_token": access_token, "token_type": "bearer"}
     except HTTPException:
         raise
@@ -91,6 +132,9 @@ def login(
             )
         elif not crud.user.is_active(user):
             raise HTTPException(status_code=400, detail="Inactive user")
+        # Ban enforcement
+        if getattr(user, "is_banned", False):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is banned")
 
         access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = security.create_access_token(
@@ -108,6 +152,15 @@ def login(
             access_token = getattr(res.session, "access_token", None)
             if not access_token:
                 raise HTTPException(status_code=401, detail="Incorrect email or password")
+            # Ban enforcement against local user record (if exists)
+            try:
+                db_user = crud.user.get_by_email(db, email=form_data.username)
+                if db_user and getattr(db_user, "is_banned", False):
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is banned")
+            except HTTPException:
+                raise
+            except Exception:
+                pass
         except HTTPException:
             raise
         except Exception:
@@ -207,9 +260,12 @@ def change_password(
     - local mode: verify current password against local DB, then update hash
     - supabase mode: verify by sign_in_with_password, then update via Admin API (service role)
     """
-    # Basic policy: new password length validated by schema; optionally disallow same password
+    # Basic policy: disallow same password
     if body.current_password == body.new_password:
         raise HTTPException(status_code=400, detail="New password must be different from current password")
+    # Enforce security settings policy (length/complexity)
+    sec = _get_security_settings(db)
+    _validate_password_policy(body.new_password, sec)
 
     if getattr(settings, "auth_mode", "local").lower() != "supabase":
         # Local mode: verify and update
@@ -323,18 +379,33 @@ def invite_user(
     db: Session = Depends(deps.get_db),
     current_user: models.User = Depends(deps.get_current_active_user),
 ):
+    # Enforce settings
+    us = _get_user_settings(db)
+    if not us.get("invite_enabled", True):
+        raise HTTPException(status_code=403, detail="Davet oluşturma şu an kapalı")
+
+    # Domain allow/deny
+    email_domain = str(req.email).split("@")[-1].lower().strip()
+    allow = [d.lower().strip() for d in (us.get("allowed_email_domains") or []) if d]
+    block = [d.lower().strip() for d in (us.get("blocked_email_domains") or []) if d]
+    if allow and email_domain not in allow:
+        raise HTTPException(status_code=400, detail="Bu e-posta alan adı davete uygun değil")
+    if block and email_domain in block:
+        raise HTTPException(status_code=400, detail="Bu e-posta alan adı engellenmiş")
+
+    # Monthly invite limit per admin/user
     month_key = datetime.utcnow().strftime("%Y-%m")
-    # Enforce one invite per inviter per month
-    existing = (
+    used_count = (
         db.query(models.UserInvite)
         .filter(
             models.UserInvite.inviter_user_id == current_user.id,
             models.UserInvite.invited_month_key == month_key,
         )
-        .first()
+        .count()
     )
-    if existing:
-        raise HTTPException(status_code=400, detail="Bu ay için davet hakkınız zaten kullanılmış.")
+    monthly_limit = int(us.get("monthly_invite_limit_per_admin", 1) or 1)
+    if used_count >= monthly_limit:
+        raise HTTPException(status_code=400, detail=f"Aylık davet limitine ulaşıldı ({monthly_limit}).")
 
     token = secrets.token_urlsafe(32)
     invite = models.UserInvite(
@@ -411,24 +482,47 @@ def invite_complete(
     return {"msg": "Davet tamamlandı ve giriş yapıldı"}
 
 
-@router.post("/change-password", response_model=msg_schema.Msg)
-def change_password(
-    *, 
+@router.get("/invite/my", summary="List invites created by current user")
+def invite_list_my(
     db: Session = Depends(deps.get_db),
-    password_data: user_schema.PasswordChange,
     current_user: models.User = Depends(deps.get_current_active_user),
-) -> Any:
-    """
-    Change password for the current user.
-    """
-    if not crud.user.authenticate(
-        db, email=current_user.email, password=password_data.current_password
-    ):
-        raise HTTPException(status_code=400, detail="Incorrect password")
-    
-    hashed_password = get_password_hash(password_data.new_password)
-    current_user.hashed_password = hashed_password
-    db.add(current_user)
+):
+    invites = (
+        db.query(models.UserInvite)
+        .filter(models.UserInvite.inviter_user_id == current_user.id)
+        .all()
+    )
+    return [
+        {
+            "token": inv.token,
+            "invited_email": inv.invited_email,
+            "invited_month_key": inv.invited_month_key,
+            "accepted_at": inv.accepted_at,
+        }
+        for inv in invites
+    ]
+
+
+@router.delete("/invite/{token}", summary="Revoke an invite created by current user")
+def invite_revoke(
+    token: str,
+    db: Session = Depends(deps.get_db),
+    current_user: models.User = Depends(deps.get_current_active_user),
+):
+    inv = (
+        db.query(models.UserInvite)
+        .filter(models.UserInvite.token == token)
+        .first()
+    )
+    if not inv:
+        raise HTTPException(status_code=404, detail="Davet bulunamadı")
+    if str(inv.inviter_user_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Bu daveti iptal etme yetkiniz yok")
+    if inv.accepted_at is not None:
+        raise HTTPException(status_code=400, detail="Zaten kabul edilmiş davet iptal edilemez")
+    db.delete(inv)
     db.commit()
-    
-    return {"msg": "Password updated successfully"}
+    return {"msg": "Davet iptal edildi"}
+
+
+

@@ -21,7 +21,7 @@ python-jose[cryptography]
 passlib[bcrypt]
 
 # Supabase
-supabase
+supabase==2.20.0
 requests
 httpx
 

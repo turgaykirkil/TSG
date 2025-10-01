@@ -20,6 +20,7 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(100))
     is_active = Column(Boolean(), default=True)
+    is_banned = Column(Boolean(), default=False)
     role = Column(Enum(UserRole), default=UserRole.USER, nullable=False)
     last_login = Column(DateTime(timezone=True))
     
