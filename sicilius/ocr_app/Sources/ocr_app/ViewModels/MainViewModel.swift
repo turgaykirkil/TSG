@@ -209,21 +209,28 @@ class MainViewModel: ObservableObject {
         
         Task {
             do {
-                let ocr = try await ocrService.performOCR(on: pdfData)
-                // Update UI with raw text and capture output folder/base filename
-                self.ocrResult = ocr.text
-                self.ocrOutputFolder = ocr.outputFolderURL
-                self.ocrBaseFilename = ocr.baseFilename
-                
-                // After getting raw text, call the NLP service
-                await self.parseTextWithNLP(text: ocr.text)
+                let ocr = try await Task.detached(priority: .userInitiated) { [pdfData, ocrService] in
+                    return try await ocrService.performOCR(on: pdfData)
+                }.value
+                await MainActor.run {
+                    // UI güncelle
+                    self.ocrResult = ocr.text
+                    self.ocrOutputFolder = ocr.outputFolderURL
+                    self.ocrBaseFilename = ocr.baseFilename
+                }
+                // NLP çağrısını ana aktörden ayır
+                Task.detached { [weak self] in
+                    await self?.parseTextWithNLP(text: ocr.text)
+                }
                 
             } catch {
-                self.errorMessage = "OCR işlemi sırasında bir hata oluştu: \(error.localizedDescription)"
-                self.ocrResult = "İşlem başarısız oldu."
+                await MainActor.run {
+                    self.errorMessage = "OCR işlemi sırasında bir hata oluştu: \(error.localizedDescription)"
+                    self.ocrResult = "İşlem başarısız oldu."
+                }
             }
             // Final state update on the main thread
-            self.isLoading = false
+            await MainActor.run { self.isLoading = false }
         }
     }
     
@@ -234,10 +241,15 @@ class MainViewModel: ObservableObject {
         ocrResult = "OCR işlemi başlatıldı, lütfen bekleyin..."
         do {
             if Task.isCancelled { self.isLoading = false; return }
-            let ocr = try await ocrService.performOCR(on: data)
-            self.ocrResult = ocr.text
-            self.ocrOutputFolder = ocr.outputFolderURL
-            self.ocrBaseFilename = ocr.baseFilename
+            let ocr = try await Task.detached(priority: .userInitiated) { [data, ocrService] in
+                return try await ocrService.performOCR(on: data)
+            }.value
+            await MainActor.run {
+                self.ocrResult = ocr.text
+                self.ocrOutputFolder = ocr.outputFolderURL
+                self.ocrBaseFilename = ocr.baseFilename
+            }
+            // Otomatik akış için NLP'yi tamamlamayı bekle
             await self.parseTextWithNLP(text: ocr.text)
         } catch {
             self.errorMessage = "OCR işlemi sırasında bir hata oluştu: \(error.localizedDescription)"
@@ -296,6 +308,8 @@ class MainViewModel: ObservableObject {
             while !Task.isCancelled {
                 await self.fetchAndProcessOnce()
                 await Task.yield()
+                // Döngüler arası küçük gecikme ile CPU/Ağ yükünü yumuşat
+                try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
             }
             await MainActor.run {
                 self.isAutoRunning = false
@@ -323,75 +337,81 @@ class MainViewModel: ObservableObject {
     // MARK: - NLP Service Communication
     
     func parseTextWithNLP(text: String) async {
-        // 1) Structured çoklu ilanları getir (backend)
-        let listURL = nlpBaseURL
-            .appendingPathComponent("api")
-            .appendingPathComponent("v1")
-            .appendingPathComponent("nlp")
-            .appendingPathComponent("parse-announcements")
-        var listReq = URLRequest(url: listURL)
-        listReq.httpMethod = "POST"
-        listReq.addValue("application/json", forHTTPHeaderField: "Content-Type")
-
+        // Gerekli sabitleri ana aktörden kopyala
+        let baseURL = self.nlpBaseURL
         let requestBody = NlpParseRequest(text: text)
-        do { listReq.httpBody = try JSONEncoder().encode(requestBody) } catch {
-            self.errorMessage = "Failed to encode NLP request: \(error.localizedDescription)"; return
-        }
-
-        do {
-            if Task.isCancelled { return }
-            let t0 = CFAbsoluteTimeGetCurrent()
-            let (data, response) = try await URLSession.shared.data(for: listReq)
-            let tNet = Int((CFAbsoluteTimeGetCurrent() - t0) * 1000)
-
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                let responseBody = String(data: data, encoding: .utf8) ?? "No response body"
-                print("NLP Service Error Response Body (list): \(responseBody)")
-                throw URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: "NLP service returned status code \(statusCode)"])
+        // Ağ ve decode işlemlerini arka planda çalıştır
+        let result = await Task.detached(priority: .userInitiated) { () -> (structured: String?, decoded: [NlpParsedAnnouncement]?, minimal: String?, netMs: Int, decMs: Int, err: String?) in
+            // 1) Structured çoklu
+            let listURL = baseURL
+                .appendingPathComponent("api")
+                .appendingPathComponent("v1")
+                .appendingPathComponent("nlp")
+                .appendingPathComponent("parse-announcements")
+            var listReq = URLRequest(url: listURL)
+            listReq.httpMethod = "POST"
+            listReq.addValue("application/json", forHTTPHeaderField: "Content-Type")
+            listReq.timeoutInterval = 120
+            do { listReq.httpBody = try JSONEncoder().encode(requestBody) } catch {
+                return (nil, nil, nil, 0, 0, "encode error: \(error.localizedDescription)")
             }
+            do {
+                let t0 = CFAbsoluteTimeGetCurrent()
+                let (data, response) = try await URLSession.shared.data(for: listReq)
+                let tNet = Int((CFAbsoluteTimeGetCurrent() - t0) * 1000)
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    let body = String(data: data, encoding: .utf8) ?? ""
+                    return (nil, nil, nil, tNet, 0, "list http \(statusCode): \(body)")
+                }
+                let structured = String(data: data, encoding: .utf8)
+                let tDec0 = CFAbsoluteTimeGetCurrent()
+                let decoded = try JSONDecoder().decode([NlpParsedAnnouncement].self, from: data)
+                let tDec = Int((CFAbsoluteTimeGetCurrent() - tDec0) * 1000)
 
-            // Structured JSON'u sakla (ingest ve NLP sekmesi için)
-            self.nlpStructuredJson = String(data: data, encoding: .utf8)
-            let tDec0 = CFAbsoluteTimeGetCurrent()
-            let decodedList = try await Task.detached(priority: .userInitiated) {
-                return try JSONDecoder().decode([NlpParsedAnnouncement].self, from: data)
-            }.value
-            let tDec = Int((CFAbsoluteTimeGetCurrent() - tDec0) * 1000)
-            self.parsedAnnouncements = decodedList
-            self.parsedEntities = nil
-            print("[NLP:list] İstek=\(tNet) ms, Decode=\(tDec) ms, Count=\(decodedList.count)")
-
-        } catch {
-            self.errorMessage = "NLP list request failed: \(error.localizedDescription)"
-            print("NLP list error: \(error)")
-        }
-
-        // 2) Minimal çoklu liste (yedek gösterim ve karşılaştırma için)
-        let minimalURL = nlpBaseURL
-            .appendingPathComponent("api")
-            .appendingPathComponent("v1")
-            .appendingPathComponent("nlp")
-            .appendingPathComponent("parse-announcements-minimal")
-        var minimalReq = URLRequest(url: minimalURL)
-        minimalReq.httpMethod = "POST"
-        minimalReq.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        do { minimalReq.httpBody = try JSONEncoder().encode(requestBody) } catch {
-            print("Failed to encode minimal NLP request: \(error.localizedDescription)")
-            return
-        }
-        do {
-            if Task.isCancelled { return }
-            let (data, response) = try await URLSession.shared.data(for: minimalReq)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                let body = String(data: data, encoding: .utf8) ?? ""
-                print("Minimal NLP error: status=\(statusCode) body=\(body)")
-                return
+                // 2) Minimal
+                let minimalURL = baseURL
+                    .appendingPathComponent("api")
+                    .appendingPathComponent("v1")
+                    .appendingPathComponent("nlp")
+                    .appendingPathComponent("parse-announcements-minimal")
+                var minimalReq = URLRequest(url: minimalURL)
+                minimalReq.httpMethod = "POST"
+                minimalReq.addValue("application/json", forHTTPHeaderField: "Content-Type")
+                minimalReq.timeoutInterval = 120
+                do { minimalReq.httpBody = try JSONEncoder().encode(requestBody) } catch {
+                    return (structured, decoded, nil, tNet, tDec, "minimal encode error: \(error.localizedDescription)")
+                }
+                do {
+                    let (mdata, mresp) = try await URLSession.shared.data(for: minimalReq)
+                    guard let mhttp = mresp as? HTTPURLResponse, mhttp.statusCode == 200 else {
+                        let statusCode = (mresp as? HTTPURLResponse)?.statusCode ?? -1
+                        let body = String(data: mdata, encoding: .utf8) ?? ""
+                        return (structured, decoded, nil, tNet, tDec, "minimal http \(statusCode): \(body)")
+                    }
+                    let minimal = String(data: mdata, encoding: .utf8)
+                    return (structured, decoded, minimal, tNet, tDec, nil)
+                } catch {
+                    return (structured, decoded, nil, tNet, tDec, "minimal error: \(error.localizedDescription)")
+                }
+            } catch {
+                return (nil, nil, nil, 0, 0, "list error: \(error.localizedDescription)")
             }
-            self.nlpMinimalJson = String(data: data, encoding: .utf8)
-        } catch {
-            print("Minimal NLP request failed: \(error.localizedDescription)")
+        }.value
+
+        // UI güncellemeleri
+        await MainActor.run {
+            if let err = result.err {
+                self.errorMessage = err
+            } else {
+                self.errorMessage = nil
+            }
+            if let s = result.structured { self.nlpStructuredJson = s }
+            if let d = result.decoded { self.parsedAnnouncements = d; self.parsedEntities = nil }
+            if let m = result.minimal { self.nlpMinimalJson = m }
+            if result.decoded != nil {
+                print("[NLP:list] İstek=\(result.netMs) ms, Decode=\(result.decMs) ms, Count=\(result.decoded?.count ?? 0)")
+            }
         }
     }
 
@@ -461,6 +481,7 @@ class MainViewModel: ObservableObject {
             req.httpMethod = "POST"
             req.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
             req.httpBody = postData
+            req.timeoutInterval = 120
 
             print("Ingest-structured POST gönderiliyor... items=\(itemsArray.count)")
             URLSession.shared.dataTask(with: req) { data, resp, err in

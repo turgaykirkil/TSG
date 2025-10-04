@@ -3,6 +3,7 @@ TSG Araştırma Platformu - API v1 Router
 """
 from fastapi import APIRouter
 import logging
+import os
 from app.core.config import settings
 
 from app.api.api_v1.endpoints import (
@@ -27,6 +28,12 @@ from app.api.api_v1.endpoints import (
 api_router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# Ortam bayrakları ile modüler include kontrolü
+INCLUDE_NLP = os.getenv("INCLUDE_NLP", "true").lower() == "true"
+INCLUDE_SCRAPING = os.getenv("INCLUDE_SCRAPING", "true").lower() == "true"
+INCLUDE_OCR = os.getenv("INCLUDE_OCR", "true").lower() == "true"
+INCLUDE_PARSING = os.getenv("INCLUDE_PARSING", "true").lower() == "true"
+
 # Core
 api_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 api_router.include_router(users.router, prefix="/users", tags=["Users"])
@@ -38,16 +45,20 @@ api_router.include_router(gazettes.router, prefix="/gazettes", tags=["Gazettes"]
 api_router.include_router(persons.router, prefix="/persons", tags=["Persons"])
 
 # Functionality
-# OCR/Parsing endpointleri yalnızca API_ONLY=False iken dahil edilir (ör. local geliştirme).
+# OCR/Parsing endpointleri yalnızca API_ONLY=False iken ve ilgili bayraklar true ise dahil edilir
 if not getattr(settings, "API_ONLY", False):
-    from app.api.api_v1.endpoints import ocr, parsing  # type: ignore
-    api_router.include_router(ocr.router, prefix="/parsing", tags=["OCR & Parsing"])
-    api_router.include_router(parsing.router, prefix="/parsing", tags=["Parsing"])
+    if INCLUDE_OCR:
+        from app.api.api_v1.endpoints import ocr  # type: ignore
+        api_router.include_router(ocr.router, prefix="/parsing", tags=["OCR & Parsing"])
+    if INCLUDE_PARSING:
+        from app.api.api_v1.endpoints import parsing  # type: ignore
+        api_router.include_router(parsing.router, prefix="/parsing", tags=["Parsing"])
 
 # Scraping endpointleri de ağır bağımlılıklar içerir (Playwright). API_ONLY=True iken dahil etmeyelim.
 if not getattr(settings, "API_ONLY", False):
-    from app.api.api_v1.endpoints import scraping  # type: ignore
-    api_router.include_router(scraping.router, prefix="/scraping", tags=["Scraping"])
+    if INCLUDE_SCRAPING:
+        from app.api.api_v1.endpoints import scraping  # type: ignore
+        api_router.include_router(scraping.router, prefix="/scraping", tags=["Scraping"])
 api_router.include_router(search.router, prefix="/search", tags=["Search"])
 api_router.include_router(processing.router, prefix="/process", tags=["Processing"])
 
@@ -56,10 +67,11 @@ api_router.include_router(file_uploads.router, prefix="/files", tags=["File Hand
 api_router.include_router(storage.router, prefix="/storage", tags=["Storage"])
 api_router.include_router(jobs.router, prefix="/jobs", tags=["Jobs"])
 
-# NLP sadece API_ONLY=False iken dahil edilir (spacy gibi ağır bağımlılıklar nedeniyle)
+# NLP yalnızca API_ONLY=False iken ve INCLUDE_NLP=true ise dahil edilir (spacy gibi ağır bağımlılıklar nedeniyle)
 if not getattr(settings, "API_ONLY", False):
-    from app.api.api_v1.endpoints import nlp  # type: ignore
-    api_router.include_router(nlp.router, prefix="/nlp", tags=["NLP"])
+    if INCLUDE_NLP:
+        from app.api.api_v1.endpoints import nlp  # type: ignore
+        api_router.include_router(nlp.router, prefix="/nlp", tags=["NLP"])
 
 # Supporting
 api_router.include_router(stats.router, prefix="/stats", tags=["Statistics"])

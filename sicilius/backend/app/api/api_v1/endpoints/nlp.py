@@ -4,7 +4,7 @@ import hashlib
 import re
 import time
 from datetime import datetime
-from fastapi import APIRouter, Body, HTTPException, Depends, Query
+from fastapi import APIRouter, Body, HTTPException, Depends, Query, BackgroundTasks
 from pydantic import BaseModel
 from typing import Dict, Any, List, Union, Optional
 
@@ -22,6 +22,133 @@ from app.nlp import segmenter
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Background tasks for ingest/link updates
+def _link_companies_for_rpc_task(supabase: Client, items: List[Dict[str, Any]], publication_date: Any, issue_number: Any, page_number: Any) -> None:
+    try:
+        linked = 0
+        for it in items:
+            cid = _find_or_create_company(
+                supabase,
+                it.get("sicil_office_header"),
+                it.get("sicil_dosya_no") or it.get("registration_number"),
+                it.get("trade_name"),
+                it.get("addresses"),
+                it.get("mersis_no"),
+            )
+            if cid:
+                idx = it.get("index")
+                if idx is not None:
+                    supabase.table("ocr_results").update({"company_id": cid}).match({
+                        "publication_date": publication_date,
+                        "issue_number": int(issue_number),
+                        "page_number": int(page_number),
+                        "item_index": int(idx),
+                    }).execute()
+                    linked += 1
+        if linked:
+            logger.info("parse-announcements company links updated via RPC path (background): %d", linked)
+    except Exception:
+        logger.warning("parse-announcements company link (RPC path, background) failed", exc_info=True)
+
+
+def _fallback_sidewrite_task(supabase: Client, parsed_list: List[Dict[str, Any]]) -> None:
+    try:
+        rows: List[Dict[str, Any]] = []
+        link_intents: List[Dict[str, Any]] = []
+        errors_local: List[Dict[str, Any]] = []
+        for it in parsed_list:
+            cid = _find_or_create_company(
+                supabase,
+                it.get("sicil_office_header"),
+                it.get("sicil_dosya_no") or it.get("registration_number"),
+                it.get("trade_name"),
+                it.get("addresses"),
+                it.get("mersis_no"),
+            )
+            orig_text = it.get("original_text") or ""
+            h = hashlib.sha256(orig_text.encode("utf-8")).hexdigest() if isinstance(orig_text, str) else None
+            try:
+                _len_txt = len(orig_text) if isinstance(orig_text, str) else 0
+            except Exception:
+                _len_txt = 0
+            logger.debug("parse-announcements fallback(bg): item_index=%s len=%s hash=%s", it.get("index"), _len_txt, h)
+            rows.append({
+                "publication_date": None,
+                "issue_number": None,
+                "page_number": None,
+                "pdf_url": None,
+                "pdf_page_count": None,
+                "company_id": cid,
+                "content_sha256": h,
+                "sicil_office_header": it.get("sicil_office_header"),
+                "sicil_dosya_no": it.get("sicil_dosya_no"),
+                "mersis_no": it.get("mersis_no"),
+                "trade_name": it.get("trade_name"),
+                "old_trade_name": it.get("old_trade_name"),
+                "addresses": it.get("addresses"),
+                "old_addresses": it.get("old_addresses"),
+                "persons": it.get("persons"),
+                "masked_ids": it.get("masked_ids"),
+                "hususlar": it.get("hususlar"),
+                "belgeler": it.get("belgeler"),
+                "type": it.get("type"),
+                "item_index": it.get("index"),
+                "original_text": it.get("original_text"),
+                "start_offset": it.get("start_offset"),
+                "end_offset": it.get("end_offset"),
+                "is_derived": it.get("is_derived"),
+                "derived_from_index": it.get("derived_from_index"),
+                "ilan_sira_no": it.get("ilan_sira_no"),
+                "status": "completed",
+            })
+            if h and cid:
+                link_intents.append({"content_sha256": h, "company_id": cid})
+        if rows:
+            def is_transient(em: str) -> bool:
+                return ("<!DOCTYPE html>" in em or "Worker threw exception" in em or "JSON could not be generated" in em or "json_invalid" in em or "connection reset by peer" in em or "57014" in em or "1101" in em)
+            def _upsert_chunked_local(all_rows: List[Dict[str, Any]], chunk_size: int = 10) -> int:
+                def upsert_chunk(chunk: List[Dict[str, Any]]) -> int:
+                    if not chunk:
+                        return 0
+                    try:
+                        res = supabase.table("ocr_results").upsert(chunk, on_conflict="content_sha256").execute()
+                        return len(getattr(res, "data", None) or [])
+                    except Exception as e:
+                        if len(chunk) > 1:
+                            mid = len(chunk) // 2
+                            return upsert_chunk(chunk[:mid]) + upsert_chunk(chunk[mid:])
+                        item = chunk[0]
+                        em = str(e)
+                        for attempt in range(3):
+                            try:
+                                time.sleep(0.25 * (attempt + 1))
+                                res = supabase.table("ocr_results").upsert([item], on_conflict="content_sha256").execute()
+                                return len(getattr(res, "data", None) or [])
+                            except Exception as e2:
+                                em2 = str(e2)
+                                if is_transient(em2) and attempt < 2:
+                                    continue
+                                else:
+                                    break
+                        try:
+                            errors_local.append({"index": item.get("item_index"), "hash": item.get("content_sha256"), "error": em[:200],})
+                        except Exception:
+                            pass
+                        return 0
+                total = 0
+                for i in range(0, len(all_rows), chunk_size):
+                    total += upsert_chunk(all_rows[i:i + chunk_size])
+                return total
+            inserted = _upsert_chunked_local(rows, chunk_size=10)
+            logger.info("parse-announcements side-write (background) completed. inserted=%d errors=%d", inserted, len(errors_local))
+            for li in link_intents:
+                try:
+                    supabase.table("ocr_results").update({"company_id": li["company_id"]}).eq("content_sha256", li["content_sha256"]).is_("company_id", "null").execute()
+                except Exception:
+                    logger.warning("post-upsert company link by content_sha256 (background) failed", exc_info=True)
+    except Exception as e:
+        logger.warning("parse-announcements side-write (background) failed: %s", e, exc_info=True)
 
 class NlpRequest(BaseModel):
     text: str
@@ -329,9 +456,11 @@ async def parse_text(
 @router.post("/parse-announcements", response_model=List[Dict[str, Any]])
 async def parse_text_multiple(
     request_body: NlpRequest,
+    background_tasks: BackgroundTasks,
     supabase: Client = Depends(get_supabase_client),
     announcement_id: Optional[str] = Query(None, description="If provided, results will be ingested for this announcement"),
-    pdf_page_count: Optional[int] = Query(None, description="Optional PDF total page count for dedupe")
+    pdf_page_count: Optional[int] = Query(None, description="Optional PDF total page count for dedupe"),
+    skip_ingest: bool = Query(True, description="If true (default), do not persist here; parse-only response.")
 ):
     """
     Splits the incoming OCR text into multiple announcements and parses each segment.
@@ -348,6 +477,13 @@ async def parse_text_multiple(
 
         parsed_list = nlp_service.parse_multiple_announcements(request_body.text)
         logger.info("Successfully parsed multiple announcements. count=%d", len(parsed_list))
+
+        # Eğer sadece parse isteniyorsa (skip_ingest=True) ve announcement_id verilmemişse hızlı dönüş yap
+        # Eğer sadece parse isteniyorsa (skip_ingest=True) ve announcement_id verilmemişse hızlı dönüş yap
+        if not announcement_id:
+            logger.info("parse-announcements: scheduling fallback side-write in background (no announcement_id)")
+            background_tasks.add_task(_fallback_sidewrite_task, supabase, parsed_list)
+            return parsed_list
 
         # If client provided announcement_id, resolve meta and do RPC ingest with meta
         if announcement_id:
@@ -381,32 +517,9 @@ async def parse_text_multiple(
                         }
                         rpc_res = supabase.rpc("fn_ingest_ocr_by_ann_key", rpc_params).execute()
                         logger.info("parse-announcements RPC ingest done. rows=%s", len(getattr(rpc_res, "data", []) or []))
-                        # RPC sonrası company_id bağlama (per-item)
-                        try:
-                            linked = 0
-                            for it in parsed_list:
-                                cid = _find_or_create_company(
-                                    supabase,
-                                    it.get("sicil_office_header"),
-                                    it.get("sicil_dosya_no") or it.get("registration_number"),
-                                    it.get("trade_name"),
-                                    it.get("addresses"),
-                                    it.get("mersis_no"),
-                                )
-                                if cid:
-                                    idx = it.get("index")
-                                    if idx is not None:
-                                        supabase.table("ocr_results").update({"company_id": cid}).match({
-                                            "publication_date": publication_date,
-                                            "issue_number": int(issue_number),
-                                            "page_number": int(page_number),
-                                            "item_index": int(idx),
-                                        }).execute()
-                                        linked += 1
-                            if linked:
-                                logger.info("parse-announcements company links updated via RPC path: %d", linked)
-                        except Exception:
-                            logger.warning("parse-announcements company link (RPC path) failed", exc_info=True)
+                        # Schedule background company link updates instead of blocking here
+                        background_tasks.add_task(_link_companies_for_rpc_task, supabase, parsed_list, publication_date, issue_number, page_number)
+                        logger.info("parse-announcements: scheduled company link updates via RPC path (background)")
                         return parsed_list
                     else:
                         logger.warning("parse-announcements: announcement meta incomplete; falling back to content hash upsert")
@@ -415,10 +528,16 @@ async def parse_text_multiple(
             except Exception as e:
                 logger.warning("parse-announcements RPC ingest failed: %s", e, exc_info=True)
 
+        # Schedule background fallback side-write instead of blocking here (meta missing or RPC failed)
+        background_tasks.add_task(_fallback_sidewrite_task, supabase, parsed_list)
+        logger.info("parse-announcements: scheduled fallback side-write (background)")
+        return parsed_list
+
         # Fallback: Side-write to Supabase (content hash upsert). Non-blocking best-effort.
         try:
             rows: List[Dict[str, Any]] = []
             link_intents: List[Dict[str, Any]] = []
+            errors_local: List[Dict[str, Any]] = []
             for it in parsed_list:
                 cid = _find_or_create_company(
                     supabase,
@@ -430,6 +549,12 @@ async def parse_text_multiple(
                 )
                 orig_text = it.get("original_text") or ""
                 h = hashlib.sha256(orig_text.encode("utf-8")).hexdigest() if isinstance(orig_text, str) else None
+                # Teşhis için DEBUG: index, metin uzunluğu, hash
+                try:
+                    _len_txt = len(orig_text) if isinstance(orig_text, str) else 0
+                except Exception:
+                    _len_txt = 0
+                logger.debug("parse-announcements fallback: item_index=%s len=%s hash=%s", it.get("index"), _len_txt, h)
                 rows.append({
                     "publication_date": None,
                     "issue_number": None,
@@ -462,9 +587,61 @@ async def parse_text_multiple(
                 if h and cid:
                     link_intents.append({"content_sha256": h, "company_id": cid})
             if rows:
-                up = supabase.table("ocr_results").upsert(rows, on_conflict="content_sha256").execute()
-                ins = len(getattr(up, "data", None) or [])
-                logger.info("parse-announcements side-write completed. inserted=%d", ins)
+                # Chunk'lı upsert ve tekil retry/backoff
+                def is_transient(em: str) -> bool:
+                    return (
+                        "<!DOCTYPE html>" in em or
+                        "Worker threw exception" in em or
+                        "JSON could not be generated" in em or
+                        "json_invalid" in em or
+                        "connection reset by peer" in em or
+                        "57014" in em or
+                        "1101" in em
+                    )
+
+                def _upsert_chunked_local(all_rows: List[Dict[str, Any]], chunk_size: int = 10) -> int:
+                    def upsert_chunk(chunk: List[Dict[str, Any]]) -> int:
+                        if not chunk:
+                            return 0
+                        try:
+                            res = supabase.table("ocr_results").upsert(chunk, on_conflict="content_sha256").execute()
+                            return len(getattr(res, "data", None) or [])
+                        except Exception as e:
+                            if len(chunk) > 1:
+                                mid = len(chunk) // 2
+                                return upsert_chunk(chunk[:mid]) + upsert_chunk(chunk[mid:])
+                            # Tekil retry/backoff
+                            item = chunk[0]
+                            em = str(e)
+                            for attempt in range(3):
+                                try:
+                                    time.sleep(0.25 * (attempt + 1))
+                                    res = supabase.table("ocr_results").upsert([item], on_conflict="content_sha256").execute()
+                                    return len(getattr(res, "data", None) or [])
+                                except Exception as e2:
+                                    em2 = str(e2)
+                                    if is_transient(em2) and attempt < 2:
+                                        continue
+                                    else:
+                                        break
+                            # Başarısız tekil kayıt: errors[] topla
+                            try:
+                                errors_local.append({
+                                    "index": item.get("item_index"),
+                                    "hash": item.get("content_sha256"),
+                                    "error": em[:200],
+                                })
+                            except Exception:
+                                pass
+                            return 0
+
+                    total = 0
+                    for i in range(0, len(all_rows), chunk_size):
+                        total += upsert_chunk(all_rows[i:i + chunk_size])
+                    return total
+
+                inserted = _upsert_chunked_local(rows, chunk_size=10)
+                logger.info("parse-announcements side-write completed. inserted=%d errors=%d", inserted, len(errors_local))
                 # Güvence: company_id boş kalan satırlar için ikinci tur link
                 for li in link_intents:
                     try:
@@ -1072,6 +1249,13 @@ async def ingest_structured(
                 )
                 orig_text = it.get("original_text") or ""
                 h = hashlib.sha256(orig_text.encode("utf-8")).hexdigest() if isinstance(orig_text, str) else None
+                # Teşhis için DEBUG: index, metin uzunluğu, hash
+                try:
+                    _len_txt = len(orig_text) if isinstance(orig_text, str) else 0
+                except Exception:
+                    _len_txt = 0
+                logger.debug("ingest-structured fallback: item_index=%s len=%s hash=%s", it.get("index"), _len_txt, h)
+
                 row = {
                     "publication_date": publication_date,
                     "issue_number": issue_number,
@@ -1104,19 +1288,55 @@ async def ingest_structured(
                 rows.append(row)
                 if h and cid:
                     link_intents.append({"content_sha256": h, "company_id": cid})
-            # Küçük chunk'larla upsert ve hata halinde parçayı ikiye bölerek tek kayda kadar in
+            # Küçük chunk'larla upsert ve tekil kayıt hatalarında retry/backoff; transient hataları yumuşat
+            errors_local: List[Dict[str, Any]] = []
             def _upsert_chunked_local(all_rows: List[Dict[str, Any]], chunk_size: int = 10) -> int:
+                def is_transient(em: str) -> bool:
+                    return (
+                        "<!DOCTYPE html>" in em or
+                        "Worker threw exception" in em or
+                        "JSON could not be generated" in em or
+                        "json_invalid" in em or
+                        "connection reset by peer" in em or
+                        "57014" in em or  # statement timeout
+                        "1101" in em
+                    )
+
                 def upsert_chunk(chunk: List[Dict[str, Any]]) -> int:
                     if not chunk:
                         return 0
                     try:
                         res = supabase.table("ocr_results").upsert(chunk, on_conflict="content_sha256").execute()
                         return len(getattr(res, "data", None) or [])
-                    except Exception:
+                    except Exception as e:
                         if len(chunk) > 1:
                             mid = len(chunk) // 2
                             return upsert_chunk(chunk[:mid]) + upsert_chunk(chunk[mid:])
+                        # Tekil kayıt: retry/backoff uygula
+                        item = chunk[0]
+                        em = str(e)
+                        for attempt in range(3):
+                            try:
+                                time.sleep(0.25 * (attempt + 1))
+                                res = supabase.table("ocr_results").upsert([item], on_conflict="content_sha256").execute()
+                                return len(getattr(res, "data", None) or [])
+                            except Exception as e2:
+                                em2 = str(e2)
+                                if is_transient(em2) and attempt < 2:
+                                    continue
+                                else:
+                                    break
+                        # Başarısız tekil kayıt: errors[]'e ekle (veri izi kaybolmasın)
+                        try:
+                            errors_local.append({
+                                "index": item.get("item_index"),
+                                "hash": item.get("content_sha256"),
+                                "error": em[:200],
+                            })
+                        except Exception:
+                            pass
                         return 0
+
                 total = 0
                 for i in range(0, len(all_rows), chunk_size):
                     total += upsert_chunk(all_rows[i:i + chunk_size])
