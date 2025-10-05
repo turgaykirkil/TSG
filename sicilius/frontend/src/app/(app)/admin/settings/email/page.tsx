@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
-import { API_BASE_URL, API_ENDPOINTS } from "@/config/constants";
+import { API_ENDPOINTS } from "@/config/constants";
 
 export default function AdminEmailSettingsPage() {
   const { toast } = useToast();
@@ -32,7 +32,7 @@ export default function AdminEmailSettingsPage() {
     const run = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.SETTINGS.EMAIL}`, { credentials: "include" });
+        const res = await fetch(API_ENDPOINTS.SETTINGS.EMAIL, { credentials: "include" });
         if (!res.ok) throw new Error("Ayarlar alınamadı");
         const data = await res.json();
         setForm((f) => ({
@@ -67,7 +67,7 @@ export default function AdminEmailSettingsPage() {
         from_email: form.fromEmail,
         reset_url_base: form.resetUrlBase,
       } as any;
-      const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.SETTINGS.EMAIL}`, {
+      const res = await fetch(API_ENDPOINTS.SETTINGS.EMAIL, {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -92,7 +92,7 @@ export default function AdminEmailSettingsPage() {
     if (!to) return;
     setTesting(true);
     try {
-      const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.SETTINGS.EMAIL_TEST}`, {
+      const res = await fetch(API_ENDPOINTS.SETTINGS.EMAIL_TEST, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

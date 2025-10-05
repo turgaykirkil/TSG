@@ -13,7 +13,7 @@ import { Icons } from '@/components/icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
-import { API_BASE_URL, API_ENDPOINTS } from '@/config/constants';
+import { API_ENDPOINTS } from '@/config/constants';
 
 interface UserAuthFormProps extends React.HTMLAttributes<HTMLDivElement> {
   mode: 'login' | 'register';
@@ -182,7 +182,7 @@ export function UserAuthForm({ className, mode, ...props }: UserAuthFormProps) {
                         try {
                           setFpSubmitting(true);
                           const endpoint = API_ENDPOINTS.AUTH.FORGOT_PASSWORD(forgotEmail);
-                          const res = await fetch(`${API_BASE_URL}${endpoint}`, {
+                          const res = await fetch(endpoint, {
                             method: 'POST',
                             credentials: 'include',
                           });

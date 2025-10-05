@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 
 import { Company } from '@/types/company.types';
-import { API_BASE_URL } from '@/config/constants';
 
 /**
  * Supabase'den gelen ham şirket verisini temsil eder.
@@ -25,7 +24,7 @@ const fetchCompanies = async (searchTerm: string): Promise<Company[]> => {
   }
 
   // Backend route structure: /api/v1/search (router prefix) + /search (endpoint) => /api/v1/search/search
-  const url = `${API_BASE_URL}/api/v1/search/search?q=${encodeURIComponent(searchTerm.trim())}`;
+  const url = `/api/v1/search/search?q=${encodeURIComponent(searchTerm.trim())}`;
 
   try {
     const response = await fetch(url);

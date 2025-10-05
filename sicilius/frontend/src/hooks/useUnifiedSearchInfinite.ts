@@ -1,5 +1,5 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { API_BASE_URL, SEARCH_MAX_COMPANIES } from '@/config/constants';
+import { SEARCH_MAX_COMPANIES } from '@/config/constants';
 import type { Company } from '@/types/company.types';
 
 export interface PersonLite {
@@ -33,7 +33,7 @@ const fetchUnifiedPage = async (searchTerm: string, cursor: number): Promise<Uni
   if (!trimmed) {
     return { companies: [], persons: [], history: [], total_matches: 0, limit: SEARCH_MAX_COMPANIES, next_offset: null, next_cursor: null };
     }
-  const url = `${API_BASE_URL}/api/v1/search/all?q=${encodeURIComponent(trimmed)}&cursor=${cursor}&limit=${SEARCH_MAX_COMPANIES}`;
+  const url = `/api/v1/search/all?q=${encodeURIComponent(trimmed)}&cursor=${cursor}&limit=${SEARCH_MAX_COMPANIES}`;
   const res = await fetch(url, { credentials: 'include' });
   if (!res.ok) {
     let message = 'API isteği başarısız oldu.';

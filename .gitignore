@@ -6,6 +6,7 @@ ContextEng
 CHANGELOG.md
 docker-compose.yml
 links.md
+keys.txt
 
 # Python
 __pycache__/
@@ -90,3 +91,6 @@ Thumbs.db
 
 # Project-specific: do not track backend app tests
 sicilius/backend/app/tests/
+
+# Certificates (do not commit)
+deploy/oracle/certs/

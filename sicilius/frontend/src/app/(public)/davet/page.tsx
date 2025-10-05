@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { API_BASE_URL } from "@/config/constants";
+// same-origin fetch kullanılacak
 
 export default function InvitePage() {
   const params = useSearchParams();
@@ -28,7 +28,7 @@ export default function InvitePage() {
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch(`${API_BASE_URL}/api/v1/auth/invite/accept`, {
+        const res = await fetch(`/api/v1/auth/invite/accept`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token }),
@@ -50,7 +50,7 @@ export default function InvitePage() {
     try {
       setBusy(true);
       setError(null);
-      const res = await fetch(`${API_BASE_URL}/api/v1/auth/invite/complete`, {
+      const res = await fetch(`/api/v1/auth/invite/complete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, password }),

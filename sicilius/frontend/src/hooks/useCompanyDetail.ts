@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query';
-import { API_BASE_URL } from '@/config/constants';
 import type { Company } from '@/types/company.types';
 
 export interface PersonWithRelation {
@@ -87,7 +86,7 @@ export interface CompanyDetailPayload {
 const fetchCompanyDetail = async (companyId: string): Promise<CompanyDetailPayload> => {
   const id = (companyId || '').trim();
   if (!id) throw new Error('Geçersiz şirket kimliği');
-  const url = `${API_BASE_URL}/api/v1/search/company-detail?company_id=${encodeURIComponent(id)}`;
+  const url = `/api/v1/search/company-detail?company_id=${encodeURIComponent(id)}`;
   const res = await fetch(url, { credentials: 'include' });
   if (!res.ok) {
     const status = res.status;

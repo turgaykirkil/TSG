@@ -28,16 +28,7 @@ export default function SupabaseUsagePage() {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const getApiUrl = useCallback(() => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!apiUrl) {
-      const msg = 'API URL is not configured. Please set NEXT_PUBLIC_API_URL.';
-      setError(msg);
-      toast.error(msg);
-      throw new Error(msg);
-    }
-    return `${apiUrl}/api/v1`;
-  }, []);
+  const getApiUrl = useCallback(() => `/api/v1`, []);
 
   const humanBytes = (bytes?: number | null) => {
     if (!bytes || bytes <= 0) return '0 B';

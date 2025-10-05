@@ -26,6 +26,7 @@ supabase==2.20.0
 requests
 httpx
 python-magic
+pdfplumber
 
 # Observability (optional, imported in app.main)
 sentry-sdk

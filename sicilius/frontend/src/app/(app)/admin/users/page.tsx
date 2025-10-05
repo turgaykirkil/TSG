@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { API_BASE_URL, API_ENDPOINTS } from "@/config/constants";
+import { API_ENDPOINTS } from "@/config/constants";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,7 +25,7 @@ export default function AdminUsersPage() {
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.USERS.BASE}?skip=0&limit=200`, { credentials: "include" });
+      const res = await fetch(`${API_ENDPOINTS.USERS.BASE}?skip=0&limit=200`, { credentials: "include" });
       if (!res.ok) throw new Error("Kullanıcılar alınamadı");
       const data = await res.json();
       setList(data as UserItem[]);
@@ -46,7 +46,7 @@ export default function AdminUsersPage() {
 
   const updateUser = async (id: string, patch: Partial<UserItem>) => {
     try {
-      const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.USERS.BASE}/${encodeURIComponent(id)}`, {
+      const res = await fetch(`${API_ENDPOINTS.USERS.BASE}/${encodeURIComponent(id)}`, {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

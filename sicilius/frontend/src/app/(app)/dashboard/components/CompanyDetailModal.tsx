@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { useCompanyDetail } from '@/hooks/useCompanyDetail';
 import { useNearbyCompanies } from '@/hooks/useNearbyCompanies';
 import { useAnnouncementDetail } from '@/hooks/useAnnouncementDetail';
-import { API_BASE_URL } from '@/config/constants';
+// same-origin fetch kullanılacak
 import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FileText, Users, Clock, MapPin, FileDown } from 'lucide-react';
@@ -491,7 +491,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
         for (const a of firstFew) {
           const id = (a?.id || '').trim();
           if (!id) continue;
-          const url = `${API_BASE_URL}/api/v1/search/announcement-detail?announcement_id=${encodeURIComponent(id)}`;
+          const url = `/api/v1/search/announcement-detail?announcement_id=${encodeURIComponent(id)}`;
           const res = await fetch(url, { credentials: 'include' });
           if (!res.ok) continue;
           const j = await res.json();

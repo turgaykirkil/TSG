@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { API_BASE_URL } from '@/config/constants';
 
 // Backend'den gelen istatistik verisinin tip tanımı
 export interface StatsData {
@@ -11,7 +10,7 @@ export interface StatsData {
   storage_pdf_count?: number | null;
 }
 
-const API_URL = `${API_BASE_URL}/api/v1/stats`;
+const API_URL = `/api/v1/stats`;
 
 export const useRealtimeStats = () => {
   const [stats, setStats] = useState<StatsData | null>(null);

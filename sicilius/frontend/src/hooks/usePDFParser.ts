@@ -19,16 +19,12 @@ const parsePdfApi = async (files: File[]): Promise<ParsedTable[]> => {
   // Backend 'files' adında bir liste bekliyor
   files.forEach(file => formData.append('files', file));
 
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL;
-  if (!baseUrl) {
-    throw new Error('API URL is not configured. Please set NEXT_PUBLIC_API_URL in your environment variables.');
-  }
-
-  const fullUrl = `${baseUrl}/api/v1/parsing/parse-pdf`;
+  const fullUrl = `/api/v1/parsing/parse-pdf`;
 
   const response = await fetch(fullUrl, {
     method: 'POST',
     body: formData,
+    credentials: 'include',
     // Note: Don't set 'Content-Type' header, browser does it for multipart/form-data
   });
 

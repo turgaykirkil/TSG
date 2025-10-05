@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
     SECURE_COOKIE: Optional[bool] = None
+    # Optional cookie domain to share auth cookie across subdomains (e.g. .sicilius.com.tr)
+    COOKIE_DOMAIN: Optional[str] = None
 
     @field_validator('SECURE_COOKIE', mode='before')
     @classmethod

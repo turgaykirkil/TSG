@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
-import { API_BASE_URL, API_ENDPOINTS } from "@/config/constants";
+import { API_ENDPOINTS } from "@/config/constants";
 
 export default function UserSettingsForm() {
   const { toast } = useToast();
@@ -32,7 +32,7 @@ export default function UserSettingsForm() {
     const run = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.SETTINGS.USER}`, { credentials: "include" });
+        const res = await fetch(API_ENDPOINTS.SETTINGS.USER, { credentials: "include" });
         if (!res.ok) throw new Error("Ayarlar alınamadı");
         const data = await res.json();
         setForm({
@@ -67,7 +67,7 @@ export default function UserSettingsForm() {
         monthly_invite_limit_per_admin: Number(form.monthlyInviteLimitPerAdmin),
         daily_query_limit: Number(form.dailyQueryLimit),
       };
-      const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.SETTINGS.USER}`, {
+      const res = await fetch(API_ENDPOINTS.SETTINGS.USER, {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

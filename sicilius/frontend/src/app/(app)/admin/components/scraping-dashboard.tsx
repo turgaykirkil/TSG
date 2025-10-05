@@ -14,16 +14,7 @@ export default function ScrapingDashboard() {
   const [status, setStatus] = useState<any | null>(null);
   const [selectedCity, setSelectedCity] = useState<'İSTANBUL' | 'ANKARA' | 'İZMİR' | null>(null);
 
-  const getApiUrl = useCallback(() => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!apiUrl) {
-      const errorMessage = 'API URL is not configured. Please set NEXT_PUBLIC_API_URL in your environment variables.';
-      setError(errorMessage);
-      toast.error(errorMessage);
-      throw new Error(errorMessage);
-    }
-    return `${apiUrl}/api/v1`;
-  }, []);
+  const getApiUrl = useCallback(() => `/api/v1`, []);
 
   const handleStartScraping = async () => {
     if (isLoading) return;

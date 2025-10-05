@@ -29,7 +29,7 @@ export const useCompanyUploader = () => {
     let totalUploaded = 0;
     let totalFailed = 0;
 
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
+    // same-origin API kullanılacak
 
     try {
       for (let i = 0; i < companies.length; i += BATCH_SIZE) {
@@ -40,19 +40,20 @@ export const useCompanyUploader = () => {
           sicil_mudurluk: sicilMudurluk,
         }));
 
-                const response = await fetch(`${apiUrl}/api/v1/parsing/companies/save`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ companies: batch }),
-        });
+                const response = await fetch(`/api/v1/parsing/companies/save`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  credentials: 'include',
+                  body: JSON.stringify({ companies: batch }),
+                });
 
         if (response.ok) {
           const result = await response.json();
           totalUploaded += result.processed_rows || batch.length;
         } else {
-          const errorData = await response.json();
+          const errorData = await response.json().catch(() => ({ detail: null }));
           console.error(`[Uploader] Batch (from index ${i}) failed.`, errorData.detail);
           toast.error(`Bir grup veri yüklenemedi: ${errorData.detail || 'Bilinmeyen hata'}`);
           totalFailed += batch.length;

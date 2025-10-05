@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { API_BASE_URL } from "@/config/constants";
 
 type DailyUsage = {
   date: string;
@@ -20,7 +19,7 @@ export function useDailyUsage() {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`${API_BASE_URL}/api/v1/usage/me`, { credentials: "include" });
+      const res = await fetch(`/api/v1/usage/me`, { credentials: "include" });
       if (!res.ok) {
         throw new Error(`Kullanım bilgisi alınamadı (${res.status})`);
       }

@@ -1,8 +1,14 @@
 # Caddy reverse proxy for Sicilius on Oracle VPS
 # Domain is set to sslip.io for the server's public IP
 
-80.225.236.244.sslip.io {
+sicilius.com.tr, *.sicilius.com.tr {
   encode zstd gzip
+  tls /etc/caddy/certs/sicilius-origin.crt /etc/caddy/certs/sicilius-origin.key
+  log {
+    output stdout
+    format json
+  }
+
 
   # Backend API
   @api path /api*

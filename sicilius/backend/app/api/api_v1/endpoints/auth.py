@@ -175,6 +175,7 @@ def login(
         path="/",
         samesite="lax",
         secure=settings.SECURE_COOKIE,
+        domain=getattr(settings, "COOKIE_DOMAIN", None),
     )
 
     return {"msg": "Login successful"}
@@ -190,6 +191,7 @@ def logout(response: Response):
         path="/",
         samesite="lax",
         secure=settings.SECURE_COOKIE,
+        domain=getattr(settings, "COOKIE_DOMAIN", None),
         httponly=True,
     )
     return {"msg": "Successfully logged out"}
@@ -477,6 +479,7 @@ def invite_complete(
         path="/",
         samesite="lax",
         secure=settings.SECURE_COOKIE,
+        domain=getattr(settings, "COOKIE_DOMAIN", None),
     )
 
     return {"msg": "Davet tamamlandı ve giriş yapıldı"}

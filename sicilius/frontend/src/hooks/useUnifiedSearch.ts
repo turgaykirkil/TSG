@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query';
-import { API_BASE_URL } from '@/config/constants';
 import type { Company } from '@/types/company.types';
 
 export interface PersonLite {
@@ -30,7 +29,7 @@ const fetchUnified = async (searchTerm: string): Promise<UnifiedSearchResult> =>
   if (!trimmed) {
     return { companies: [], persons: [], history: [] };
   }
-  const url = `${API_BASE_URL}/api/v1/search/all?q=${encodeURIComponent(trimmed)}`;
+  const url = `/api/v1/search/all?q=${encodeURIComponent(trimmed)}`;
   const res = await fetch(url);
   if (!res.ok) {
     let message = 'API isteği başarısız oldu.';

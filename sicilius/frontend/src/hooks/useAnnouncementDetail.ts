@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query';
-import { API_BASE_URL } from '@/config/constants';
 
 export interface AnnouncementDetailPayload {
   announcement: any | null;
@@ -12,7 +11,7 @@ export const useAnnouncementDetail = (announcementId?: string, enabled: boolean 
     queryFn: async () => {
       const id = (announcementId || '').trim();
       if (!id) throw new Error('Geçersiz ilan kimliği');
-      const url = `${API_BASE_URL}/api/v1/search/announcement-detail?announcement_id=${encodeURIComponent(id)}`;
+      const url = `/api/v1/search/announcement-detail?announcement_id=${encodeURIComponent(id)}`;
       const res = await fetch(url, { credentials: 'include' });
       if (!res.ok) {
         let message = 'İlan detayı getirilemedi';

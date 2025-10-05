@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useAlert } from "@/contexts/AlertContext";
-import { API_BASE_URL, API_ENDPOINTS } from "@/config/constants";
+import { API_ENDPOINTS } from "@/config/constants";
 
 interface Props {
   open: boolean;
@@ -35,7 +35,7 @@ export default function InviteModal({ open, onOpenChange }: Props) {
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.AUTH.INVITE_LIST_MY}`, { credentials: "include" });
+      const res = await fetch(API_ENDPOINTS.AUTH.INVITE_LIST_MY, { credentials: "include" });
       if (!res.ok) throw new Error("Davetler alınamadı");
       const data = await res.json();
       setList(data as InviteItem[]);
@@ -57,7 +57,7 @@ export default function InviteModal({ open, onOpenChange }: Props) {
     }
     setPwdSubmitting(true);
     try {
-      const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.AUTH.CHANGE_PASSWORD}`, {
+      const res = await fetch(API_ENDPOINTS.AUTH.CHANGE_PASSWORD, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -78,7 +78,7 @@ export default function InviteModal({ open, onOpenChange }: Props) {
   const revoke = async (token: string) => {
     if (!confirm("Bu daveti iptal etmek istediğinize emin misiniz?")) return;
     try {
-      const res = await fetch(`${API_BASE_URL}${API_ENDPOINTS.AUTH.INVITE_REVOKE(token)}`, {
+      const res = await fetch(API_ENDPOINTS.AUTH.INVITE_REVOKE(token), {
         method: "DELETE",
         credentials: "include",
       });
