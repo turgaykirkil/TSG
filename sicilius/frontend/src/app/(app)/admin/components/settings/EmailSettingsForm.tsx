@@ -22,6 +22,7 @@ export default function EmailSettingsForm() {
     fromName: "Sicilius",
     fromEmail: "",
     resetUrlBase: "http://localhost:3000",
+    inviteUrlBase: "http://localhost:3000/davet/",
   });
 
   const onChange = (key: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -44,6 +45,7 @@ export default function EmailSettingsForm() {
           fromName: data.from_name || data.fromName || "Sicilius",
           fromEmail: data.from_email || data.fromEmail || "",
           resetUrlBase: data.reset_url_base || data.resetUrlBase || "http://localhost:3000",
+          inviteUrlBase: data.invite_url_base || data.inviteUrlBase || "http://localhost:3000/davet/",
         }));
       } catch (e: any) {
         toast({ title: "Hata", description: e.message || String(e), variant: "destructive" });
@@ -66,6 +68,7 @@ export default function EmailSettingsForm() {
         from_name: form.fromName,
         from_email: form.fromEmail,
         reset_url_base: form.resetUrlBase,
+        invite_url_base: form.inviteUrlBase,
       } as any;
       const res = await fetch(API_ENDPOINTS.SETTINGS.EMAIL, {
         method: "PUT",
@@ -161,6 +164,11 @@ export default function EmailSettingsForm() {
       <div className="grid gap-2">
         <Label htmlFor="reset_base">Reset Linki Tabanı</Label>
         <Input id="reset_base" value={form.resetUrlBase} onChange={onChange("resetUrlBase")} placeholder="http://localhost:3000" />
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="invite_base">Davet Linki Tabanı</Label>
+        <Input id="invite_base" value={form.inviteUrlBase} onChange={onChange("inviteUrlBase")} placeholder="https://sicilius.com.tr/davet/" />
       </div>
 
       <div className="flex gap-3 pt-2">

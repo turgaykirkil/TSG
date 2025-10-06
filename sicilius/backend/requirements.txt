@@ -1,7 +1,6 @@
 # Core
 fastapi
 uvicorn[standard]
-websockets<11.0
 pydantic
 pydantic-settings
 python-dotenv
@@ -22,8 +21,10 @@ passlib[bcrypt]
 
 # Supabase
 supabase==2.20.0
+realtime>=2.21.1
 requests
 httpx
+cairosvg
 
 # OCR & Data Processing
 torch==2.7.1

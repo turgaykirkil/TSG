@@ -58,7 +58,16 @@ export default function InvitePage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.detail || 'Davet tamamlanamadı');
-      // Cookie ayarlandı, dashboard'a yönlendir
+      // Cookie ayarlandı. Bazı tarayıcılarda Set-Cookie hemen sonraki client-side navigasyonda taşınmayabilir.
+      // Middleware'in yeni cookie'yi görmesi için kısa bir warm-up ve tam sayfa geçişi yapalım.
+      try {
+        await fetch('/api/v1/users/me', { credentials: 'include', cache: 'no-store' });
+      } catch {}
+      // Hard navigation: middleware yeni auth_token ile çalışır
+      if (typeof window !== 'undefined') {
+        window.location.href = '/dashboard';
+        return;
+      }
       router.replace('/dashboard');
     } catch (e: any) {
       setError(e?.message || 'Bilinmeyen hata');

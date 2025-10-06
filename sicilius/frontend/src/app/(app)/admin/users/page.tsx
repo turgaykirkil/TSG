@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type UserItem = {
   id: string;
@@ -21,6 +22,12 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = React.useState(false);
   const [list, setList] = React.useState<UserItem[]>([]);
   const [q, setQ] = React.useState("");
+
+  // Invite modal state
+  const [inviteOpen, setInviteOpen] = React.useState(false);
+  const [inviteEmail, setInviteEmail] = React.useState("");
+  const [inviteSubmitting, setInviteSubmitting] = React.useState(false);
+  const [inviteLink, setInviteLink] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -61,6 +68,47 @@ export default function AdminUsersPage() {
     }
   };
 
+  const fetchInviteBase = async (): Promise<string | null> => {
+    try {
+      const res = await fetch(API_ENDPOINTS.SETTINGS.EMAIL, { credentials: "include" });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data?.invite_url_base || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const createInvite = async () => {
+    const email = inviteEmail.trim();
+    if (!email) {
+      toast({ title: "E-posta gerekli", description: "Lütfen davet etmek istediğiniz e-posta adresini girin.", variant: "destructive" });
+      return;
+    }
+    setInviteSubmitting(true);
+    try {
+      const res = await fetch(API_ENDPOINTS.AUTH.INVITE_CREATE, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.detail || "Davet oluşturulamadı");
+      const token: string | undefined = data?.token;
+      if (!token) throw new Error("Sunucudan token alınamadı");
+
+      const base = await fetchInviteBase();
+      const link = `${base || "http://localhost:3000/davet"}?token=${encodeURIComponent(token)}`;
+      setInviteLink(link);
+      toast({ title: "Davet oluşturuldu" });
+    } catch (e: any) {
+      toast({ title: "Hata", description: e.message || String(e), variant: "destructive" });
+    } finally {
+      setInviteSubmitting(false);
+    }
+  };
+
   return (
     <div className="max-w-6xl">
       <h1 className="text-2xl font-bold mb-1">Kullanıcılar</h1>
@@ -73,6 +121,9 @@ export default function AdminUsersPage() {
         </div>
         <div className="mt-6">
           <Button variant="outline" onClick={load} disabled={loading}>{loading ? "Yükleniyor..." : "Yenile"}</Button>
+        </div>
+        <div className="mt-6 ml-auto">
+          <Button onClick={() => { setInviteOpen(true); setInviteLink(null); }}>Kullanıcı Davet Et</Button>
         </div>
       </div>
 
@@ -118,6 +169,45 @@ export default function AdminUsersPage() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Invite Modal */}
+      <Dialog open={inviteOpen} onOpenChange={(o) => { setInviteOpen(o); if (!o) { setInviteEmail(""); setInviteLink(null); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Kullanıcı Davet Et</DialogTitle>
+            <DialogDescription>Yeni bir kullanıcıyı e-posta ile davet edin. Davet bağlantısını kopyalayabilirsiniz.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="invite_email">E-posta</Label>
+              <Input id="invite_email" placeholder="kisi@ornek.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} />
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={createInvite} disabled={inviteSubmitting}>{inviteSubmitting ? "Oluşturuluyor..." : "Davet Oluştur"}</Button>
+              <Button variant="outline" onClick={() => setInviteOpen(false)}>Kapat</Button>
+            </div>
+            {inviteLink && (
+              <div className="grid gap-2">
+                <Label>Oluşturulan Davet Bağlantısı</Label>
+                <div className="flex items-center gap-2">
+                  <Input readOnly value={inviteLink} />
+                  <Button
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(inviteLink);
+                        toast({ title: "Kopyalandı" });
+                      } catch {
+                        toast({ title: "Kopyalanamadı", variant: "destructive" });
+                      }
+                    }}
+                  >Kopyala</Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

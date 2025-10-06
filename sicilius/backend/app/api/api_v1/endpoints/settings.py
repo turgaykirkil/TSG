@@ -63,6 +63,7 @@ def get_email_settings(
             from_name="Sicilius",
             from_email="no-reply@example.com",
             reset_url_base="http://localhost:3000",
+            invite_url_base="http://localhost:3000/davet",
         )
     return EmailSettingsOut(**{k: v for k, v in data.items() if k != "password"})
 
@@ -75,7 +76,7 @@ def update_email_settings(
 ) -> Any:
     existing = _get_email_settings(db) or {}
     merged = existing.copy()
-    incoming = body.dict()
+    incoming = body.dict(exclude_none=True)
     # If password is empty/None, keep existing
     if not incoming.get("password"):
         incoming.pop("password", None)

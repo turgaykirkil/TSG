@@ -12,6 +12,7 @@ class EmailSettings(BaseModel):
     from_name: str = Field(default="Sicilius")
     from_email: EmailStr
     reset_url_base: str = Field(..., min_length=1)
+    invite_url_base: Optional[str] = Field(default=None, description="Base URL for invite completion link")
 
 class EmailSettingsOut(BaseModel):
     host: str
@@ -21,8 +22,8 @@ class EmailSettingsOut(BaseModel):
     from_name: str
     from_email: EmailStr
     reset_url_base: str
+    invite_url_base: Optional[str] = None
     # do not expose password
-
 
 RegistrationMode = Literal["open", "invite_only"]
 UserRole = Literal["admin", "manager", "user"]
@@ -39,7 +40,6 @@ class UserSettings(BaseModel):
 
 class UserSettingsOut(UserSettings):
     pass
-
 
 class SecuritySettings(BaseModel):
     session_expire_minutes: int = Field(default=1440, ge=5, le=60*24*30)

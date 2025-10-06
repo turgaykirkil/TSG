@@ -21,6 +21,7 @@ from supabase import create_client
 import httpx
 import re
 from app.models.app_setting import AppSetting
+from app.services import email_service
 
 router = APIRouter()
 
@@ -195,6 +196,18 @@ def logout(response: Response):
         httponly=True,
     )
     return {"msg": "Successfully logged out"}
+
+
+# --- Admin-only guard endpoint ---
+@router.get("/require-admin", status_code=status.HTTP_204_NO_CONTENT)
+def require_admin(
+    current_user: models.User = Depends(deps.get_current_active_superuser),
+):
+    """
+    Backend-enforced admin check. Returns 204 if the current user is an admin (superuser).
+    Non-admin users are rejected by the dependency with an error.
+    """
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/login/test-token", response_model=user_schema.User)
@@ -395,19 +408,41 @@ def invite_user(
     if block and email_domain in block:
         raise HTTPException(status_code=400, detail="Bu e-posta alan adı engellenmiş")
 
-    # Monthly invite limit per admin/user
-    month_key = datetime.utcnow().strftime("%Y-%m")
-    used_count = (
+    # Existing user check: do not allow invites to already-registered emails
+    # 1) Bekleyen davet kontrolü (aynı e-posta için henüz kabul edilmemiş bir davet varsa engelle)
+    pending = (
         db.query(models.UserInvite)
         .filter(
-            models.UserInvite.inviter_user_id == current_user.id,
-            models.UserInvite.invited_month_key == month_key,
+            models.UserInvite.invited_email == str(req.email).lower(),
+            models.UserInvite.accepted_at.is_(None),
         )
-        .count()
+        .first()
     )
-    monthly_limit = int(us.get("monthly_invite_limit_per_admin", 1) or 1)
-    if used_count >= monthly_limit:
-        raise HTTPException(status_code=400, detail=f"Aylık davet limitine ulaşıldı ({monthly_limit}).")
+    if pending:
+        raise HTTPException(status_code=409, detail="Bu e-posta için bekleyen bir davet zaten var")
+
+    # 2) Var olan kullanıcı kontrolü (banlı kullanıcıya davet de engellenir)
+    existing_user = crud.user.get_by_email(db, email=str(req.email).lower())
+    if existing_user:
+        if getattr(existing_user, "is_banned", False):
+            raise HTTPException(status_code=403, detail="Banlanmış kullanıcıya davet gönderilemez")
+        raise HTTPException(status_code=409, detail="Bu e-posta ile zaten bir hesap mevcut")
+
+    # Monthly invite limit per user (admins are exempt)
+    month_key = datetime.utcnow().strftime("%Y-%m")
+    # Admin muafiyeti enum tabanlı kontrol ile sağlanır
+    if not crud.user.is_superuser(current_user):
+        used_count = (
+            db.query(models.UserInvite)
+            .filter(
+                models.UserInvite.inviter_user_id == current_user.id,
+                models.UserInvite.invited_month_key == month_key,
+            )
+            .count()
+        )
+        monthly_limit = int(us.get("monthly_invite_limit_per_admin", 1) or 1)
+        if used_count >= monthly_limit:
+            raise HTTPException(status_code=400, detail=f"Aylık davet limitine ulaşıldı ({monthly_limit}).")
 
     token = secrets.token_urlsafe(32)
     invite = models.UserInvite(
@@ -420,8 +455,19 @@ def invite_user(
     db.commit()
     db.refresh(invite)
 
-    # TODO: E-posta gönderimi entegre edilecek. Şimdilik token döndürülür.
-    return {"msg": "Davet oluşturuldu", "token": token}
+    # Davetiye e-postasını gönder (no-reply). Hata halinde daveti geri al.
+    try:
+        email_service.send_invite_email(db, to=str(req.email), token=token)
+    except Exception as e:
+        try:
+            db.delete(invite)
+            db.commit()
+        except Exception:
+            db.rollback()
+        raise HTTPException(status_code=400, detail=f"Davet e-postası gönderilemedi: {e}")
+
+    # Frontend'in davet linki oluşturabilmesi için token'ı da döndür.
+    return {"token": token, "msg": "Davet oluşturuldu ve e-posta gönderildi"}
 
 
 @router.post("/invite/accept", summary="Validate invite token and return invited email")
@@ -453,23 +499,118 @@ def invite_complete(
         raise HTTPException(status_code=404, detail="Geçersiz davet bağlantısı")
     if invite.accepted_at is not None:
         raise HTTPException(status_code=400, detail="Davet zaten kullanılmış")
+    # auth_mode'a göre kullanıcı oluşturma ve oturum açma
+    if getattr(settings, "auth_mode", "local").lower() != "supabase":
+        # Local mod: kullanıcıyı yerel DB'de oluştur
+        existing_user = crud.user.get_by_email(db, email=invite.invited_email)
+        if existing_user:
+            raise HTTPException(status_code=409, detail="Bu e-posta ile zaten bir hesap mevcut")
 
-    # Email zaten varsa yeni hesap oluşturma
-    existing_user = crud.user.get_by_email(db, email=invite.invited_email)
-    if existing_user:
-        raise HTTPException(status_code=409, detail="Bu e-posta ile zaten bir hesap mevcut")
+        user_in = user_schema.UserCreate(
+            email=invite.invited_email,
+            password=body.password,
+            full_name=invite.invited_email,
+        )
+        user = crud.user.create(db, obj_in=user_in)
 
-    # Create user with minimal fields
-    user_in = user_schema.UserCreate(email=invite.invited_email, password=body.password, full_name=invite.invited_email)
-    user = crud.user.create(db, obj_in=user_in)
+        # Daveti kabul edildi olarak işaretle
+        invite.accepted_at = datetime.utcnow()
+        db.add(invite)
+        db.commit()
 
-    # Mark invite as accepted
+        # Auto-login: yerel JWT ile cookie ayarla
+        access_token = security.create_access_token(
+            user.id, expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        )
+        response.set_cookie(
+            "auth_token",
+            value=access_token,
+            httponly=True,
+            max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            expires=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            path="/",
+            samesite="lax",
+            secure=settings.SECURE_COOKIE,
+            domain=getattr(settings, "COOKIE_DOMAIN", None),
+        )
+
+        return {"msg": "Davet tamamlandı ve giriş yapıldı"}
+
+    # Supabase mod: Admin API ile kullanıcıyı oluştur ve Supabase token'ı ile giriş yap
+    admin_key = settings.supabase_service_role_key
+    if not admin_key:
+        raise HTTPException(status_code=500, detail="Supabase service role key is not configured")
+
+    # Şifre politikası (security_settings) uygula
+    try:
+        sec = _get_security_settings(db)
+        _validate_password_policy(body.password, sec)
+    except HTTPException:
+        raise
+    except Exception:
+        # Beklenmeyen durumda politikayı atlama
+        pass
+
+    # 1) Supabase Admin API ile kullanıcı oluştur (email doğrulanmış kabul edilsin)
+    create_url = f"{settings.supabase_url}/auth/v1/admin/users"
+    headers = {
+        "apikey": admin_key,
+        "Authorization": f"Bearer {admin_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "email": invite.invited_email,
+        "password": body.password,
+        "email_confirm": True,
+    }
+    try:
+        with httpx.Client(timeout=15.0) as http:
+            resp = http.post(create_url, headers=headers, json=payload)
+            # 409 veya 422 (already registered) durumda devam edip giriş deneyeceğiz
+            proceed = resp.status_code in (200, 201, 409)
+            detail = resp.text
+            try:
+                data = resp.json()
+                if isinstance(data, dict) and data.get("msg"):
+                    detail = data.get("msg")
+                elif isinstance(data, dict) and data.get("message"):
+                    detail = data.get("message")
+            except Exception:
+                pass
+            if resp.status_code == 422 and isinstance(detail, str) and "already been registered" in detail.lower():
+                proceed = True
+            if not proceed:
+                raise HTTPException(status_code=400, detail=f"Kullanıcı oluşturulamadı (Supabase {resp.status_code}): {detail}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Kullanıcı oluşturulamadı (Supabase): {e}")
+
+    # 2) Supabase ile parola ile giriş yap ve access_token al
+    try:
+        client = create_client(settings.supabase_url, settings.supabase_key)
+        res = client.auth.sign_in_with_password(
+            {
+                "email": invite.invited_email,
+                "password": body.password,
+            }
+        )
+        if not res or not getattr(res, "session", None) or not res.session:
+            raise HTTPException(status_code=400, detail="Giriş yapılamadı (Supabase): session yok")
+        access_token = getattr(res.session, "access_token", None)
+        if not access_token:
+            raise HTTPException(status_code=400, detail="Giriş yapılamadı (Supabase): access_token yok")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Giriş yapılamadı (Supabase): {e}")
+
+    # 3) Daveti kabul edildi olarak işaretle (yerel kayıt)
     invite.accepted_at = datetime.utcnow()
     db.add(invite)
     db.commit()
 
-    # Auto-login: issue cookie
-    access_token = security.create_access_token(user.id, expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES))
+    # 4) Supabase access_token'ını cookie olarak ayarla
     response.set_cookie(
         "auth_token",
         value=access_token,

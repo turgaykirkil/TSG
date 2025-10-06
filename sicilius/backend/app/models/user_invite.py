@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, UniqueConstraint
+from sqlalchemy import Column, String, DateTime
 from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime
 import uuid
@@ -16,6 +16,7 @@ class UserInvite(Base):
     token = Column(String(128), nullable=False, unique=True, index=True)
     accepted_at = Column(DateTime(timezone=True), nullable=True)
 
-    __table_args__ = (
-        UniqueConstraint('inviter_user_id', 'invited_month_key', name='uq_invite_inviter_month'),
-    )
+    # Note: Per-inviter monthly limit is enforced at the application layer for non-admins.
+    # Admin users are exempt, so we intentionally do not enforce a DB-level unique constraint
+    # on (inviter_user_id, invited_month_key). This allows multiple invites in the same month
+    # for admin users while still letting the API apply limits for others.

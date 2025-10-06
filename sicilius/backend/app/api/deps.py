@@ -65,13 +65,15 @@ def _ensure_local_user(db: Session, *, user_id_str: str, email: Optional[str]) -
             # If an existing row has different id, keep existing to avoid PK conflict
             return by_email
 
-    # Create a minimal user row with random password (unused under Supabase auth)
+    # Create a minimal user row (shadow) for Supabase-authenticated users.
+    # Not used for auth in Supabase mode, so avoid invoking bcrypt hashing backend
+    # which may error on first-use long-secret detection in some environments.
     from app.models.user import User, UserRole
-    random_hash = security.get_password_hash(secrets.token_urlsafe(16))
+    placeholder_hash = "!supabase-shadow"
     new_user = User(
         id=user_uuid,
         email=(email or f"user-{user_id_str}@example.com"),
-        hashed_password=random_hash,
+        hashed_password=placeholder_hash,
         full_name=email or None,
         is_active=True,
         role=UserRole.USER,

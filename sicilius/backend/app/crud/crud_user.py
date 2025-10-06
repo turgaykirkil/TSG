@@ -2,19 +2,26 @@ import logging
 from typing import Any, Dict, Optional, Union
 
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 logger = logging.getLogger(__name__)
 
 from app.core.security import get_password_hash, verify_password
 from app.crud.base import CRUDBase
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.user import UserCreate, UserUpdate
 
 
 class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
     def get_by_email(self, db: Session, *, email: str) -> Optional[User]:
-        """E-posta adresine göre kullanıcı getirir."""
-        return db.query(User).filter(User.email == email).first()
+        """E-posta adresine göre kullanıcı getirir (case-insensitive)."""
+        if not email:
+            return None
+        return (
+            db.query(User)
+            .filter(func.lower(User.email) == email.strip().lower())
+            .first()
+        )
 
     def create(self, db: Session, *, obj_in: UserCreate) -> User:
         """Yeni kullanıcı oluşturur."""
@@ -69,7 +76,14 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
 
     def is_superuser(self, user: User) -> bool:
         """Kullanıcının süper kullanıcı olup olmadığını kontrol eder."""
-        return user.role == "admin"
+        try:
+            # Enum instance comparison
+            if isinstance(user.role, UserRole):
+                return user.role == UserRole.ADMIN
+            # String fallback (DB enum/string with case variations)
+            return str(user.role).strip().lower() == UserRole.ADMIN.value
+        except Exception:
+            return False
 
 
 # Kullanıcı CRUD işlemleri için singleton örneği

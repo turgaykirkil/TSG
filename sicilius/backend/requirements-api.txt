@@ -27,6 +27,7 @@ requests
 httpx
 python-magic
 pdfplumber
+cairosvg
 
 # Observability (optional, imported in app.main)
 sentry-sdk

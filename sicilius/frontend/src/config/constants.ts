@@ -25,7 +25,7 @@ export const API_ENDPOINTS = {
     INTEGRATIONS: '/api/v1/settings/integrations',
   },
   USERS: {
-    BASE: '/api/v1/users',
+    BASE: '/api/v1/users/',
     ME: '/api/v1/users/me',
   },
   COMPANIES: {

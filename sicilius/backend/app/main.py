@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.staticfiles import StaticFiles
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.api.api_v1.api import api_router
 from app.core.config import settings
@@ -96,6 +97,9 @@ app = FastAPI(
     on_startup=[startup_event],
     on_shutdown=[shutdown_event],
 )
+
+# Ensure scheme/host are derived from reverse proxy headers (X-Forwarded-Proto, etc.)
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # --- Request Logging Toggle ---
 # REQUEST_LOGGING=true enables per-request logs; default is off to keep terminal clean.
