@@ -2,6 +2,7 @@
 User API endpoints
 """
 from typing import Any, List
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -11,6 +12,7 @@ from app.api import deps
 from app.core.config import settings
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 @router.get("/", response_model=List[schemas.User])
 def read_users(
@@ -64,6 +66,15 @@ def read_user_me(
     """
     Get current user.
     """
+    try:
+        role = getattr(current_user.role, "value", str(current_user.role))
+    except Exception:
+        role = str(getattr(current_user, "role", None))
+    logger.warning(
+        "[/users/me] user=%s role=%s",
+        (current_user.email or "").lower(),
+        role,
+    )
     return current_user
 
 @router.get("/{user_id}", response_model=schemas.User)

@@ -7,6 +7,7 @@ import uuid
 from typing import Generator, Optional
 
 from fastapi import Depends, HTTPException, status, Request
+import logging
 from datetime import datetime
 import os
 from fastapi.security import OAuth2PasswordBearer
@@ -54,16 +55,19 @@ def _ensure_local_user(db: Session, *, user_id_str: str, email: Optional[str]) -
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid Supabase user id")
 
+    # Prefer email-based linkage first to avoid picking a stale shadow row by id
+    if email:
+        try:
+            by_email = crud.user.get_by_email(db, email=email.strip().lower())
+        except Exception:
+            by_email = None
+        if by_email:
+            return by_email
+
+    # Fallback to id-based linkage
     user = crud.user.get(db, id=user_uuid)
     if user:
         return user
-
-    # Try by email as well to link existing row
-    if email:
-        by_email = crud.user.get_by_email(db, email=email)
-        if by_email:
-            # If an existing row has different id, keep existing to avoid PK conflict
-            return by_email
 
     # Create a minimal user row (shadow) for Supabase-authenticated users.
     # Not used for auth in Supabase mode, so avoid invoking bcrypt hashing backend
@@ -150,11 +154,26 @@ def get_current_user(
                 raise HTTPException(status_code=403, detail="Could not validate Supabase token")
             supabase_user_id = str(resp.user.id)
             supabase_email = getattr(resp.user, "email", None)
+            logging.warning(
+                "[deps.get_current_user] gotrue user id=%s email=%s",
+                supabase_user_id,
+                (supabase_email or "").lower(),
+            )
         except Exception as e:
             logging.error(f"[deps.py] Supabase auth.get_user failed: {e}", exc_info=True)
             raise HTTPException(status_code=403, detail="Could not validate credentials")
 
     user = _ensure_local_user(db, user_id_str=supabase_user_id, email=supabase_email)
+    try:
+        role_val = getattr(user.role, "value", str(user.role))
+    except Exception:
+        role_val = str(getattr(user, "role", None))
+    logging.warning(
+        "[deps.get_current_user] mapped local user email=%s id=%s role=%s",
+        (user.email or "").lower(),
+        user.id,
+        role_val,
+    )
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
     return user

@@ -94,7 +94,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       let role: string | undefined;
       try {
         const me = await api.get(API_ENDPOINTS.USERS.ME);
-        role = me?.data?.role;
+        // robust role extraction in case of enum-like value
+        const rawRole = me?.data?.role as any;
+        role = typeof rawRole === 'string' ? rawRole : (rawRole?.value || rawRole?.name);
         setSession({ user: me.data, status: 'authenticated' });
       } catch {
         await checkAuth();

@@ -21,44 +21,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Backend-enforced admin gate for /admin
-  if (pathname.startsWith('/admin')) {
-    try {
-      const adminUrl = new URL('/api/v1/auth/require-admin', request.url);
-      const res = await fetch(adminUrl, {
-        // Pass through cookies for backend auth check
-        headers: { cookie: request.headers.get('cookie') ?? '' },
-        cache: 'no-store',
-        credentials: 'include',
-      });
-      if (res.status !== 204) {
-        // Fallback: fetch current user and inspect role
-        try {
-          const meUrl = new URL('/api/v1/users/me', request.url);
-          const meRes = await fetch(meUrl, {
-            headers: { cookie: request.headers.get('cookie') ?? '' },
-            cache: 'no-store',
-          });
-          if (meRes.ok) {
-            const data = await meRes.json().catch(() => null);
-            const role = (data?.role ?? '').toString().toLowerCase();
-            if (role === 'admin') {
-              return NextResponse.next();
-            }
-          }
-        } catch {}
-        // Not admin -> apply env-based policy, default redirect to dashboard
-        const disableAdmin = process.env.NEXT_PUBLIC_DISABLE_ADMIN === 'true';
-        if (disableAdmin) {
-          return new NextResponse('Not Found', { status: 404 });
-        }
-        return NextResponse.redirect(new URL('/dashboard', request.url));
-      }
-    } catch {
-      // On any error contacting backend, fail closed to dashboard
-      return NextResponse.redirect(new URL('/dashboard', request.url));
-    }
-  }
+  // Admin rol kontrolü sayfa içinde ve backend endpoint'lerinde yapılır.
 
   return NextResponse.next();
 }

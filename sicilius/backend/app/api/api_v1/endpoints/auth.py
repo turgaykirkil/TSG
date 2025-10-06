@@ -2,6 +2,7 @@
 Authentication endpoints
 """
 from datetime import timedelta
+import logging
 from typing import Any
 from datetime import datetime
 import secrets
@@ -22,6 +23,8 @@ import httpx
 import re
 from app.models.app_setting import AppSetting
 from app.services import email_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -201,12 +204,25 @@ def logout(response: Response):
 # --- Admin-only guard endpoint ---
 @router.get("/require-admin", status_code=status.HTTP_204_NO_CONTENT)
 def require_admin(
-    current_user: models.User = Depends(deps.get_current_active_superuser),
+    current_user: models.User = Depends(deps.get_current_user),
 ):
     """
     Backend-enforced admin check. Returns 204 if the current user is an admin (superuser).
-    Non-admin users are rejected by the dependency with an error.
+    Logs the user's email and role in all cases for debugging.
     """
+    try:
+        role = getattr(current_user.role, "value", str(current_user.role))
+    except Exception:
+        role = str(getattr(current_user, "role", None))
+    is_admin = bool(crud.user.is_superuser(current_user))
+    logger.warning(
+        "[require-admin] user=%s role=%s is_admin=%s",
+        (current_user.email or "").lower(),
+        role,
+        is_admin,
+    )
+    if not is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not admin")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

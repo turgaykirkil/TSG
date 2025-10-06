@@ -2,4 +2,4 @@ User-agent: *
 Disallow: /admin
 
 # Optional: point to sitemap if available
-# Sitemap: https://example.com/sitemap.xml
+Sitemap: https://sicilius.com.tr/sitemap.xml
