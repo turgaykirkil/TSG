@@ -94,3 +94,4 @@ sicilius/backend/app/tests/
 
 # Certificates (do not commit)
 deploy/oracle/certs/
+sicilius/test_eval/

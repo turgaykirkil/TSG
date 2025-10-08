@@ -54,7 +54,7 @@ function AnnouncementItem({ ann, extractHususFn, forceOpenOnPrint = false }: { a
       >
         <div className="flex items-start justify-start gap-2 w-full" style={{ textAlign: 'left' }}>
           <div className="min-w-0 text-left w-full flex-1" style={{ textAlign: 'left' }}>
-            <div className="font-medium text-left whitespace-pre-wrap" style={{ textAlign: 'left' }} title={title}>{title}</div>
+            <div className="font-medium text-left whitespace-pre-wrap break-words" style={{ textAlign: 'left' }} title={title}>{title}</div>
             <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex flex-wrap gap-x-3 gap-y-1">
               <span>Tarih: {dateText}</span>
               {gazette ? <span>Gazete: {gazette}</span> : null}
@@ -553,16 +553,16 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="company-modal-print-target max-w-5xl w-[min(92vw,1100px)] max-h-[85vh] bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 p-0 overflow-y-auto" ref={printRef}>
-        <DialogHeader className="px-4 pt-4">
-          <DialogTitle className="text-slate-900 dark:text-slate-100">{headerTitle}</DialogTitle>
+      <DialogContent className="company-modal-print-target w-[min(100vw-1rem,1100px)] sm:w-[min(96vw,1100px)] max-w-[100vw] max-h-[85vh] bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 p-0 overflow-y-auto overflow-x-hidden break-words min-w-0" ref={printRef} style={{ hyphens: 'auto', WebkitHyphens: 'auto', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+        <DialogHeader className="px-4 pt-4 overflow-hidden min-w-0">
+          <DialogTitle className="text-slate-900 dark:text-slate-100 break-all sm:break-words whitespace-normal leading-snug min-w-0" style={{ hyphens: 'auto', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{headerTitle}</DialogTitle>
           
           {oldNamesAll.length > 0 && (
             <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">
               <div className="font-medium">Eski Ünvan:</div>
               <div className="mt-0.5 space-y-0.5">
                 {oldNamesAll.map((n: string, i: number) => (
-                  <div key={`${i}-${n}`} className="truncate" title={n}>{n}</div>
+                  <div key={`${i}-${n}`} className="break-words whitespace-normal" style={{ overflowWrap: 'anywhere' }} title={n}>{n}</div>
                 ))}
               </div>
             </div>
@@ -575,7 +575,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
 
         {/* Sticky summary chips */}
         <div className="sticky top-0 z-10 bg-white/75 dark:bg-slate-900/75 backdrop-blur border-b border-slate-200/70 dark:border-slate-700/70">
-          <div className="px-4 py-2 flex items-center gap-2 text-xs">
+          <div className="px-4 py-2 flex flex-wrap items-center gap-2 text-xs">
             <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-slate-700 dark:text-slate-200"><Users size={14} /> {personsCount} kişi</span>
             <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-slate-700 dark:text-slate-200"><FileText size={14} /> {annCount} ilan</span>
             <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-slate-700 dark:text-slate-200"><Clock size={14} /> {histCount} geçmiş</span>
@@ -613,7 +613,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
         )}
 
         {!isFetching && !isError && company && (
-          <div className="space-y-6 p-4">
+          <div className="space-y-6 p-4 break-words">
             <section>
               <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Şirket Bilgileri</h3>
               <div className="mt-2 space-y-1 text-sm">

@@ -6,7 +6,7 @@ import SearchHints from './components/SearchHints';
 import QueryInsights from './components/QueryInsights';
 import ResultStats from './components/ResultStats';
 import ThemeToggle from './components/ThemeToggle';
-import { Clock, Heart } from 'lucide-react';
+import { Clock, Heart, UserPlus } from 'lucide-react';
 import { useUnifiedSearchInfinite } from '@/hooks/useUnifiedSearchInfinite';
 import { useDailyUsage } from '@/hooks/useDailyUsage';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -157,35 +157,78 @@ export default function DashboardPage() {
       >
         Sonuçlara atla
       </a>
-      {/* Üst sağ sabit aksiyonlar */}
-      <button
-        type="button"
-        aria-label="Arama geçmişi"
-        className="fixed top-4 right-4 z-50 rounded-full p-2.5 bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow hover:bg-white dark:hover:bg-slate-900"
-        onClick={() => setMobileOpen(true)}
-        data-testid="mobile-history-button"
-      >
-        <span className="relative inline-flex">
-          <Clock size={18} />
-          {history.items.length > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-blue-500 ring-2 ring-white dark:ring-slate-900" aria-hidden />
-          )}
-        </span>
-      </button>
-      <ThemeToggle />
-      {/* Günlük kullanım rozeti: sağ üstteki kullanıcı/dark mode butonlarının ALTINDA */}
-      <div className="fixed top-16 right-4 z-50 rounded-full px-3 py-1 text-xs font-medium border border-slate-200 dark:border-slate-700 bg-white/90 dark:bg-slate-900/90 text-slate-700 dark:text-slate-200">
+      {/* Toolbar – Desktop (top-right) */}
+      {!detailOpen && (
+      <div className="hidden md:flex fixed top-3 right-3 z-20 items-center gap-2">
+        <button
+          type="button"
+          aria-label="Arama geçmişi"
+          className="rounded-full p-2.5 bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow hover:bg-white dark:hover:bg-slate-900"
+          onClick={() => setMobileOpen(true)}
+          data-testid="mobile-history-button"
+        >
+          <span className="relative inline-flex">
+            <Clock size={18} />
+            {history.items.length > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-blue-500 ring-2 ring-white dark:ring-slate-900" aria-hidden />
+            )}
+          </span>
+        </button>
+        <ThemeToggle fixed={false} />
+        <Button
+          type="button"
+          onClick={() => setInviteOpen(true)}
+          variant="gradientText"
+          className="rounded-full px-3 py-2 shadow"
+        >
+          Davet Et
+        </Button>
+      </div>
+      )}
+
+      {/* Toolbar – Mobile (bottom-right) */}
+      {!detailOpen && (
+      <div className="md:hidden fixed bottom-3 right-3 z-20 flex items-center gap-2">
+        <button
+          type="button"
+          aria-label="Arama geçmişi"
+          className="rounded-full p-2.5 bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow hover:bg-white dark:hover:bg-slate-900"
+          onClick={() => setMobileOpen(true)}
+          data-testid="mobile-history-button"
+        >
+          <span className="relative inline-flex">
+            <Clock size={18} />
+            {history.items.length > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-blue-500 ring-2 ring-white dark:ring-slate-900" aria-hidden />
+            )}
+          </span>
+        </button>
+        <ThemeToggle fixed={false} />
+        <button
+          type="button"
+          onClick={() => setInviteOpen(true)}
+          aria-label="Davet Et"
+          className="rounded-full p-2.5 bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow hover:bg-white dark:hover:bg-slate-900"
+        >
+          <UserPlus size={18} />
+        </button>
+      </div>
+
+      )}
+
+      {/* Usage badge – Desktop (top-right under toolbar) */}
+      {!detailOpen && (
+      <div className="hidden md:block fixed top-16 right-3 z-10 rounded-full px-3 py-1 text-xs font-medium border border-slate-200 dark:border-slate-700 bg-white/90 dark:bg-slate-900/90 text-slate-700 dark:text-slate-200">
         {usageLoading ? 'Kullanım yükleniyor…' : `Kalan: ${daily?.remaining ?? 0}/${daily?.limit ?? 20}`}
       </div>
-      {/* Davet Et butonu */}
-      <Button
-        type="button"
-        onClick={() => setInviteOpen(true)}
-        variant="gradientText"
-        className="fixed top-4 right-28 z-50 rounded-full px-3 py-2 shadow"
-      >
-        Davet Et
-      </Button>
+      )}
+
+      {/* Usage badge – Mobile (above bottom toolbar) */}
+      {!detailOpen && (
+      <div className="md:hidden fixed bottom-16 right-3 z-10 rounded-full px-3 py-1 text-xs font-medium border border-slate-200 dark:border-slate-700 bg-white/90 dark:bg-slate-900/90 text-slate-700 dark:text-slate-200">
+        {usageLoading ? 'Kullanım yükleniyor…' : `Kalan: ${daily?.remaining ?? 0}/${daily?.limit ?? 20}`}
+      </div>
+      )}
       <div className="flex flex-col gap-6 px-4 lg:px-6">
       {/* Hero / Centered Search */}
       <section

@@ -1,4 +1,5 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { SEARCH_MAX_COMPANIES } from '@/config/constants';
 import type { Company } from '@/types/company.types';
 
@@ -56,7 +57,7 @@ const fetchUnifiedPage = async (searchTerm: string, cursor: number): Promise<Uni
 };
 
 export const useUnifiedSearchInfinite = (searchTerm: string) => {
-  return useInfiniteQuery<UnifiedSearchPage, Error>({
+  const q = useInfiniteQuery<UnifiedSearchPage, Error>({
     queryKey: ['unified-search-infinite', searchTerm],
     queryFn: ({ pageParam }) => fetchUnifiedPage(searchTerm, typeof pageParam === 'number' ? pageParam : 0),
     initialPageParam: 0,
@@ -70,4 +71,13 @@ export const useUnifiedSearchInfinite = (searchTerm: string) => {
     retry: 0,
     refetchOnWindowFocus: false,
   });
+  useEffect(() => {
+    if (q.status === 'success') {
+      if (typeof window !== 'undefined') {
+        try { window.dispatchEvent(new Event('daily-usage:refresh')); } catch {}
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q.dataUpdatedAt, q.status]);
+  return q;
 };

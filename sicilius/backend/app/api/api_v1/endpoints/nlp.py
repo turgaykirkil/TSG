@@ -1,9 +1,13 @@
 import logging
+import os
+import json
+import urllib.request
+import urllib.parse
 import uuid
 import hashlib
 import re
 import time
-from datetime import datetime
+from datetime import datetime, date
 from fastapi import APIRouter, Body, HTTPException, Depends, Query, BackgroundTasks
 from pydantic import BaseModel
 from typing import Dict, Any, List, Union, Optional
@@ -13,7 +17,8 @@ from app.services import ingest_service
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.api.deps import get_supabase_client
-from supabase import Client
+from supabase import Client, create_client
+from app.core.config import settings
 from app import crud
 from app.models.gazette import Gazette
 from app.models.file_upload import FileUploadStatus
@@ -22,6 +27,129 @@ from app.nlp import segmenter
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# --- REST fallback helpers (PostgREST) ---
+def _rest_fetch_ann_by_filename(name: str) -> Optional[Dict[str, Any]]:
+    try:
+        base = str(settings.supabase_url).rstrip("/") + "/rest/v1/announcements"
+        params = {
+            "select": "id,publication_date,issue_number,page_number,pdf_url",
+            "pdf_url": f"ilike.*{name}*",
+            "limit": "1",
+        }
+        qs = urllib.parse.urlencode(params, doseq=True, safe="*,._-=")
+        url = f"{base}?{qs}"
+        req = urllib.request.Request(url)
+        key = settings.supabase_service_role_key or settings.supabase_key
+        if key:
+            req.add_header("apikey", key)
+            req.add_header("Authorization", f"Bearer {key}")
+        req.add_header("Accept", "application/json")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status // 100 != 2:
+                return None
+            raw = resp.read()
+            arr = json.loads(raw.decode("utf-8"))
+            if isinstance(arr, list) and arr:
+                return arr[0]
+        return None
+    except Exception:
+        return None
+
+def _rest_fetch_ann_by_id(aid: str) -> Optional[Dict[str, Any]]:
+    try:
+        base = str(settings.supabase_url).rstrip("/") + "/rest/v1/announcements"
+        params = {
+            "select": "id,publication_date,issue_number,page_number,pdf_url",
+            "id": f"eq.{aid}",
+            "limit": "1",
+        }
+        qs = urllib.parse.urlencode(params, doseq=True, safe="*,._-=")
+        url = f"{base}?{qs}"
+        req = urllib.request.Request(url)
+        key = settings.supabase_service_role_key or settings.supabase_key
+        if key:
+            req.add_header("apikey", key)
+            req.add_header("Authorization", f"Bearer {key}")
+        req.add_header("Accept", "application/json")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status // 100 != 2:
+                return None
+            raw = resp.read()
+            arr = json.loads(raw.decode("utf-8"))
+            if isinstance(arr, list) and arr:
+                return arr[0]
+        return None
+    except Exception:
+        return None
+
+@router.get("/resolve-announcement", response_model=Dict[str, Any])
+async def resolve_announcement(
+    file_name: Optional[str] = Query(None, description="Storage file name (preferred)"),
+    pdf_url: Optional[str] = Query(None, description="Full PDF URL (alternative)"),
+):
+    """Resolve announcement id+meta by file name or pdf_url.
+    - If pdf_url provided, extract last path segment as file_name.
+    - Strip any query string suffix.
+    - Match announcements.pdf_url ILIKE %<file_name>%.
+    """
+    try:
+        # Supabase client'i yerelde oluştur (DI yerine). Bağlantı hatasında 503 döner.
+        try:
+            supabase: Client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+        except Exception:
+            raise HTTPException(status_code=503, detail="supabase_unavailable")
+
+        # Dosya adını hazırla
+        name = file_name
+        if (not name) and pdf_url:
+            name = str(pdf_url).rsplit('/', 1)[-1]
+        if not name:
+            raise HTTPException(status_code=400, detail="file_name or pdf_url is required")
+        if '?' in name:
+            name = name.split('?', 1)[0]
+
+        # Transient HTML/1101 hatalar için retry'lı ILIKE sorgu
+        sel = None
+        rows = []
+        for attempt in range(3):
+            try:
+                sel = (
+                    supabase
+                    .table("announcements")
+                    .select("id, publication_date, issue_number, page_number, pdf_url")
+                    .ilike("pdf_url", f"%{name}%")
+                    .limit(1)
+                    .execute()
+                )
+                rows = getattr(sel, "data", None) or []
+                break
+            except Exception as e:
+                em = str(e)
+                transient = ("<!DOCTYPE html>" in em or "Worker threw exception" in em or "JSON could not be generated" in em or "json_invalid" in em or "connection reset by peer" in em or "1101" in em or "57014" in em)
+                if transient and attempt < 2:
+                    time.sleep(0.25 * (attempt + 1))
+                    continue
+                break
+        if not rows:
+            # REST fallback
+            row = _rest_fetch_ann_by_filename(name)
+            if not row:
+                raise HTTPException(status_code=404, detail="not found")
+        else:
+            row = rows[0]
+        return {
+            "id": row.get("id"),
+            "publication_date": row.get("publication_date"),
+            "issue_number": row.get("issue_number"),
+            "page_number": row.get("page_number"),
+            "pdf_url": row.get("pdf_url"),
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        # Gürültülü HTML loglarını bastır, 503 ile degrade et
+        raise HTTPException(status_code=503, detail="supabase_error")
 
 # Background tasks for ingest/link updates
 def _link_companies_for_rpc_task(supabase: Client, items: List[Dict[str, Any]], publication_date: Any, issue_number: Any, page_number: Any) -> None:
@@ -52,11 +180,167 @@ def _link_companies_for_rpc_task(supabase: Client, items: List[Dict[str, Any]], 
         logger.warning("parse-announcements company link (RPC path, background) failed", exc_info=True)
 
 
-def _fallback_sidewrite_task(supabase: Client, parsed_list: List[Dict[str, Any]]) -> None:
+def _fallback_sidewrite_task(
+    supabase: Client,
+    parsed_list: List[Dict[str, Any]],
+    publication_date: Any = None,
+    issue_number: Any = None,
+    page_number: Any = None,
+    pdf_url: Any = None,
+    pdf_page_count: Any = None,
+    announcement_id: Optional[str] = None,
+    pdf_file_name: Optional[str] = None,
+) -> None:
     try:
         rows: List[Dict[str, Any]] = []
         link_intents: List[Dict[str, Any]] = []
         errors_local: List[Dict[str, Any]] = []
+        # Resolve announcement meta/id once
+        ann_id_resolved = announcement_id
+        # If announcement_id is given but meta fields are missing, try to fetch them
+        if ann_id_resolved and (publication_date is None or issue_number is None or page_number is None or not pdf_url):
+            try:
+                sel_meta = (
+                    supabase
+                    .table("announcements")
+                    .select("id, publication_date, issue_number, page_number, pdf_url")
+                    .eq("id", ann_id_resolved)
+                    .limit(1)
+                    .execute()
+                )
+                rows_m = getattr(sel_meta, "data", None) or []
+                if rows_m:
+                    m = rows_m[0]
+                    if publication_date is None:
+                        publication_date = m.get("publication_date")
+                    if issue_number is None:
+                        issue_number = m.get("issue_number")
+                    if page_number is None:
+                        page_number = m.get("page_number")
+                    if not pdf_url:
+                        pdf_url = m.get("pdf_url")
+            except Exception:
+                pass
+        # Regex ile dosya adından UUID çıkarıp announcement_id atama DEVRE DIŞI
+        # try:
+        #     if (ann_id_resolved is None) and pdf_file_name:
+        #         m = re.match(r"^\s*announcement_([0-9a-fA-F\-]{36})_", str(pdf_file_name))
+        #         if m:
+        #             ann_id_candidate = m.group(1)
+        #             if re.match(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", ann_id_candidate):
+        #                 ann_id_resolved = ann_id_candidate
+        #                 try:
+        #                     sel_meta = None
+        #                     for attempt in range(3):
+        #                         try:
+        #                             sel_meta = (
+        #                                 supabase
+        #                                 .table("announcements")
+        #                                 .select("id, publication_date, issue_number, page_number, pdf_url")
+        #                                 .eq("id", ann_id_resolved)
+        #                                 .limit(1)
+        #                                 .execute()
+        #                             )
+        #                             break
+        #                         except Exception as e:
+        #                             em = str(e)
+        #                             transient = ("<!DOCTYPE html>" in em or "Worker threw exception" in em or "JSON could not be generated" in em or "json_invalid" in em or "connection reset by peer" in em or "1101" in em or "57014" in em)
+        #                             if transient and attempt < 2:
+        #                                 time.sleep(0.25 * (attempt + 1))
+        #                                 continue
+        #                             else:
+        #                                 raise
+        #                     rows_m = getattr(sel_meta, "data", None) or []
+        #                     if rows_m:
+        #                         mrow = rows_m[0]
+        #                         if publication_date is None:
+        #                             publication_date = mrow.get("publication_date")
+        #                         if issue_number is None:
+        #                             issue_number = mrow.get("issue_number")
+        #                         if page_number is None:
+        #                             page_number = mrow.get("page_number")
+        #                         if not pdf_url:
+        #                             pdf_url = mrow.get("pdf_url")
+        #                 except Exception:
+        #                     pass
+        # except Exception:
+        #     pass
+
+        # If still no id, try resolve by file name against announcements.pdf_url
+        try:
+            if (ann_id_resolved is None) and pdf_file_name:
+                name = str(pdf_file_name)
+                if "?" in name:
+                    name = name.split("?", 1)[0]
+                sel_by_name = None
+                for attempt in range(3):
+                    try:
+                        sel_by_name = (
+                            supabase
+                            .table("announcements")
+                            .select("id, publication_date, issue_number, page_number, pdf_url")
+                            .ilike("pdf_url", f"%{name}%")
+                            .limit(1)
+                            .execute()
+                        )
+                        break
+                    except Exception as e:
+                        em = str(e)
+                        transient = ("<!DOCTYPE html>" in em or "Worker threw exception" in em or "JSON could not be generated" in em or "json_invalid" in em or "connection reset by peer" in em or "1101" in em or "57014" in em)
+                        if transient and attempt < 2:
+                            time.sleep(0.25 * (attempt + 1))
+                            continue
+                        else:
+                            raise
+                rows_n = getattr(sel_by_name, "data", None) or []
+                if rows_n:
+                    nm = rows_n[0]
+                    ann_id_resolved = nm.get("id")
+                    if publication_date is None:
+                        publication_date = nm.get("publication_date")
+                    if issue_number is None:
+                        issue_number = nm.get("issue_number")
+                    if page_number is None:
+                        page_number = nm.get("page_number")
+                    if not pdf_url:
+                        pdf_url = nm.get("pdf_url")
+        except Exception:
+            # Non-fatal
+            pass
+
+        # If still no id, try resolve by meta triplet
+        try:
+            if (ann_id_resolved is None) and (publication_date is not None) and (issue_number is not None) and (page_number is not None):
+                sel_ann = None
+                for attempt in range(3):
+                    try:
+                        sel_ann = (
+                            supabase
+                            .table("announcements")
+                            .select("id")
+                            .eq("publication_date", publication_date)
+                            .eq("issue_number", int(issue_number))
+                            .eq("page_number", int(page_number))
+                            .limit(1)
+                            .execute()
+                        )
+                        break
+                    except Exception as e:
+                        em = str(e)
+                        transient = ("<!DOCTYPE html>" in em or "Worker threw exception" in em or "JSON could not be generated" in em or "json_invalid" in em or "connection reset by peer" in em or "1101" in em or "57014" in em)
+                        if transient and attempt < 2:
+                            time.sleep(0.25 * (attempt + 1))
+                            continue
+                        else:
+                            raise
+                rows_a = getattr(sel_ann, "data", None) or []
+                if rows_a:
+                    ann_id_resolved = rows_a[0].get("id")
+        except Exception:
+            # Non-fatal
+            ann_id_resolved = None
+        # Side-write: DB'ye upsert etmeye devam et
+
         for it in parsed_list:
             cid = _find_or_create_company(
                 supabase,
@@ -74,12 +358,13 @@ def _fallback_sidewrite_task(supabase: Client, parsed_list: List[Dict[str, Any]]
                 _len_txt = 0
             logger.debug("parse-announcements fallback(bg): item_index=%s len=%s hash=%s", it.get("index"), _len_txt, h)
             rows.append({
-                "publication_date": None,
-                "issue_number": None,
-                "page_number": None,
-                "pdf_url": None,
-                "pdf_page_count": None,
+                "publication_date": publication_date,
+                "issue_number": int(issue_number) if issue_number is not None else None,
+                "page_number": int(page_number) if page_number is not None else None,
+                "pdf_url": pdf_url,
+                "pdf_page_count": int(pdf_page_count) if pdf_page_count is not None else None,
                 "company_id": cid,
+                "announcement_id": ann_id_resolved,
                 "content_sha256": h,
                 "sicil_office_header": it.get("sicil_office_header"),
                 "sicil_dosya_no": it.get("sicil_dosya_no"),
@@ -460,7 +745,13 @@ async def parse_text_multiple(
     supabase: Client = Depends(get_supabase_client),
     announcement_id: Optional[str] = Query(None, description="If provided, results will be ingested for this announcement"),
     pdf_page_count: Optional[int] = Query(None, description="Optional PDF total page count for dedupe"),
-    skip_ingest: bool = Query(True, description="If true (default), do not persist here; parse-only response.")
+    # New optional meta to persist on ocr_results when no announcement_id is provided
+    publication_date: Optional[str] = Query(None, description="Publication date (YYYY-MM-DD) to persist on ocr_results when no announcement_id"),
+    issue_number: Optional[int] = Query(None, description="Issue number to persist on ocr_results when no announcement_id"),
+    page_number: Optional[int] = Query(None, description="Page number to persist on ocr_results when no announcement_id"),
+    pdf_url: Optional[str] = Query(None, description="PDF URL to persist on ocr_results when no announcement_id"),
+    pdf_file_name: Optional[str] = Query(None, description="If provided, try resolving announcement by announcements.pdf_url ILIKE %name% when no announcement_id"),
+    skip_ingest: bool = Query(True, description="If true (default), do not persist here; parse-only response."),
 ):
     """
     Splits the incoming OCR text into multiple announcements and parses each segment.
@@ -470,6 +761,20 @@ async def parse_text_multiple(
     logger.info("Received request for MULTI NLP parsing. text_len=%s", len(request_body.text or ""))
     if not request_body.text or not request_body.text.strip():
         raise HTTPException(status_code=400, detail="Text content cannot be empty.")
+    # Log incoming linkage/meta params for observability
+    try:
+        logger.info(
+            "parse-announcements: params announcement_id=%s publication_date=%s issue_number=%s page_number=%s pdf_url=%s pdf_page_count=%s skip_ingest=%s",
+            announcement_id,
+            publication_date,
+            issue_number,
+            page_number,
+            pdf_url,
+            pdf_page_count,
+            skip_ingest,
+        )
+    except Exception:
+        pass
 
     try:
         if nlp_service.nlp_model is None:
@@ -478,11 +783,25 @@ async def parse_text_multiple(
         parsed_list = nlp_service.parse_multiple_announcements(request_body.text)
         logger.info("Successfully parsed multiple announcements. count=%d", len(parsed_list))
 
-        # Eğer sadece parse isteniyorsa (skip_ingest=True) ve announcement_id verilmemişse hızlı dönüş yap
-        # Eğer sadece parse isteniyorsa (skip_ingest=True) ve announcement_id verilmemişse hızlı dönüş yap
+        # Eğer sadece parse isteniyorsa (skip_ingest=True) ve announcement_id verilmemişse
+        # meta query parametreleriyle fallback side-write planla ve hızlı dönüş yap
         if not announcement_id:
-            logger.info("parse-announcements: scheduling fallback side-write in background (no announcement_id)")
-            background_tasks.add_task(_fallback_sidewrite_task, supabase, parsed_list)
+            logger.info(
+                "parse-announcements: scheduling fallback side-write in background (no announcement_id) meta_present=%s",
+                bool(publication_date or issue_number is not None or page_number is not None or pdf_url or pdf_page_count is not None),
+            )
+            background_tasks.add_task(
+                _fallback_sidewrite_task,
+                supabase,
+                parsed_list,
+                publication_date,
+                issue_number,
+                page_number,
+                pdf_url,
+                pdf_page_count,
+                None,
+                pdf_file_name,
+            )
             return parsed_list
 
         # If client provided announcement_id, resolve meta and do RPC ingest with meta
@@ -497,18 +816,33 @@ async def parse_text_multiple(
                     .execute()
                 )
                 rows_meta = getattr(sel, "data", None) or []
+                # Fallback meta değerleri: query parametreleri ile başla; meta varsa override et
+                fb_publication_date = publication_date
+                fb_issue_number = issue_number
+                fb_page_number = page_number
+                fb_pdf_url = pdf_url
                 if rows_meta:
                     meta = rows_meta[0]
-                    publication_date = meta.get("publication_date")
-                    issue_number = meta.get("issue_number")
-                    page_number = meta.get("page_number")
-                    pdf_url = meta.get("pdf_url")
-                    if publication_date is not None and issue_number is not None and page_number is not None:
+                    # announcements tablosundaki meta mevcutsa kullan
+                    m_pub = meta.get("publication_date")
+                    m_issue = meta.get("issue_number")
+                    m_page = meta.get("page_number")
+                    m_pdf = meta.get("pdf_url")
+                    if m_pub is not None:
+                        fb_publication_date = m_pub
+                    if m_issue is not None:
+                        fb_issue_number = m_issue
+                    if m_page is not None:
+                        fb_page_number = m_page
+                    if m_pdf is not None:
+                        fb_pdf_url = m_pdf
+                    # Use effective (fallback) meta values for RPC decision
+                    if (fb_publication_date is not None) and (fb_issue_number is not None) and (fb_page_number is not None):
                         rpc_params = {
-                            "_publication_date": publication_date,
-                            "_issue_number": int(issue_number),
-                            "_page_number": int(page_number),
-                            "_pdf_url": pdf_url,
+                            "_publication_date": fb_publication_date,
+                            "_issue_number": int(fb_issue_number) if fb_issue_number is not None else None,
+                            "_page_number": int(fb_page_number) if fb_page_number is not None else None,
+                            "_pdf_url": fb_pdf_url,
                             "_raw_text": request_body.text,
                             "_structured": {"items": parsed_list},
                             "_company_id": None,
@@ -518,7 +852,7 @@ async def parse_text_multiple(
                         rpc_res = supabase.rpc("fn_ingest_ocr_by_ann_key", rpc_params).execute()
                         logger.info("parse-announcements RPC ingest done. rows=%s", len(getattr(rpc_res, "data", []) or []))
                         # Schedule background company link updates instead of blocking here
-                        background_tasks.add_task(_link_companies_for_rpc_task, supabase, parsed_list, publication_date, issue_number, page_number)
+                        background_tasks.add_task(_link_companies_for_rpc_task, supabase, parsed_list, fb_publication_date, fb_issue_number, fb_page_number)
                         logger.info("parse-announcements: scheduled company link updates via RPC path (background)")
                         return parsed_list
                     else:
@@ -529,7 +863,18 @@ async def parse_text_multiple(
                 logger.warning("parse-announcements RPC ingest failed: %s", e, exc_info=True)
 
         # Schedule background fallback side-write instead of blocking here (meta missing or RPC failed)
-        background_tasks.add_task(_fallback_sidewrite_task, supabase, parsed_list)
+        background_tasks.add_task(
+            _fallback_sidewrite_task,
+            supabase,
+            parsed_list,
+            publication_date,
+            issue_number,
+            page_number,
+            pdf_url,
+            pdf_page_count,
+            announcement_id,
+            pdf_file_name,
+        )
         logger.info("parse-announcements: scheduled fallback side-write (background)")
         return parsed_list
 
@@ -931,6 +1276,98 @@ async def ingest_announcements(
             pdf_url = request_body.get("pdf_url")
             pdf_page_count = request_body.get("pdf_page_count")
 
+        # Resolve announcement_id from top-level or source_file.path pattern
+        announcement_id: Optional[str] = None
+        if isinstance(request_body, dict):
+            try:
+                aid = request_body.get("announcement_id")
+                if isinstance(aid, str) and aid:
+                    announcement_id = aid
+            except Exception:
+                pass
+        # If not provided, first try deriving from source_file.path (regex), then fall back to pdf_url ILIKE by file name
+        if (not announcement_id) and source_file and isinstance(source_file.get("path"), str):
+            try:
+                path_str = str(source_file.get("path") or "")
+                # 1) Best-effort regex (kept for legacy), may not match actual announcement id
+                m = re.search(r"announcement_([0-9a-fA-F-]{36})", path_str)
+                if m and not announcement_id:
+                    announcement_id = m.group(1)
+                # 2) Authoritative: resolve by matching file name against announcements.pdf_url (ILIKE %<file_name>%)
+                # Extract file name and strip query part if any
+                file_name = path_str.split('/')[-1] if '/' in path_str else path_str
+                if '?' in file_name:
+                    file_name = file_name.split('?', 1)[0]
+                if file_name:
+                    sel_by_name = (
+                        supabase
+                        .table("announcements")
+                        .select("id, publication_date, issue_number, page_number, pdf_url")
+                        .ilike("pdf_url", f"%{file_name}%")
+                        .limit(1)
+                        .execute()
+                    )
+                    rows_bn = getattr(sel_by_name, "data", None) or []
+                    if rows_bn:
+                        announcement_id = rows_bn[0].get("id") or announcement_id
+                        # if meta still missing, hydrate from this row
+                        if publication_date is None:
+                            publication_date = rows_bn[0].get("publication_date")
+                        if issue_number is None:
+                            issue_number = rows_bn[0].get("issue_number")
+                        if page_number is None:
+                            page_number = rows_bn[0].get("page_number")
+                        if not pdf_url:
+                            pdf_url = rows_bn[0].get("pdf_url")
+            except Exception:
+                pass
+
+        # If we have an announcement_id but meta missing, try to fetch meta
+        if announcement_id and (publication_date is None or issue_number is None or page_number is None or not pdf_url):
+            try:
+                sel_meta = None
+                for attempt in range(3):
+                    try:
+                        sel_meta = (
+                            supabase
+                            .table("announcements")
+                            .select("id, publication_date, issue_number, page_number, pdf_url")
+                            .eq("id", announcement_id)
+                            .limit(1)
+                            .execute()
+                        )
+                        break
+                    except Exception as e:
+                        em = str(e)
+                        transient = ("<!DOCTYPE html>" in em or "Worker threw exception" in em or "JSON could not be generated" in em or "json_invalid" in em or "connection reset by peer" in em or "1101" in em or "57014" in em)
+                        if transient and attempt < 2:
+                            time.sleep(0.25 * (attempt + 1))
+                            continue
+                        else:
+                            raise
+                rows_m = getattr(sel_meta, "data", None) or []
+                if rows_m:
+                    m = rows_m[0]
+                    if publication_date is None:
+                        publication_date = m.get("publication_date")
+                    if issue_number is None:
+                        issue_number = m.get("issue_number")
+                    if page_number is None:
+                        page_number = m.get("page_number")
+                    if not pdf_url:
+                        pdf_url = m.get("pdf_url")
+            except Exception:
+                pass
+
+        # Debug log: what will we use for ID/meta?
+        try:
+            logger.info(
+                "ingest-structured: resolved announcement_id=%s publication_date=%s issue_number=%s page_number=%s pdf_url=%s pdf_page_count=%s",
+                announcement_id, publication_date, issue_number, page_number, pdf_url, pdf_page_count,
+            )
+        except Exception:
+            pass
+
         use_rpc = True
         if not publication_date or issue_number is None or page_number is None:
             # Meta eksikse RPC yerine doğrudan upsert fallback'ini kullanacağız
@@ -1019,11 +1456,12 @@ async def ingest_announcements(
                 h = hashlib.sha256(orig_text.encode("utf-8")).hexdigest() if isinstance(orig_text, str) else None
                 row = {
                     "publication_date": publication_date,
-                    "issue_number": issue_number,
-                    "page_number": page_number,
+                    "issue_number": int(issue_number) if issue_number is not None else None,
+                    "page_number": int(page_number) if page_number is not None else None,
                     "pdf_url": pdf_url,
-                    "pdf_page_count": pdf_page_count,
+                    "pdf_page_count": int(pdf_page_count) if pdf_page_count is not None else None,
                     "company_id": cid,
+                    "announcement_id": announcement_id,
                     "content_sha256": h,
                     "sicil_office_header": it.get("sicil_office_header"),
                     "sicil_dosya_no": it.get("sicil_dosya_no"),
@@ -1046,6 +1484,13 @@ async def ingest_announcements(
                     "ilan_sira_no": it.get("ilan_sira_no"),
                     "status": "completed",
                 }
+                # Log first row once for debug purposes
+                if it.get("index") == 1:
+                    try:
+                        sample_keys = list(row.keys())
+                        logger.info("ingest-structured: sample upsert row keys=%s ann_id=%s", sample_keys, row.get("announcement_id"))
+                    except Exception:
+                        pass
                 rows.append(row)
                 if h and cid:
                     link_intents.append({"content_sha256": h, "company_id": cid})
@@ -1053,12 +1498,38 @@ async def ingest_announcements(
             data = getattr(up, "data", None) or []
             # PostgREST upsert dönen satır sayısına göre sayım
             inserted = len(data)
+            # Enforce announcement_id/meta via explicit updates (defensive), in case upsert didn't update existing rows
+            if announcement_id:
+                for r in rows:
+                    try:
+                        hval = r.get("content_sha256")
+                        if not hval:
+                            continue
+                        upd = {
+                            "announcement_id": announcement_id,
+                        }
+                        # Only set meta if provided
+                        if publication_date is not None:
+                            upd["publication_date"] = publication_date
+                        if issue_number is not None:
+                            upd["issue_number"] = int(issue_number)
+                        if page_number is not None:
+                            upd["page_number"] = int(page_number)
+                        if pdf_url:
+                            upd["pdf_url"] = pdf_url
+                        if pdf_page_count is not None:
+                            upd["pdf_page_count"] = int(pdf_page_count)
+                        supabase.table("ocr_results").update(upd).eq("content_sha256", hval).execute()
+                    except Exception:
+                        logger.warning("ingest-structured: explicit update failed for hash", exc_info=True)
             # Güvence: company_id boş kalan satırlar için ikinci tur link
             for li in link_intents:
                 try:
                     supabase.table("ocr_results").update({"company_id": li["company_id"]}).eq("content_sha256", li["content_sha256"]).is_("company_id", "null").execute()
                 except Exception:
                     logger.warning("ingest-announcements post-upsert company link by content_sha256 failed", exc_info=True)
+        # 10) post_ingest_fill_meta_task DEVRE DISI
+
         result = {
             "inserted": inserted,
             "updated": updated,
@@ -1068,7 +1539,7 @@ async def ingest_announcements(
             "announcements_created": 0,
             "ocr_results_created": inserted + updated,
             "links": [],
-            "rpc": rpc_data,
+            "rpc": None,
         }
         payload = {
             "parsed_count": len(parsed_list),
@@ -1083,22 +1554,22 @@ async def ingest_announcements(
 
 @router.post("/ingest-structured", response_model=Dict[str, Any])
 async def ingest_structured(
+    background_tasks: BackgroundTasks,
     request_body: Union[List[Dict[str, Any]], Dict[str, Any]] = Body(...),
-    db: Session = Depends(get_db),
-    supabase: Client = Depends(get_supabase_client),
 ):
     """
-    Swift uygulamasının veya harici bir istemcinin ürettiği parse edilmiş ilanları doğrudan ingest eder.
-
-    Beklenen giriş biçimleri:
-      - Doğrudan liste: `[ { ...parsed_announcement... }, ... ]`
-      - Sözlük: `{ "items": [...]} | {"parsed": [...]} | {"data": [...] }`
-
-    Her öğe ideal olarak `original_text`, `sicil_office_header`, `registration_number` (veya `sicil_dosya_no`) alanlarını içermelidir.
-    NLP yeniden çalıştırılmaz; gelen veri `ingest_service.ingest_companies_and_announcements()`'a iletilir.
+    Swift/istemciden gelen parse edilmiş ilânları Supabase `ocr_results` tablosuna idempotent şekilde yazar.
+    - announcement_id ve meta yoksa, `source_file.path` içindeki dosya adına göre `announcements.pdf_url ILIKE %<file_name>%` ile çözümleme yapar.
+    - Upsert sonrası `content_sha256` bazında `announcement_id/meta` için zorlayıcı UPDATE uygular.
     """
     try:
-        # Giriş payload'ını normalize et
+        # Supabase client (read-only amaçlı)
+        try:
+            supabase: Client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+        except Exception as e:
+            logger.error("ingest-structured: Supabase client init failed: %s", e, exc_info=True)
+            supabase = None  # Disk yazımı yapabilmek için devam edelim
+        # 1) Payload normalize
         parsed_list: List[Dict[str, Any]]
         raw_text: Optional[str] = None
         source_file: Optional[Dict[str, Any]] = None
@@ -1107,248 +1578,245 @@ async def ingest_structured(
         if isinstance(request_body, list):
             parsed_list = request_body
         elif isinstance(request_body, dict):
-            # Esnek alan isimleri
+            # items/parsed/data anahtar esnekliği
+            arr = None
             for key in ("items", "parsed", "data"):
                 if isinstance(request_body.get(key), list):
-                    parsed_list = request_body[key]  # type: ignore[index]
+                    arr = request_body.get(key)
                     break
-            else:
+            if arr is None:
                 raise HTTPException(status_code=400, detail="Payload must be a list or contain an array under 'items' | 'parsed' | 'data'.")
-            # Üst seviye ham metin alanı (opsiyonel)
+            parsed_list = arr  # type: ignore[assignment]
+            # ham metin
             for tkey in ("raw_text", "text", "full_text"):
                 if isinstance(request_body.get(tkey), str):
-                    raw_text = request_body[tkey]  # type: ignore[index]
+                    raw_text = request_body.get(tkey)  # type: ignore[assignment]
                     break
-            # Opsiyonel silme ve kaynak dosya bilgisi
+            # kaynak dosya ve silme tercihi
             if isinstance(request_body.get("source_file"), dict):
-                source_file = request_body["source_file"]  # type: ignore[index]
+                source_file = request_body.get("source_file")  # type: ignore[assignment]
             if isinstance(request_body.get("delete_after_ingest"), bool):
                 delete_after_ingest = bool(request_body.get("delete_after_ingest"))
         else:
             raise HTTPException(status_code=400, detail="Unsupported payload type.")
 
-        # Boş kontrolü
         if not parsed_list:
             raise HTTPException(status_code=400, detail="Parsed list is empty.")
 
-        # Hızlı alan mevcutluğu istatistikleri
-        # original_text'i offsets ile doldurma (varsa)
-        filled_from_offsets = 0
-        if raw_text:
-            for it in parsed_list:
-                if not it.get("original_text"):
-                    start = it.get("start_offset")
-                    end = it.get("end_offset")
-                    if isinstance(start, int) and isinstance(end, int) and 0 <= start <= end <= len(raw_text):
-                        it["original_text"] = raw_text[start:end]
-                        filled_from_offsets += 1
-
-        has_reg = sum(1 for it in parsed_list if (it.get("registration_number") or it.get("sicil_dosya_no")))
-        has_header = sum(1 for it in parsed_list if it.get("sicil_office_header"))
-        has_text = sum(1 for it in parsed_list if it.get("original_text"))
-        logger.info(
-            "Received request for INGEST-STRUCTURED. items=%s reg_present=%s header_present=%s original_text_present=%s filled_from_offsets=%s raw_text_provided=%s",
-            len(parsed_list), has_reg, has_header, has_text, filled_from_offsets, bool(raw_text)
-        )
-
-        # Supabase'e idempotent ingest (sayfa bazında per-item)
+        # 2) Üst seviye meta ve announcement_id
         publication_date = None
         issue_number = None
         page_number = None
         pdf_url = None
         pdf_page_count = None
-
+        announcement_id: Optional[str] = None
         if isinstance(request_body, dict):
             publication_date = request_body.get("publication_date")
             issue_number = request_body.get("issue_number")
             page_number = request_body.get("page_number")
             pdf_url = request_body.get("pdf_url")
             pdf_page_count = request_body.get("pdf_page_count")
+            aid = request_body.get("announcement_id")
+            if isinstance(aid, str) and aid:
+                announcement_id = aid
 
-        # raw_text: varsa üst seviyeden, yoksa item'ların original_text'lerinin birleştirilmiş hali
-        if not raw_text:
+        # 3) Eğer announcement_id yoksa dosya adına göre çözümle
+        if (not announcement_id) and source_file and isinstance(source_file.get("path"), str):
             try:
-                pieces = []
-                for it in parsed_list:
-                    t = it.get("original_text")
-                    if isinstance(t, str) and t.strip():
-                        pieces.append(t.strip())
-                raw_text = "\n\n".join(pieces) if pieces else None
-            except Exception:
-                raw_text = None
-
-        inserted = 0
-        updated = 0
-        rpc_data = None
-        use_rpc = bool(publication_date and issue_number is not None and page_number is not None)
-        if use_rpc:
-            structured_payload = {"items": parsed_list}
-            rpc_params = {
-                "_publication_date": publication_date,
-                "_issue_number": int(issue_number),
-                "_page_number": int(page_number),
-                "_pdf_url": pdf_url,
-                "_raw_text": raw_text or "",
-                "_structured": structured_payload,
-                "_company_id": None,
-                "_status": "completed",
-                "_pdf_page_count": int(pdf_page_count) if pdf_page_count is not None else None,
-            }
-            rpc_res = supabase.rpc("fn_ingest_ocr_by_ann_key", rpc_params).execute()
-            rpc_data = getattr(rpc_res, "data", None)
-            if isinstance(rpc_data, list):
-                for row in rpc_data:
-                    try:
-                        if bool(row.get("inserted", True)):
-                            inserted += 1
-                        else:
-                            updated += 1
-                    except Exception:
-                        inserted += 1
-            # RPC sonrası company_id bağlama (meta varsa)
-            try:
-                if publication_date is not None and issue_number is not None and page_number is not None:
-                    linked = 0
-                    for it in parsed_list:
-                        cid = _find_or_create_company(
-                            supabase,
-                            it.get("sicil_office_header"),
-                            it.get("sicil_dosya_no") or it.get("registration_number"),
-                            it.get("trade_name"),
-                            it.get("addresses"),
-                            it.get("mersis_no"),
-                        )
-                        if cid:
-                            idx = it.get("index")
-                            if idx is not None:
-                                supabase.table("ocr_results").update({"company_id": cid}).match({
-                                    "publication_date": publication_date,
-                                    "issue_number": int(issue_number),
-                                    "page_number": int(page_number),
-                                    "item_index": int(idx),
-                                }).execute()
-                                linked += 1
-                    if linked:
-                        logger.info("ingest-structured company links updated via RPC path: %d", linked)
-                else:
-                    logger.info("ingest-structured RPC: meta keys missing for per-item link; skipping link step")
-            except Exception:
-                logger.warning("ingest-structured company link (RPC path) failed", exc_info=True)
-        else:
-            # Fallback: Meta yoksa content_sha256 üzerinden idempotent upsert
-            rows: list[dict] = []
-            link_intents: List[Dict[str, Any]] = []
-            for it in parsed_list:
-                cid = _find_or_create_company(
-                    supabase,
-                    it.get("sicil_office_header"),
-                    it.get("sicil_dosya_no") or it.get("registration_number"),
-                    it.get("trade_name"),
-                    it.get("addresses"),
-                    it.get("mersis_no"),
-                )
-                orig_text = it.get("original_text") or ""
-                h = hashlib.sha256(orig_text.encode("utf-8")).hexdigest() if isinstance(orig_text, str) else None
-                # Teşhis için DEBUG: index, metin uzunluğu, hash
-                try:
-                    _len_txt = len(orig_text) if isinstance(orig_text, str) else 0
-                except Exception:
-                    _len_txt = 0
-                logger.debug("ingest-structured fallback: item_index=%s len=%s hash=%s", it.get("index"), _len_txt, h)
-
-                row = {
-                    "publication_date": publication_date,
-                    "issue_number": issue_number,
-                    "page_number": page_number,
-                    "pdf_url": pdf_url,
-                    "pdf_page_count": pdf_page_count,
-                    "company_id": cid,
-                    "content_sha256": h,
-                    "sicil_office_header": it.get("sicil_office_header"),
-                    "sicil_dosya_no": it.get("sicil_dosya_no"),
-                    "mersis_no": it.get("mersis_no"),
-                    "trade_name": it.get("trade_name"),
-                    "old_trade_name": it.get("old_trade_name"),
-                    "addresses": it.get("addresses"),
-                    "old_addresses": it.get("old_addresses"),
-                    "persons": it.get("persons"),
-                    "masked_ids": it.get("masked_ids"),
-                    "hususlar": it.get("hususlar"),
-                    "belgeler": it.get("belgeler"),
-                    "type": it.get("type"),
-                    "item_index": it.get("index"),
-                    "original_text": it.get("original_text"),
-                    "start_offset": it.get("start_offset"),
-                    "end_offset": it.get("end_offset"),
-                    "is_derived": it.get("is_derived"),
-                    "derived_from_index": it.get("derived_from_index"),
-                    "ilan_sira_no": it.get("ilan_sira_no"),
-                    "status": "completed",
-                }
-                rows.append(row)
-                if h and cid:
-                    link_intents.append({"content_sha256": h, "company_id": cid})
-            # Küçük chunk'larla upsert ve tekil kayıt hatalarında retry/backoff; transient hataları yumuşat
-            errors_local: List[Dict[str, Any]] = []
-            def _upsert_chunked_local(all_rows: List[Dict[str, Any]], chunk_size: int = 10) -> int:
-                def is_transient(em: str) -> bool:
-                    return (
-                        "<!DOCTYPE html>" in em or
-                        "Worker threw exception" in em or
-                        "JSON could not be generated" in em or
-                        "json_invalid" in em or
-                        "connection reset by peer" in em or
-                        "57014" in em or  # statement timeout
-                        "1101" in em
-                    )
-
-                def upsert_chunk(chunk: List[Dict[str, Any]]) -> int:
-                    if not chunk:
-                        return 0
-                    try:
-                        res = supabase.table("ocr_results").upsert(chunk, on_conflict="content_sha256").execute()
-                        return len(getattr(res, "data", None) or [])
-                    except Exception as e:
-                        if len(chunk) > 1:
-                            mid = len(chunk) // 2
-                            return upsert_chunk(chunk[:mid]) + upsert_chunk(chunk[mid:])
-                        # Tekil kayıt: retry/backoff uygula
-                        item = chunk[0]
-                        em = str(e)
-                        for attempt in range(3):
-                            try:
-                                time.sleep(0.25 * (attempt + 1))
-                                res = supabase.table("ocr_results").upsert([item], on_conflict="content_sha256").execute()
-                                return len(getattr(res, "data", None) or [])
-                            except Exception as e2:
-                                em2 = str(e2)
-                                if is_transient(em2) and attempt < 2:
-                                    continue
-                                else:
-                                    break
-                        # Başarısız tekil kayıt: errors[]'e ekle (veri izi kaybolmasın)
+                path_str = str(source_file.get("path") or "")
+                file_name = path_str.split('/')[-1] if '/' in path_str else path_str
+                if '?' in file_name:
+                    file_name = file_name.split('?', 1)[0]
+                # 3.a) Regex ile id çıkarımı DEVRE DIŞI
+                # m = re.match(r"^\s*announcement_([0-9a-fA-F\-]{36})_", file_name)
+                # if m:
+                #     ann_id_cand = m.group(1)
+                #     if re.match(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", ann_id_cand):
+                #         announcement_id = announcement_id or ann_id_cand
+                # 3.b) İsimle ILIKE eşleştirme (ek yol, retry'lı)
+                if file_name:
+                    sel = None
+                    rows = []
+                    for attempt in range(3):
                         try:
-                            errors_local.append({
-                                "index": item.get("item_index"),
-                                "hash": item.get("content_sha256"),
-                                "error": em[:200],
-                            })
-                        except Exception:
-                            pass
-                        return 0
+                            sel = (
+                                supabase
+                                .table("announcements")
+                                .select("id, publication_date, issue_number, page_number, pdf_url")
+                                .ilike("pdf_url", f"%{file_name}%")
+                                .limit(1)
+                                .execute()
+                            )
+                            rows = getattr(sel, "data", None) or []
+                            break
+                        except Exception as e:
+                            em = str(e)
+                            transient = ("<!DOCTYPE html>" in em or "Worker threw exception" in em or "JSON could not be generated" in em or "json_invalid" in em or "connection reset by peer" in em or "1101" in em or "57014" in em)
+                            if transient and attempt < 2:
+                                time.sleep(0.25 * (attempt + 1))
+                                continue
+                            else:
+                                break
+                    m = None
+                    if not rows:
+                        m = _rest_fetch_ann_by_filename(file_name)
+                    else:
+                        m = rows[0]
+                    if m:
+                        announcement_id = announcement_id or m.get("id") or announcement_id
+                        if publication_date is None:
+                            publication_date = m.get("publication_date")
+                        if issue_number is None:
+                            issue_number = m.get("issue_number")
+                        if page_number is None:
+                            page_number = m.get("page_number")
+                        if not pdf_url:
+                            pdf_url = m.get("pdf_url")
+            except Exception:
+                pass
 
-                total = 0
-                for i in range(0, len(all_rows), chunk_size):
-                    total += upsert_chunk(all_rows[i:i + chunk_size])
-                return total
+        # 4) Eğer id var ama meta eksikse id'den meta tamamla
+        if announcement_id and (publication_date is None or issue_number is None or page_number is None or not pdf_url):
+            try:
+                sel_meta = (
+                    supabase
+                    .table("announcements")
+                    .select("id, publication_date, issue_number, page_number, pdf_url")
+                    .eq("id", announcement_id)
+                    .limit(1)
+                    .execute()
+                )
+                rows_m = getattr(sel_meta, "data", None) or []
+                if rows_m:
+                    m = rows_m[0]
+                    if publication_date is None:
+                        publication_date = m.get("publication_date")
+                    if issue_number is None:
+                        issue_number = m.get("issue_number")
+                    if page_number is None:
+                        page_number = m.get("page_number")
+                    if not pdf_url:
+                        pdf_url = m.get("pdf_url")
+            except Exception:
+                pass
 
-            inserted = _upsert_chunked_local(rows, chunk_size=10)
-            # Güvence: company_id boş kalan satırlar için ikinci tur link
-            for li in link_intents:
+        # 5) Teşhis logu
+        try:
+            logger.info(
+                "ingest-structured: resolved announcement_id=%s publication_date=%s issue_number=%s page_number=%s pdf_url=%s pdf_page_count=%s",
+                announcement_id, publication_date, issue_number, page_number, pdf_url, pdf_page_count,
+            )
+        except Exception:
+            pass
+
+        # 6) Upsert satırlarını hazırla
+        rows_to_upsert: List[Dict[str, Any]] = []
+        link_intents: List[Dict[str, Any]] = []
+        hashes_for_bg: List[str] = []
+        for it in parsed_list:
+            # company eşlemesi (best-effort)
+            cid = _find_or_create_company(
+                supabase,
+                it.get("sicil_office_header"),
+                it.get("sicil_dosya_no") or it.get("registration_number"),
+                it.get("trade_name"),
+                it.get("addresses"),
+                it.get("mersis_no"),
+            )
+            orig_text = it.get("original_text") or ""
+            h = hashlib.sha256(orig_text.encode("utf-8")).hexdigest() if isinstance(orig_text, str) else None
+            row = {
+                "publication_date": publication_date,
+                "issue_number": int(issue_number) if issue_number is not None else None,
+                "page_number": int(page_number) if page_number is not None else None,
+                "pdf_url": pdf_url,
+                "pdf_page_count": int(pdf_page_count) if pdf_page_count is not None else None,
+                "company_id": cid,
+                "announcement_id": announcement_id,
+                "content_sha256": h,
+                "sicil_office_header": it.get("sicil_office_header"),
+                "sicil_dosya_no": it.get("sicil_dosya_no"),
+                "mersis_no": it.get("mersis_no"),
+                "trade_name": it.get("trade_name"),
+                "old_trade_name": it.get("old_trade_name"),
+                "addresses": it.get("addresses"),
+                "old_addresses": it.get("old_addresses"),
+                "persons": it.get("persons"),
+                "masked_ids": it.get("masked_ids"),
+                "hususlar": it.get("hususlar"),
+                "belgeler": it.get("belgeler"),
+                "type": it.get("type"),
+                "item_index": it.get("index"),
+                "original_text": it.get("original_text"),
+                "start_offset": it.get("start_offset"),
+                "end_offset": it.get("end_offset"),
+                "is_derived": it.get("is_derived"),
+                "derived_from_index": it.get("derived_from_index"),
+                "ilan_sira_no": it.get("ilan_sira_no"),
+                "status": "completed",
+            }
+            # Bir örnek satırın key'lerini logla
+            if it.get("index") == 1:
                 try:
-                    supabase.table("ocr_results").update({"company_id": li["company_id"]}).eq("content_sha256", li["content_sha256"]).is_("company_id", "null").execute()
+                    logger.info("ingest-structured: sample upsert row keys=%s ann_id=%s", list(row.keys()), row.get("announcement_id"))
                 except Exception:
-                    logger.warning("ingest-structured post-upsert company link by content_sha256 failed", exc_info=True)
+                    pass
+            rows_to_upsert.append(row)
+            if h and cid:
+                link_intents.append({"content_sha256": h, "company_id": cid})
+            if h:
+                hashes_for_bg.append(h)
+
+        if supabase is None:
+            raise HTTPException(status_code=503, detail="supabase_unavailable")
+        up = supabase.table("ocr_results").upsert(rows_to_upsert, on_conflict="content_sha256").execute()
+        data = getattr(up, "data", None) or []
+        inserted = len(data)
+        updated = 0
+
+        # 7) Zorlayıcı UPDATE: announcement_id/meta garanti
+        if announcement_id:
+            for r in rows_to_upsert:
+                try:
+                    hval = r.get("content_sha256")
+                    if not hval:
+                        continue
+                    upd: Dict[str, Any] = {"announcement_id": announcement_id}
+                    if publication_date is not None:
+                        upd["publication_date"] = publication_date
+                    if issue_number is not None:
+                        upd["issue_number"] = int(issue_number)
+                    if page_number is not None:
+                        upd["page_number"] = int(page_number)
+                    if pdf_url:
+                        upd["pdf_url"] = pdf_url
+                    if pdf_page_count is not None:
+                        upd["pdf_page_count"] = int(pdf_page_count)
+                    supabase.table("ocr_results").update(upd).eq("content_sha256", hval).execute()
+                except Exception:
+                    logger.warning("ingest-structured: explicit update failed for hash", exc_info=True)
+
+        # 8) company_id boş olanları linkle (best-effort)
+        for li in link_intents:
+            try:
+                supabase.table("ocr_results").update({"company_id": li["company_id"]}).eq("content_sha256", li["content_sha256"]).is_("company_id", "null").execute()
+            except Exception:
+                logger.warning("ingest-structured post-upsert company link by content_sha256 failed", exc_info=True)
+
+        # 9) Storage silme DEVRE DISI (emniyet icin)
+        storage_deleted = False
+        delete_error: Optional[str] = None
+        # if source_file and delete_after_ingest:
+        #     bucket = source_file.get("bucket")
+        #     path = source_file.get("path")
+        #     if bucket and path:
+        #         try:
+        #             supabase.storage.from_(bucket).remove([path])
+        #             storage_deleted = True
+        #             logger.info("Storage deletion succeeded for %s/%s", bucket, path)
+        #         except Exception as e:
+        #             delete_error = f"Storage deletion failed: {e}"
+        #             logger.error(delete_error, exc_info=True)
 
         result = {
             "inserted": inserted,
@@ -1359,63 +1827,9 @@ async def ingest_structured(
             "announcements_created": 0,
             "ocr_results_created": inserted + updated,
             "links": [],
-            "rpc": rpc_data,
+            "rpc": None,
         }
-
-        # Ingest başarıysa ve istek silme istiyorsa, Supabase Storage'dan dosyayı sil ve DB'yi güncelle (TEMP disabled)
-        storage_deleted = False
-        delete_error: Optional[str] = None
-        if source_file and delete_after_ingest:
-            bucket = source_file.get("bucket")
-            path = source_file.get("path")
-            gazette_id = source_file.get("gazette_id")
-            file_upload_id = source_file.get("file_upload_id")
-
-            if not bucket or not path:
-                logger.warning("delete_after_ingest=true ancak source_file.bucket veya source_file.path eksik")
-            else:
-                try:
-                    # Supabase Storage: dosyayı sil
-                    supabase.storage.from_(bucket).remove([path])
-                    storage_deleted = True
-                    logger.info("Storage deletion succeeded for %s/%s", bucket, path)
-                except Exception as e:
-                    delete_error = f"Storage deletion failed: {e}"
-                    logger.error(delete_error, exc_info=True)
-
-                # DB işaretleme (best effort)
-                try:
-                    if gazette_id:
-                        gaz = db.query(Gazette).filter(Gazette.id == gazette_id).first()
-                        if gaz:
-                            gaz.is_processed = True
-                            gaz.processed_at = datetime.utcnow()
-                            db.add(gaz)
-                            db.commit()
-                            db.refresh(gaz)
-                    if file_upload_id:
-                        fu = crud.file_upload.get(db, id=file_upload_id)
-                        if fu:
-                            meta = fu.file_metadata or {}
-                            if isinstance(meta, dict):
-                                meta["deleted_from_storage"] = storage_deleted
-                                meta["deleted_path"] = path
-                                meta["deleted_bucket"] = bucket
-                                if storage_deleted:
-                                    meta["deleted_at"] = datetime.utcnow().isoformat()
-                            update_data: Dict[str, Any] = {
-                                "status": FileUploadStatus.COMPLETED,
-                                "processed_at": datetime.utcnow(),
-                                "file_metadata": meta,
-                            }
-                            crud.file_upload.update(db, db_obj=fu, obj_in=update_data)
-                except Exception as e:
-                    logger.error(f"Post-delete DB update failed: {e}", exc_info=True)
-
-        payload = {
-            "parsed_count": len(parsed_list),
-            **result,
-        }
+        payload = {"parsed_count": len(parsed_list), **result}
         if source_file is not None:
             payload.update({
                 "delete_after_ingest": delete_after_ingest,
@@ -1423,17 +1837,13 @@ async def ingest_structured(
             })
             if delete_error:
                 payload["delete_error"] = delete_error
-        logger.info(
-            "Ingest-structured finished. parsed=%d inserted=%d updated=%d",
-            len(parsed_list), result.get("inserted", 0), result.get("updated", 0)
-        )
+        logger.info("ingest-structured finished. parsed=%d inserted=%d updated=%d", len(parsed_list), inserted, updated)
         return payload
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"An error occurred during ingest-structured: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to ingest structured data: {e}")
-
 
 # -----------------------------
 # New: Centralized OCR check & ingest to Supabase

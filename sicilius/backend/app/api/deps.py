@@ -154,7 +154,7 @@ def get_current_user(
                 raise HTTPException(status_code=403, detail="Could not validate Supabase token")
             supabase_user_id = str(resp.user.id)
             supabase_email = getattr(resp.user, "email", None)
-            logging.warning(
+            logging.debug(
                 "[deps.get_current_user] gotrue user id=%s email=%s",
                 supabase_user_id,
                 (supabase_email or "").lower(),
@@ -164,11 +164,36 @@ def get_current_user(
             raise HTTPException(status_code=403, detail="Could not validate credentials")
 
     user = _ensure_local_user(db, user_id_str=supabase_user_id, email=supabase_email)
+    # Single-session enforcement: reject tokens older than last issued
+    token_iat = 0
+    try:
+        claims = jwt.get_unverified_claims(token)
+        token_iat = int(claims.get("iat", 0) or 0)
+    except Exception:
+        token_iat = 0
+    try:
+        latest_iat = int(getattr(user, "latest_session_iat", 0) or 0)
+    except Exception:
+        latest_iat = 0
+    if latest_iat and token_iat and token_iat < latest_iat:
+        logging.warning(
+            "[deps.get_current_user] session superseded email=%s token_iat=%s latest_iat=%s",
+            (user.email or "").lower(), token_iat, latest_iat,
+        )
+        raise HTTPException(status_code=401, detail="Session superseded")
+    # If this token is newer than recorded, update once to enforce single-session forward
+    if token_iat and (not latest_iat or token_iat > latest_iat):
+        try:
+            setattr(user, "latest_session_iat", int(token_iat))
+            db.add(user)
+            db.commit()
+        except Exception:
+            db.rollback()
     try:
         role_val = getattr(user.role, "value", str(user.role))
     except Exception:
         role_val = str(getattr(user, "role", None))
-    logging.warning(
+    logging.debug(
         "[deps.get_current_user] mapped local user email=%s id=%s role=%s",
         (user.email or "").lower(),
         user.id,

@@ -21,7 +21,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Admin rol kontrolü sayfa içinde ve backend endpoint'lerinde yapılır.
+  // Rol kontrolünü middleware yerine admin layout içinde tek çağrı ile yapıyoruz.
 
   return NextResponse.next();
 }

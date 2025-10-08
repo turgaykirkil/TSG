@@ -7,7 +7,9 @@ const STORAGE_KEY = "sicilius.theme";
 
 type Theme = "light" | "dark";
 
-export default function ThemeToggle() {
+type Props = { fixed?: boolean; className?: string };
+
+export default function ThemeToggle({ fixed = true, className }: Props) {
   const [theme, setTheme] = useState<Theme>("light");
   const autoRef = useRef<boolean>(true); // track auto-sync with system when no user pref
 
@@ -41,13 +43,18 @@ export default function ThemeToggle() {
     try { window.localStorage.setItem(STORAGE_KEY, next); } catch {}
   };
 
+  const base = "rounded-full p-2.5 bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow hover:bg-white dark:hover:bg-slate-900";
+  const cls = fixed
+    ? `fixed top-4 right-14 z-50 ${base}`
+    : `${className ?? base}`;
+
   return (
     <button
       type="button"
       onClick={toggle}
       aria-label={theme === 'dark' ? 'Açık tema' : 'Koyu tema'}
       title={theme === 'dark' ? 'Açık tema' : 'Koyu tema'}
-      className="fixed top-4 right-14 z-50 rounded-full p-2.5 bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow hover:bg-white dark:hover:bg-slate-900"
+      className={cls}
     >
       {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
     </button>

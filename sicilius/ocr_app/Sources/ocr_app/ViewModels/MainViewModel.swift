@@ -10,6 +10,132 @@ struct NlpParseRequest: Codable {
     let text: String
 }
 
+extension MainViewModel {
+    private func resolveAnnouncementForCurrentFile() async {
+        let baseURL = self.nlpBaseURL
+        guard let path = self.currentStoragePath, !path.isEmpty else { return }
+        // Sadece dosya adını yolla
+        let fileName = (path as NSString).lastPathComponent
+        let resolveBase = baseURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("v1")
+            .appendingPathComponent("nlp")
+            .appendingPathComponent("resolve-announcement")
+        var comps = URLComponents(url: resolveBase, resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "file_name", value: fileName)]
+        guard let url = comps.url else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.timeoutInterval = 30
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard let http = resp as? HTTPURLResponse else { return }
+            if http.statusCode == 200 {
+                if let obj = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] {
+                    let ann = obj["id"] as? String
+                    let pub = obj["publication_date"] as? String
+                    let iss = obj["issue_number"] as? Int
+                    let page = obj["page_number"] as? Int
+                    let purl = obj["pdf_url"] as? String
+                    self.resolvedAnnouncementId = ann
+                    self.resolvedPublicationDate = pub
+                    self.resolvedIssueNumber = iss
+                    self.resolvedPageNumber = page
+                    self.resolvedPdfUrl = purl
+                    print("[PDF] resolve-announcement: id=\(ann ?? "-") issue=\(iss ?? -1) page=\(page ?? -1)")
+                }
+            } else {
+                // 404 veya diğerleri: state temizle (fallback regex devrede kalır)
+                self.resolvedAnnouncementId = nil
+                self.resolvedPublicationDate = nil
+                self.resolvedIssueNumber = nil
+                self.resolvedPageNumber = nil
+                self.resolvedPdfUrl = nil
+            }
+        } catch {
+            // Sessiz düş: regex fallback çalışır
+            self.resolvedAnnouncementId = nil
+            self.resolvedPublicationDate = nil
+            self.resolvedIssueNumber = nil
+            self.resolvedPageNumber = nil
+            self.resolvedPdfUrl = nil
+        }
+    }
+
+    private struct AnnouncementRow: Codable {
+        let id: String
+        let publication_date: String?
+        let issue_number: Int?
+        let page_number: Int?
+        let pdf_url: String?
+    }
+
+    private func fetchAnnouncementRow() async throws -> AnnouncementRow {
+        let supabaseURL = try ConfigService.get(key: "SUPABASE_URL")
+        let supabaseKey = try ConfigService.get(key: "SUPABASE_KEY")
+        guard var comps = URLComponents(string: supabaseURL + "/rest/v1/announcements") else {
+            throw URLError(.badURL)
+        }
+        comps.queryItems = [
+            URLQueryItem(name: "select", value: "id,publication_date,issue_number,page_number,pdf_url"),
+            URLQueryItem(name: "order", value: "created_at.desc"),
+            URLQueryItem(name: "limit", value: "50")
+        ]
+        guard let url = comps.url else { throw URLError(.badURL) }
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue(supabaseKey, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(supabaseKey)", forHTTPHeaderField: "Authorization")
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: "announcements REST hata: \((resp as? HTTPURLResponse)?.statusCode ?? -1) body=\(body)"])
+        }
+        let rows = try JSONDecoder().decode([AnnouncementRow].self, from: data)
+        guard let pick = rows.randomElement() else { throw URLError(.cannotParseResponse) }
+        return pick
+    }
+
+    private func deriveStoragePath(from pdfURL: String?) -> String? {
+        guard let pdfURL, !pdfURL.isEmpty else { return nil }
+        if let range = pdfURL.range(of: "/gazette-pdfs/") {
+            let after = pdfURL[range.upperBound...]
+            let s = String(after)
+            if let q = s.firstIndex(of: "?") { return String(s[..<q]) }
+            return s
+        }
+        return nil
+    }
+
+    private func fetchFromAnnouncementsAndDownload() async throws -> (fileName: String, data: Data) {
+        let row = try await fetchAnnouncementRow()
+        await MainActor.run {
+            self.resolvedAnnouncementId = row.id
+            self.resolvedPublicationDate = row.publication_date
+            self.resolvedIssueNumber = row.issue_number
+            self.resolvedPageNumber = row.page_number
+            self.resolvedPdfUrl = row.pdf_url
+        }
+        guard let storagePath = deriveStoragePath(from: row.pdf_url) else {
+            throw URLError(.fileDoesNotExist, userInfo: [NSLocalizedDescriptionKey: "pdf_url'den storage path çıkarılamadı."])
+        }
+        let fileData = try await supabase.storage.from(pdfBucket).download(path: storagePath)
+        return (storagePath, fileData)
+    }
+
+    private func downloadRandomFromStorage() async throws -> (fileName: String, data: Data) {
+        let files = try await supabase.storage.from(pdfBucket).list()
+        let pdfFiles = files.filter { !$0.name.hasSuffix("/") && $0.name.lowercased().hasSuffix(".pdf") }
+        guard let randomFile = pdfFiles.randomElement() else {
+            throw URLError(.fileDoesNotExist, userInfo: [NSLocalizedDescriptionKey: "Bucket'ta PDF bulunamadı."])
+        }
+        let data = try await supabase.storage.from(pdfBucket).download(path: randomFile.name)
+        // REST başarısızsa resolve meta olmadan devam; backend ingest dosya adına göre çözer
+        return (randomFile.name, data)
+    }
+}
+
 // Backend'in döndürdüğü entities_full içindeki minimal alanlar
 struct NlpEntitiesFull: Codable {
     let hususlar: [String]?
@@ -125,6 +251,12 @@ class MainViewModel: ObservableObject {
     // Yerel GazetteParser kaldırıldı: Ayrıştırma tamamen backend tarafında yapılır.
     // Supabase Storage'dan indirilen aktif PDF'nin yolunu (bucket içi path) takip ederiz
     private var currentStoragePath: String?
+    // Resolve endpoint’inden gelen id+meta (indirilen dosya adına göre)
+    private var resolvedAnnouncementId: String?
+    private var resolvedPublicationDate: String?
+    private var resolvedIssueNumber: Int?
+    private var resolvedPageNumber: Int?
+    private var resolvedPdfUrl: String?
 
     init() {
         // AuthViewModel'deki gibi, güvenli yapılandırmadan Supabase istemcisini oluşturuyoruz.
@@ -166,32 +298,26 @@ class MainViewModel: ObservableObject {
 
         Task {
             do {
-                // 1. Bucket'taki tüm dosyaları listele
-                let files = try await supabase.storage.from(pdfBucket).list()
-                
-                // 2. PDF olmayanları veya klasörleri filtrele (varsa)
-                let pdfFiles = files.filter { !$0.name.hasSuffix("/") && $0.name.lowercased().hasSuffix(".pdf") }
-                
-                guard !pdfFiles.isEmpty else {
-                    throw URLError(.fileDoesNotExist, userInfo: [NSLocalizedDescriptionKey: "'\(pdfBucket)' bucket'ında hiç PDF dosyası bulunamadı."])
-                }
-                
-                // 3. Rastgele bir dosya seç
-                guard let randomFile = pdfFiles.randomElement() else {
-                    throw URLError(.cannotCreateFile, userInfo: [NSLocalizedDescriptionKey: "Dosya listesinden rastgele bir seçim yapılamadı."])
-                }
-                
-                // 4. Seçilen dosyayı indir
-                ocrResult = "'\(randomFile.name)' dosyası indiriliyor..."
-                let fileData = try await supabase.storage.from(pdfBucket).download(path: randomFile.name)
-                
-                // 5. UI'ı güncelle
+                // 1. Announcements'tan bir satır seç ve indirilecek dosyayı belirle
+                let (path, fileData) = try await fetchFromAnnouncementsAndDownload()
+                // 2. UI'ı güncelle
                 self.selectedPDF = fileData
-                self.ocrResult = "'\(randomFile.name)' başarıyla indirildi. OCR için hazır."
-                self.currentStoragePath = randomFile.name
-                
+                self.ocrResult = "'\(path)' başarıyla indirildi. OCR için hazır."
+                self.currentStoragePath = path
+                print("[PDF] İndirildi: file_name=\(path) storage_path=\(self.currentStoragePath ?? "-")")
             } catch {
-                self.errorMessage = "PDF alınamadı: \(error.localizedDescription)"
+                // Fallback: Storage list + indir
+                do {
+                    let (path, fileData) = try await downloadRandomFromStorage()
+                    self.selectedPDF = fileData
+                    self.ocrResult = "'\(path)' başarıyla indirildi. OCR için hazır."
+                    self.currentStoragePath = path
+                    print("[PDF] İndirildi (fallback): file_name=\(path) storage_path=\(self.currentStoragePath ?? "-")")
+                    // Fallback'te dosya adına göre ilân id+meta çöz
+                    await self.resolveAnnouncementForCurrentFile()
+                } catch {
+                    self.errorMessage = "PDF alınamadı: \(error.localizedDescription)"
+                }
             }
             self.isLoading = false
         }
@@ -206,6 +332,8 @@ class MainViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
         ocrResult = "OCR işlemi başlatıldı, lütfen bekleyin..."
+        // İndirilmiş PDF adı/ yolu mevcutsa OCR başlangıcında logla
+        print("[PDF] OCR başlıyor: file_name=\(self.currentStoragePath ?? "bilinmiyor")")
         
         Task {
             do {
@@ -239,6 +367,8 @@ class MainViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
         ocrResult = "OCR işlemi başlatıldı, lütfen bekleyin..."
+        // İndirilmiş PDF adı/ yolu mevcutsa OCR başlangıcında logla (async varyant)
+        print("[PDF] OCR başlıyor (async): file_name=\(self.currentStoragePath ?? "bilinmiyor")")
         do {
             if Task.isCancelled { self.isLoading = false; return }
             let ocr = try await Task.detached(priority: .userInitiated) { [data, ocrService] in
@@ -261,24 +391,35 @@ class MainViewModel: ObservableObject {
     // Tek adımlık indirme + OCR + NLP + JSON kaydetme
     func fetchAndProcessOnce() async {
         do {
-            // Dosyaları listele ve rastgele PDF indir
-            let files = try await supabase.storage.from(pdfBucket).list()
-            let pdfFiles = files.filter { !$0.name.hasSuffix("/") && $0.name.lowercased().hasSuffix(".pdf") }
-            guard let randomFile = pdfFiles.randomElement() else {
-                throw URLError(.fileDoesNotExist, userInfo: [NSLocalizedDescriptionKey: "Bucket'ta PDF bulunamadı."])
-            }
-            self.ocrResult = "'\(randomFile.name)' dosyası indiriliyor..."
+            // Announcements'tan bir satır seç ve indirilecek dosyayı belirle
+            let (path, fileData) = try await fetchFromAnnouncementsAndDownload()
             if Task.isCancelled { return }
-            let fileData = try await supabase.storage.from(pdfBucket).download(path: randomFile.name)
             // Seçimi güncelle ve OCR'ı çalıştır
             self.selectedPDF = fileData
-            self.currentStoragePath = randomFile.name
+            self.currentStoragePath = path
+            print("[PDF] İndirildi: file_name=\(path) storage_path=\(self.currentStoragePath ?? "-")")
             if Task.isCancelled { return }
+            print("[PDF] OCR başlıyor (pipeline): file_name=\(self.currentStoragePath ?? "bilinmiyor")")
             await self.performOCRAsync(data: fileData)
             // NLP JSON kaydet
             self.saveNlpJsonToDisk()
         } catch {
-            self.errorMessage = "İşlem başarısız: \(error.localizedDescription)"
+            // Fallback: Storage list + indir
+            do {
+                let (path, fileData) = try await downloadRandomFromStorage()
+                if Task.isCancelled { return }
+                self.selectedPDF = fileData
+                self.currentStoragePath = path
+                print("[PDF] İndirildi (fallback): file_name=\(path) storage_path=\(self.currentStoragePath ?? "-")")
+                // Fallback'te dosya adına göre ilân id+meta çöz
+                await self.resolveAnnouncementForCurrentFile()
+                if Task.isCancelled { return }
+                print("[PDF] OCR başlıyor (pipeline): file_name=\(self.currentStoragePath ?? "bilinmiyor")")
+                await self.performOCRAsync(data: fileData)
+                self.saveNlpJsonToDisk()
+            } catch {
+                self.errorMessage = "İşlem başarısız: \(error.localizedDescription)"
+            }
         }
     }
 
@@ -340,14 +481,42 @@ class MainViewModel: ObservableObject {
         // Gerekli sabitleri ana aktörden kopyala
         let baseURL = self.nlpBaseURL
         let requestBody = NlpParseRequest(text: text)
+        // 1) Öncelik: resolve endpoint’inden gelen id
+        let announcementId: String? = self.resolvedAnnouncementId
+        // 2) Meta: announcement_id yoksa meta ile side-write yapılabilmesi için query param göndereceğiz
+        let resolvedPub = self.resolvedPublicationDate
+        let resolvedIssue = self.resolvedIssueNumber
+        let resolvedPage = self.resolvedPageNumber
+        let resolvedPdf = self.resolvedPdfUrl
+        // 3) Dosya adı: resolve başarısızsa isimle eşleştirme için backend'e iletelim
+        let storagePath = self.currentStoragePath
+        let fileNameParam: String? = {
+            guard let sp = storagePath, !sp.isEmpty else { return nil }
+            return (sp as NSString).lastPathComponent
+        }()
+        // Fallback devre dışı: resolve başarısızsa announcementId boş kalır; backend ingest dosya adına göre çözer.
         // Ağ ve decode işlemlerini arka planda çalıştır
         let result = await Task.detached(priority: .userInitiated) { () -> (structured: String?, decoded: [NlpParsedAnnouncement]?, minimal: String?, netMs: Int, decMs: Int, err: String?) in
             // 1) Structured çoklu
-            let listURL = baseURL
+            let listURLBase = baseURL
                 .appendingPathComponent("api")
                 .appendingPathComponent("v1")
                 .appendingPathComponent("nlp")
                 .appendingPathComponent("parse-announcements")
+            var listComps = URLComponents(url: listURLBase, resolvingAgainstBaseURL: false)!
+            var listQI: [URLQueryItem] = []
+            if let ann = announcementId, !ann.isEmpty {
+                listQI.append(URLQueryItem(name: "announcement_id", value: ann))
+            } else {
+                if let pub = resolvedPub { listQI.append(URLQueryItem(name: "publication_date", value: pub)) }
+                if let iss = resolvedIssue { listQI.append(URLQueryItem(name: "issue_number", value: String(iss))) }
+                if let pag = resolvedPage { listQI.append(URLQueryItem(name: "page_number", value: String(pag))) }
+                if let purl = resolvedPdf, !purl.isEmpty { listQI.append(URLQueryItem(name: "pdf_url", value: purl)) }
+                if let fn = fileNameParam, !fn.isEmpty { listQI.append(URLQueryItem(name: "pdf_file_name", value: fn)) }
+            }
+            if let fn = fileNameParam, !fn.isEmpty, listQI.isEmpty { listQI.append(URLQueryItem(name: "pdf_file_name", value: fn)) }
+            if !listQI.isEmpty { listComps.queryItems = listQI }
+            let listURL = listComps.url ?? listURLBase
             var listReq = URLRequest(url: listURL)
             listReq.httpMethod = "POST"
             listReq.addValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -370,11 +539,25 @@ class MainViewModel: ObservableObject {
                 let tDec = Int((CFAbsoluteTimeGetCurrent() - tDec0) * 1000)
 
                 // 2) Minimal
-                let minimalURL = baseURL
+                let minimalURLBase = baseURL
                     .appendingPathComponent("api")
                     .appendingPathComponent("v1")
                     .appendingPathComponent("nlp")
                     .appendingPathComponent("parse-announcements-minimal")
+                var minimalComps = URLComponents(url: minimalURLBase, resolvingAgainstBaseURL: false)!
+                var minQI: [URLQueryItem] = []
+                if let ann = announcementId, !ann.isEmpty {
+                    minQI.append(URLQueryItem(name: "announcement_id", value: ann))
+                } else {
+                    if let pub = resolvedPub { minQI.append(URLQueryItem(name: "publication_date", value: pub)) }
+                    if let iss = resolvedIssue { minQI.append(URLQueryItem(name: "issue_number", value: String(iss))) }
+                    if let pag = resolvedPage { minQI.append(URLQueryItem(name: "page_number", value: String(pag))) }
+                    if let purl = resolvedPdf, !purl.isEmpty { minQI.append(URLQueryItem(name: "pdf_url", value: purl)) }
+                    if let fn = fileNameParam, !fn.isEmpty { minQI.append(URLQueryItem(name: "pdf_file_name", value: fn)) }
+                }
+                if let fn = fileNameParam, !fn.isEmpty, minQI.isEmpty { minQI.append(URLQueryItem(name: "pdf_file_name", value: fn)) }
+                if !minQI.isEmpty { minimalComps.queryItems = minQI }
+                let minimalURL = minimalComps.url ?? minimalURLBase
                 var minimalReq = URLRequest(url: minimalURL)
                 minimalReq.httpMethod = "POST"
                 minimalReq.addValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -467,7 +650,17 @@ class MainViewModel: ObservableObject {
                     "bucket": self.pdfBucket,
                     "path": path
                 ]
+                // Öncelik: resolve endpoint’i ile elde edilen id+meta
+                if let ann = self.resolvedAnnouncementId, !ann.isEmpty {
+                    payloadObj["announcement_id"] = ann
+                    print("[PDF] ingest payload announcement_id=\(ann)")
+                }
             }
+            // Meta verileri ekle (varsa)
+            if let pub = self.resolvedPublicationDate { payloadObj["publication_date"] = pub }
+            if let iss = self.resolvedIssueNumber { payloadObj["issue_number"] = iss }
+            if let page = self.resolvedPageNumber { payloadObj["page_number"] = page }
+            if let purl = self.resolvedPdfUrl { payloadObj["pdf_url"] = purl }
             // Kullanıcı tercihi: ingest sonrasında PDF'nin silinip silinmeyeceği
             payloadObj["delete_after_ingest"] = self.deleteAfterIngest
             let postData = try JSONSerialization.data(withJSONObject: payloadObj, options: [])

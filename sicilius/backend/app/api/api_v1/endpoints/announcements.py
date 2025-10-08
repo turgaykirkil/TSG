@@ -63,10 +63,42 @@ def resolve_announcement(
         return {
             "found": True,
             "id": ann_id,
-            "announcement": meta,
         }
     except HTTPException:
         raise
     except Exception as e:
         logger.error("/announcements/resolve failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"resolve failed: {e}")
+
+@router.get("/resolve-by-file-name", response_model=Dict[str, Any])
+def resolve_by_file_name(
+    *,
+    file_name: str = Query(..., description="The PDF file name as stored in Supabase (e.g., announcement_<uuid>_<...>.pdf)"),
+    db: Session = Depends(deps.get_db),
+):
+    """
+    Resolve an announcement by its PDF file_name (matches within `pdf_url`).
+    Returns the `id` (announcement_id) and basic meta fields if found.
+    """
+    try:
+        ann = crud.announcement.get_by_file_name(db, file_name=file_name)
+        if not ann:
+            raise HTTPException(status_code=404, detail="Announcement not found for given file_name")
+        # Build minimal meta payload
+        try:
+            logger.info("resolve-by-file-name: file_name=%s -> announcement_id=%s", file_name, str(ann.id))
+        except Exception:
+            pass
+        meta = {
+            "id": str(ann.id),
+            "publication_date": getattr(ann, "publication_date", None),
+            "issue_number": getattr(ann, "issue_number", None),
+            "page_number": getattr(ann, "page_number", None),
+            "pdf_url": getattr(ann, "pdf_url", None),
+        }
+        return {"found": True, "id": str(ann.id), "announcement": meta}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("/announcements/resolve-by-file-name failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"resolve-by-file-name failed: {e}")

@@ -12,55 +12,32 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { session, loading } = useAuth();
   const user = session?.user;
-  const [roleChecked, setRoleChecked] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [checkingRole, setCheckingRole] = useState(true);
 
   useEffect(() => {
-    if (!loading && !user) {
-      router.push(`/login?callbackUrl=${pathname}`);
-    }
-  }, [user, loading, router, pathname]);
-
-  // Role-based guard: only allow ADMIN
-  useEffect(() => {
-    const checkRole = async () => {
-      if (loading || !user) return;
+    const run = async () => {
+      if (loading) return;
+      if (!user) {
+        router.push(`/login?callbackUrl=${pathname}`);
+        return;
+      }
       try {
-        const res = await fetch('/api/v1/users/me', { credentials: 'include', cache: 'no-store' });
-        if (res.ok) {
-          const data = await res.json();
-          // Robust role extraction (handles plain string or enum-like object)
-          let roleRaw: unknown = data?.role;
-          let roleStr = '';
-          if (typeof roleRaw === 'string') {
-            roleStr = roleRaw;
-          } else if (roleRaw && typeof roleRaw === 'object') {
-            // Try common enum shapes
-            const anyRole: any = roleRaw;
-            roleStr = String(anyRole?.value || anyRole?.name || '');
-          }
-          const role = roleStr.toLowerCase();
-          const email = String(data?.email || '').toLowerCase();
-          const emailAdmin = email === 'turgaykirkil@me.com' || email === 'turgaykirkil@icloud.com';
-          const ok = role === 'admin' || emailAdmin;
-          setIsAdmin(ok);
-          setRoleChecked(true);
-          if (!ok) {
-            router.replace('/dashboard');
-          }
-        } else {
-          setRoleChecked(true);
+        const res = await fetch('/api/v1/auth/require-admin', { method: 'GET', credentials: 'include', cache: 'no-store' });
+        if (res.status !== 204) {
           router.replace('/dashboard');
+          return;
         }
       } catch {
-        setRoleChecked(true);
         router.replace('/dashboard');
+        return;
+      } finally {
+        setCheckingRole(false);
       }
     };
-    checkRole();
-  }, [loading, user, router]);
+    run();
+  }, [user, loading, router, pathname]);
 
-  if (loading || (user && !roleChecked)) {
+  if (loading || checkingRole) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50">
         <div className="text-2xl font-semibold text-gray-700">Yükleniyor...</div>
@@ -68,11 +45,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!user || !isAdmin) {
+  if (!user) {
     return null; // Yönlendirme useEffect içinde gerçekleşecek
   }
 
-    return (
+  return (
     <div className="flex h-screen bg-background text-foreground">
       <AppSidebar />
       <div className="flex flex-col flex-1 overflow-hidden">

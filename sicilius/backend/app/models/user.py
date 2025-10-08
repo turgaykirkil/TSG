@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, Enum, DateTime, func, Integer
+from sqlalchemy import Column, String, Boolean, Enum, DateTime, func, Integer, BigInteger
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 from sqlalchemy.orm import relationship
@@ -23,6 +23,8 @@ class User(Base):
     is_banned = Column(Boolean(), default=False)
     role = Column(Enum(UserRole), default=UserRole.USER, nullable=False)
     last_login = Column(DateTime(timezone=True))
+    # Single-session enforcement: store latest accepted token iat (epoch seconds)
+    latest_session_iat = Column(BigInteger, nullable=True)
     
     # Relationships
     file_uploads = relationship("FileUpload", back_populates="uploaded_by")

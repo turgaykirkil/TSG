@@ -1977,7 +1977,7 @@ def company_detail(
         except Exception as ex:
             logger.warning(f"[Company Detail] Related companies resolution failed: {ex}")
 
-        # --- Announcements --- (fallback'lı)
+        # --- Announcements --- (STRICT: yalnızca bu şirkete ait ilanlar)
         announcements = []
         try:
             # '*' seçerek tabloda varsa original_text gibi ek alanları da alalım.
@@ -1994,55 +1994,15 @@ def company_detail(
         except Exception as _e:
             logger.warning(f"[Company Detail] announcements by company_id failed: {_e}")
 
-        # Fallback 1: trade_registry_number == company.sicil_no
-        if not announcements:
-            try:
-                sicil_no = company.get("sicil_no")
-                if sicil_no:
-                    ann_by_reg = (
-                        supabase
-                        .table("announcements")
-                        .select("id, title, announcement_type, publication_date, issue_number, page_number, newspaper_name, pdf_url, ocr_status, created_at, trade_registry_number")
-                        .eq("trade_registry_number", sicil_no)
-                        .order("publication_date", desc=True)
-                        .limit(100)
-                        .execute()
-                    )
-                    announcements = ann_by_reg.data or []
-                    if announcements:
-                        logger.info("[Company Detail] announcements resolved via trade_registry_number fallback")
-            except Exception as _e:
-                logger.warning(f"[Company Detail] announcements by trade_registry_number failed: {_e}")
-
-        # Fallback 2: title ilike %unvan%
-        if not announcements:
-            try:
-                unvan = (company.get("unvan") or "").strip()
-                if unvan:
-                    pat = f"%{unvan[:60]}%"
-                    ann_by_title = (
-                        supabase
-                        .table("announcements")
-                        .select("*")
-                        .ilike("title", pat)
-                        .order("publication_date", desc=True)
-                        .limit(50)
-                        .execute()
-                    )
-                    announcements = ann_by_title.data or []
-                    if announcements:
-                        logger.info("[Company Detail] announcements resolved via title ilike fallback")
-            except Exception as _e:
-                logger.warning(f"[Company Detail] announcements by title failed: {_e}")
-
-        # Enrichment: announcements -> original_text & hususlar (from ocr_results by announcement_id)
+        # Enrichment: announcements -> original_text & hususlar (yalnızca hedef şirketin OCR kayıtlarından)
         try:
             ann_ids = [a.get("id") for a in announcements if isinstance(a, dict) and a.get("id")]
             if ann_ids:
                 ocr_by_ann = (
                     supabase
                     .table("ocr_results")
-                    .select("announcement_id, original_text, hususlar")
+                    .select("announcement_id, original_text, hususlar, company_id")
+                    .eq("company_id", cid)
                     .in_("announcement_id", ann_ids)
                     .limit(min(2000, len(ann_ids) * 5))
                     .execute()
@@ -2787,9 +2747,11 @@ def company_detail(
         logger.error(f"[Company Detail] Error for company_id '{company_id}': {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An error occurred while fetching company detail.")
 
-@router.get("/announcement-detail", summary="Announcement detail with OCR text")
+@router.get("/announcement-detail", summary="Announcement detail with OCR text (scoped to company if provided)")
 def announcement_detail(
     announcement_id: str = Query(..., description="UUID of the announcement"),
+    company_id: Optional[str] = Query(None, description="UUID of the company (to scope OCR text)"),
+    mersis_no: Optional[str] = Query(None, description="MERSIS number (alternative scope for OCR text)"),
     supabase: Client = Depends(get_supabase_client),
     _: None = Depends(enforce_daily_limit),
 ):
@@ -2813,22 +2775,36 @@ def announcement_detail(
             logger.error(f"[Announcement Detail] Fetch announcement failed: {ex_ann}")
             raise HTTPException(status_code=500, detail="İlan getirilemedi")
 
-        # 2) OCR metni — announcement_id ile
+        # 2) OCR metni — SADECE hedef şirkete ait olacak şekilde
         original_text = None
         try:
-            ocr_q = (
+            # company scope belirle
+            scope_company_id = None
+            if company_id and isinstance(company_id, str) and company_id.strip():
+                scope_company_id = company_id.strip()
+            elif isinstance(ann, dict) and ann.get("company_id"):
+                scope_company_id = ann.get("company_id")
+
+            qb = (
                 supabase
                 .table("ocr_results")
-                .select("id, original_text, created_at")
+                .select("id, original_text, created_at, company_id, mersis_no")
                 .eq("announcement_id", announcement_id)
-                .order("created_at", desc=True)
-                .limit(1)
-                .execute()
             )
-            if ocr_q.data:
-                original_text = (ocr_q.data[0] or {}).get("original_text")
+            if scope_company_id:
+                qb = qb.eq("company_id", scope_company_id)
+            elif mersis_no and isinstance(mersis_no, str) and mersis_no.strip():
+                qb = qb.eq("mersis_no", mersis_no.strip())
+            else:
+                # Şirket bağlamı yoksa yanlış şirkete ait metin döndürmemek için OCR sorgusunu çalıştırma
+                qb = None
+
+            if qb is not None:
+                ocr_q = qb.order("created_at", desc=True).limit(1).execute()
+                if ocr_q.data:
+                    original_text = (ocr_q.data[0] or {}).get("original_text")
         except Exception as ex_ocr:
-            logger.warning(f"[Announcement Detail] OCR by announcement_id failed: {ex_ocr}")
+            logger.warning(f"[Announcement Detail] OCR scoped fetch failed: {ex_ocr}")
 
         return {
             "announcement": ann,
