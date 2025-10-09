@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
+import { FullScreenLoader } from '@/components/ui/loading-spinner';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -30,7 +31,7 @@ export default function ProfilePage() {
   }, [isAuthenticated, loading, router]);
 
   if (loading) {
-    return <div className="flex items-center justify-center h-screen">Yükleniyor...</div>;
+    return <FullScreenLoader />;
   }
 
   if (!isAuthenticated || !user) {

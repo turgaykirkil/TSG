@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import Reveal from "@/components/ui/reveal";
 // same-origin fetch kullanılacak
 
 export default function InvitePage() {
@@ -77,15 +78,17 @@ export default function InvitePage() {
   };
 
   return (
-    <div className="container mx-auto px-6 py-16 max-w-xl">
-      <Card>
-        <CardHeader>
-          <CardTitle>Davet ile Katıl</CardTitle>
-          <CardDescription>
-            Sicilius, davetle üyelik sistemine sahiptir. Aşağıdan şifrenizi belirleyerek hesabınızı oluşturabilirsiniz.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+    <section className="min-h-[calc(100svh-4rem)] md:min-h-[calc(100svh-5rem)] snap-start flex items-center bg-background">
+      <div className="container mx-auto px-6 py-16 max-w-xl text-foreground">
+        <Reveal>
+          <Card>
+            <CardHeader>
+              <CardTitle>Davet ile Katıl</CardTitle>
+              <CardDescription>
+                Sicilius, davetle üyelik sistemine sahiptir. Aşağıdan şifrenizi belirleyerek hesabınızı oluşturabilirsiniz.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
           {loading ? (
             <div>Doğrulanıyor…</div>
           ) : error ? (
@@ -93,11 +96,11 @@ export default function InvitePage() {
           ) : (
             <div className="space-y-4">
               <div>
-                <label className="block text-sm mb-1">E-posta</label>
+                <label className="block text-sm mb-1 text-foreground">E-posta</label>
                 <Input value={email} readOnly aria-readonly />
               </div>
               <div>
-                <label className="block text-sm mb-1">Şifre</label>
+                <label className="block text-sm mb-1 text-foreground">Şifre</label>
                 <Input
                   type="password"
                   placeholder="En az 8 karakter"
@@ -116,8 +119,10 @@ export default function InvitePage() {
               </p>
             </div>
           )}
-        </CardContent>
-      </Card>
-    </div>
+            </CardContent>
+          </Card>
+        </Reveal>
+      </div>
+    </section>
   );
 }

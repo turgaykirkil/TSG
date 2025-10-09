@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
+import { FullScreenLoader } from '@/components/ui/loading-spinner';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 // Notifications are shown via modal alerts
 import { useAlert } from '@/contexts/AlertContext';
@@ -143,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={value}>
-      {loading ? <div className="flex h-screen items-center justify-center">Yükleniyor...</div> : children}
+      {loading ? <FullScreenLoader /> : children}
     </AuthContext.Provider>
   );
 }

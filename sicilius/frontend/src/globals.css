@@ -917,6 +917,42 @@ html {
   animation: gradientShift 18s ease infinite;
 }
 
+/* Hero animated background (subtle, light/dark aware) */
+.hero-animated-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* layered radial gradients + base */
+  background:
+    radial-gradient(80% 60% at 15% 25%, hsl(var(--primary) / 0.16), transparent 60%),
+    radial-gradient(60% 50% at 85% 20%, hsl(263 70% 60% / 0.14), transparent 60%),
+    radial-gradient(80% 60% at 50% 85%, hsl(var(--secondary) / 0.14), transparent 60%),
+    linear-gradient(180deg, hsl(var(--background)), hsl(var(--background)));
+  background-repeat: no-repeat;
+  background-size: 140% 140%, 140% 140%, 160% 160%, 100% 100%;
+  animation: heroGradient 26s ease-in-out infinite alternate;
+}
+
+.dark .hero-animated-bg {
+  background:
+    radial-gradient(80% 60% at 15% 25%, hsl(var(--primary) / 0.20), transparent 60%),
+    radial-gradient(60% 50% at 85% 20%, hsl(263 70% 60% / 0.18), transparent 60%),
+    radial-gradient(80% 60% at 50% 85%, hsl(var(--secondary) / 0.18), transparent 60%),
+    linear-gradient(180deg, hsl(var(--background)), hsl(var(--background)));
+}
+
+@keyframes heroGradient {
+  0% {
+    background-position: 10% 10%, 90% 10%, 50% 90%, 0% 0%;
+  }
+  50% {
+    background-position: 20% 25%, 80% 20%, 55% 80%, 0% 0%;
+  }
+  100% {
+    background-position: 30% 40%, 70% 35%, 60% 70%, 0% 0%;
+  }
+}
+
 @keyframes gradientShift {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
@@ -940,6 +976,7 @@ html {
   }
   .animated-gradient-border,
   .animated-gradient-bg,
+  .hero-animated-bg,
   .animate-float,
   .animate-float-slow,
   .animate-float-fast,

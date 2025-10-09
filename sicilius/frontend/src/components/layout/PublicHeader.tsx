@@ -6,6 +6,7 @@ import { Menu, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { SiciliusLogo as Logo } from '@/components/icons/SiciliusLogo';
+import ThemeToggle from '@/app/(app)/dashboard/components/ThemeToggle';
 
 export function PublicHeader() {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -25,7 +26,6 @@ export function PublicHeader() {
     { name: 'Hakkında', href: '/about' },
     { name: 'SSS', href: '/sss' },
     { name: 'İletişim', href: '/contact' },
-    { name: 'İlkeler', href: '/#policies' },
   ];
 
   return (
@@ -71,6 +71,9 @@ export function PublicHeader() {
             <Button asChild variant="gradient" className="px-6">
               <Link href="/login">Giriş Yap</Link>
             </Button>
+            <div className="ml-1">
+              <ThemeToggle fixed={false} />
+            </div>
           </div>
 
           {/* Mobile menu button */}
@@ -113,6 +116,9 @@ export function PublicHeader() {
             <Button asChild variant="gradient" className="w-full px-4 py-2 text-center" onClick={() => setIsMenuOpen(false)}>
               <Link href="/login">Giriş Yap</Link>
             </Button>
+            <div className="w-full flex justify-center">
+              <ThemeToggle fixed={false} />
+            </div>
           </div>
         </div>
       </div>

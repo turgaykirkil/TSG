@@ -1,57 +1,6 @@
-"use client";
-
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
-
-import { UserAuthForm } from '@/components/auth/user-auth-form';
-import AuthLayout from '@/layouts/AuthLayout';
-import { Icons } from '@/components/icons';
-import { useAuth } from '@/contexts/AuthContext';
+import { redirect } from 'next/navigation';
 
 export default function RegisterPage() {
-  const { isAuthenticated, loading, session } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      if (session?.user?.role === 'admin') {
-        router.push('/admin');
-      } else {
-        router.push('/dashboard');
-      }
-    }
-  }, [isAuthenticated, router, session]);
-
-  if (loading) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center bg-gray-900">
-        <Icons.spinner className="h-10 w-10 animate-spin text-white" />
-      </div>
-    );
-  }
-
-  return (
-    <AuthLayout>
-      <div className="grid gap-2 text-center">
-        <h1 className="text-3xl font-bold tracking-tight text-gray-900">
-          Hesap Oluştur
-        </h1>
-        <p className="text-balance text-sm text-muted-foreground">
-          Başlamak için aşağıya bilgilerinizi girin.
-        </p>
-      </div>
-      <UserAuthForm mode="register" />
-      <p className="mt-4 text-center text-sm text-muted-foreground">
-        Zaten bir hesabın var mı?{' '}
-        <Link
-          href="/login"
-          className="font-semibold text-[#1e3a8a] hover:underline"
-        >
-          Giriş Yap
-        </Link>
-      </p>
-    </AuthLayout>
-  );
+  redirect('/login');
 }
 

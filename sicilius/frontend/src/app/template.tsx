@@ -1,7 +1,6 @@
 'use client';
 
 import { Suspense, useEffect, useState } from 'react';
-import LoadingSpinner from '@/components/ui/loading-spinner';
 
 export default function Template({ children }: { children: React.ReactNode }) {
   const [isMounted, setIsMounted] = useState(false);
@@ -11,8 +10,8 @@ export default function Template({ children }: { children: React.ReactNode }) {
   }, []);
 
   if (!isMounted) {
-    return <LoadingSpinner />;
+    return null;
   }
 
-  return <Suspense fallback={<LoadingSpinner />}>{children}</Suspense>;
+  return <Suspense fallback={null}>{children}</Suspense>;
 }

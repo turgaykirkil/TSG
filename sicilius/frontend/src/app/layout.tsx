@@ -38,21 +38,9 @@ export default function RootLayout({
             (function(){
               try {
                 var key = 'sicilius.theme';
-                var path = window.location.pathname || '/';
-                var isPublic = (
-                  path === '/' ||
-                  path.startsWith('/about') ||
-                  path.startsWith('/contact') ||
-                  path.startsWith('/sss') ||
-                  path.startsWith('/davet') ||
-                  path.startsWith('/home') ||
-                  path.startsWith('/gizlilik-politikasi') ||
-                  path.startsWith('/kullanici-sozlesmesi') ||
-                  path.startsWith('/cerez-politikasi') ||
-                  path.startsWith('/kvkk-aydinlatma') ||
-                  path.startsWith('/login')
-                );
-                var saved = isPublic ? null : localStorage.getItem(key);
+                // Kayıtlı tema tercihini her sayfada uygula (public dahil).
+                var saved = null;
+                try { saved = localStorage.getItem(key); } catch(_) {}
                 var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
                 var useDark = saved ? (saved === 'dark') : prefersDark;
                 var root = document.documentElement;

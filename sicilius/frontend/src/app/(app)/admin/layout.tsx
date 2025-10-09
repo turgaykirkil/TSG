@@ -6,6 +6,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { AppSidebar } from '@/app/(app)/admin/components/layout/AdminSidebar';
 import { AppHeader } from '@/app/(app)/admin/components/layout/AdminHeader';
+import { FullScreenLoader } from '@/components/ui/loading-spinner';
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -38,11 +39,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }, [user, loading, router, pathname]);
 
   if (loading || checkingRole) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-gray-50">
-        <div className="text-2xl font-semibold text-gray-700">Yükleniyor...</div>
-      </div>
-    );
+    return <FullScreenLoader />;
   }
 
   if (!user) {

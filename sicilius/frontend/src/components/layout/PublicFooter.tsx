@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Mail, Phone, MapPin, Twitter, Linkedin, Github } from 'lucide-react';
+import { Twitter, Linkedin, Github } from 'lucide-react';
 import { SiciliusLogo as Logo } from '@/components/icons/SiciliusLogo';
 
 type FooterLink = {
@@ -37,26 +37,6 @@ export function PublicFooter() {
         { name: 'KVKK Aydınlatma', href: '/kvkk-aydinlatma' },
       ],
     },
-    {
-      title: 'İletişim',
-      links: [
-        { 
-          name: 'info@sicilius.com', 
-          href: 'mailto:info@sicilius.com',
-          icon: <Mail className="w-4 h-4 mr-2" />
-        },
-        { 
-          name: '+90 555 123 45 67', 
-          href: 'tel:+905551234567',
-          icon: <Phone className="w-4 h-4 mr-2" />
-        },
-        { 
-          name: 'İstanbul, Türkiye', 
-          href: 'https://maps.google.com',
-          icon: <MapPin className="w-4 h-4 mr-2" />
-        },
-      ],
-    },
   ];
 
   const socialLinks = [
@@ -85,7 +65,7 @@ export function PublicFooter() {
       </div>
       
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12">
           {/* Logo and description */}
           <div className="space-y-5">
             <div className="flex items-center space-x-2">
@@ -96,7 +76,7 @@ export function PublicFooter() {
               Şirket bilgilerine kolay erişim için güçlü ve kullanıcı dostu bir platform.
             </p>
             
-            {/* Social links */}
+            {/* Social links 
             <div className="flex space-x-4 pt-2">
               {socialLinks.map((item) => (
                 <Link
@@ -110,7 +90,7 @@ export function PublicFooter() {
                   {item.icon}
                 </Link>
               ))}
-            </div>
+            </div>*/}
           </div>
           
           {/* Footer links */}

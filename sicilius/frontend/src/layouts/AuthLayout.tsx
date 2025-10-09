@@ -28,7 +28,7 @@ export default function AuthLayout({ children }: AuthLayoutProps) {
           </blockquote>
         </div>
       </div>
-      <div className="flex items-center justify-center py-12 bg-gray-50">
+      <div className="flex items-center justify-center py-12 bg-background text-foreground">
         <div className="mx-auto grid w-[380px] gap-6 p-6 sm:p-0">
           {children}
         </div>
