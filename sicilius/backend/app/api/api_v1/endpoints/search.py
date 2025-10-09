@@ -2001,7 +2001,7 @@ def company_detail(
                 ocr_by_ann = (
                     supabase
                     .table("ocr_results")
-                    .select("announcement_id, original_text, hususlar, company_id")
+                    .select("announcement_id, original_text, hususlar, company_id, publication_date, issue_number, page_number, created_at")
                     .eq("company_id", cid)
                     .in_("announcement_id", ann_ids)
                     .limit(min(2000, len(ann_ids) * 5))
@@ -2010,6 +2010,7 @@ def company_detail(
                 # Son ilanın metnini tercih et (aynı announcement_id için birden fazla satır olabilir)
                 ocr_text_map: Dict[Any, str] = {}
                 ocr_husus_map: Dict[Any, str] = {}
+                ocr_meta_map: Dict[Any, Dict[str, Any]] = {}
                 for row in ocr_by_ann:
                     aid = row.get("announcement_id")
                     if aid:
@@ -2036,12 +2037,46 @@ def company_detail(
                             except Exception:
                                 hus_text = ""
                             ocr_husus_map[aid] = hus_text
+                        # meta alanları sakla (ilan üstünde boşsa kullanmak üzere)
+                        if not ocr_meta_map.get(aid):
+                            ocr_meta_map[aid] = {
+                                "publication_date": row.get("publication_date") or row.get("created_at"),
+                                "issue_number": row.get("issue_number"),
+                                "page_number": row.get("page_number"),
+                            }
                 for a in announcements:
                     aid = a.get("id")
                     if aid and aid in ocr_text_map:
                         a["original_text"] = ocr_text_map[aid]
                     if aid and aid in ocr_husus_map and ocr_husus_map[aid]:
                         a["hususlar"] = ocr_husus_map[aid]
+                    # meta doldurma (sadece boşsa)
+                    if aid and aid in ocr_meta_map:
+                        meta = ocr_meta_map[aid]
+                        if a.get("publication_date") in (None, "", "-") and meta.get("publication_date"):
+                            a["publication_date"] = meta.get("publication_date")
+                        if a.get("issue_number") in (None, "", "-") and (meta.get("issue_number") is not None):
+                            a["issue_number"] = meta.get("issue_number")
+                        if a.get("page_number") in (None, "", "-") and (meta.get("page_number") is not None):
+                            a["page_number"] = meta.get("page_number")
+                        # newspaper_name ocr_results'ta bulunmuyor; atlama
+                # Tarih formatını normalize et (DD.MM.YYYY veya DD/MM/YYYY -> YYYY-MM-DD)
+                try:
+                    import re as _re
+                    from datetime import datetime as _dt
+                    for a in announcements:
+                        try:
+                            v = a.get("publication_date")
+                            if isinstance(v, str):
+                                m = _re.match(r"^(\d{1,2})[./](\d{1,2})[./](\d{4})$", v.strip())
+                                if m:
+                                    d = int(m.group(1)); mo = int(m.group(2)); y = int(m.group(3))
+                                    a["publication_date"] = _dt(y, mo, d).strftime("%Y-%m-%d")
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
+
                 # Fallback: Hala metni olmayan ilanlar için şirketin en yeni OCR kayıtlarından sırayla doldur
                 missing = [a for a in announcements if isinstance(a, dict) and not a.get("original_text")]
                 if missing:
@@ -2049,17 +2084,63 @@ def company_detail(
                         ocr_recent = (
                             supabase
                             .table("ocr_results")
-                            .select("id, original_text, created_at")
+                            .select("id, original_text, created_at, publication_date, issue_number, page_number")
                             .eq("company_id", cid)
                             .order("created_at", desc=True)
                             .limit(50)
                             .execute()
                         ).data or []
-                        # Tüm eksiklere sırayla doldur, yetmezse ilk metni yay
+                        # Tüm eksiklere sırayla doldur, yetmezse ilk metni ve meta'yı yay
                         if ocr_recent:
                             for i, a in enumerate(missing):
                                 src = ocr_recent[i] if i < len(ocr_recent) else ocr_recent[0]
                                 a["original_text"] = (src.get("original_text") or a.get("original_text") or "")
+                                # Meta alanlarini da, ilan uzerinde bos ise OCR'dan doldur
+                                try:
+                                    if a.get("publication_date") in (None, "", "-") and src.get("publication_date"):
+                                        a["publication_date"] = src.get("publication_date")
+                                    if a.get("issue_number") in (None, "", "-") and (src.get("issue_number") is not None):
+                                        a["issue_number"] = src.get("issue_number")
+                                    if a.get("page_number") in (None, "", "-") and (src.get("page_number") is not None):
+                                        a["page_number"] = src.get("page_number")
+                                    if a.get("newspaper_name") in (None, "", "-") and src.get("newspaper_name"):
+                                        a["newspaper_name"] = src.get("newspaper_name")
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+                    # Second pass: original_text mevcut olsa bile eksik meta alanlarini OCR'dan doldur
+                    try:
+                        needs_meta = [a for a in announcements if isinstance(a, dict) and (
+                            (a.get("publication_date") in (None, "", "-")) or
+                            (a.get("issue_number") in (None, "", "-")) or
+                            (a.get("page_number") in (None, "", "-")) or
+                            (a.get("newspaper_name") in (None, "", "-"))
+                        )]
+                        if needs_meta:
+                            try:
+                                _ocr_recent_meta = ocr_recent if 'ocr_recent' in locals() and ocr_recent else (
+                                    supabase
+                                    .table("ocr_results")
+                                    .select("id, publication_date, issue_number, page_number, newspaper_name")
+                                    .eq("company_id", cid)
+                                    .order("created_at", desc=True)
+                                    .limit(50)
+                                    .execute()
+                                ).data or []
+                            except Exception:
+                                _ocr_recent_meta = []
+                            if _ocr_recent_meta:
+                                for i, a in enumerate(needs_meta):
+                                    src = _ocr_recent_meta[i] if i < len(_ocr_recent_meta) else _ocr_recent_meta[0]
+                                    if a.get("publication_date") in (None, "", "-") and src.get("publication_date"):
+                                        a["publication_date"] = src.get("publication_date")
+                                    if a.get("issue_number") in (None, "", "-") and (src.get("issue_number") is not None):
+                                        a["issue_number"] = src.get("issue_number")
+                                    if a.get("page_number") in (None, "", "-") and (src.get("page_number") is not None):
+                                        a["page_number"] = src.get("page_number")
+                                    if a.get("newspaper_name") in (None, "", "-") and src.get("newspaper_name"):
+                                        a["newspaper_name"] = src.get("newspaper_name")
                     except Exception:
                         pass
         except Exception as _e_enrich:
@@ -2070,7 +2151,7 @@ def company_detail(
             ocr_resp = (
                 supabase
                 .table("ocr_results")
-                .select("id, original_text, persons, masked_ids, created_at, old_trade_name")
+                .select("id, original_text, persons, masked_ids, created_at, old_trade_name, trade_name, addresses")
                 .eq("company_id", cid)
                 .order("created_at", desc=True)
                 .limit(100)
@@ -2207,6 +2288,45 @@ def company_detail(
                         company['mersis_number_ocr'] = mersis_candidates[0]
             except Exception as ex_mersis:
                 logger.warning(f"[Company Detail] MERSIS extraction failed: {ex_mersis}")
+
+            # Şirket unvanı boşsa OCR trade_name ile doldur (yalnızca response seviyesinde)
+            try:
+                unv = (company.get('unvan') or company.get('firma_unvani') or '').strip()
+                if not unv:
+                    for ocr in (ocr_resp.data or []):
+                        tn = (ocr.get('trade_name') or '').strip()
+                        if tn:
+                            company['unvan'] = tn
+                            company['firma_unvani'] = tn
+                            break
+            except Exception:
+                pass
+
+            # Adres boşsa OCR addresses içinden makul bir adayla doldur (yalnız response)
+            try:
+                addr_present = (company.get('address') or company.get('adres') or '').strip()
+                if not addr_present:
+                    cand_addr = None
+                    for ocr in (ocr_resp.data or []):
+                        addrs = ocr.get('addresses')
+                        if isinstance(addrs, list) and addrs:
+                            for it in addrs:
+                                if isinstance(it, str):
+                                    v = it.strip()
+                                    if v:
+                                        cand_addr = v
+                                        break
+                                elif isinstance(it, dict):
+                                    v = (it.get('address') or it.get('adres') or '').strip()
+                                    if v:
+                                        cand_addr = v
+                                        break
+                        if cand_addr:
+                            break
+                    if cand_addr:
+                        company['address'] = cand_addr
+            except Exception:
+                pass
 
             # candidate_pairs metrik logu kaldırıldı (tanımsız değişken hatası önlendi)
 
@@ -2756,6 +2876,15 @@ def announcement_detail(
     _: None = Depends(enforce_daily_limit),
 ):
     try:
+        # UUID guard: Supabase/Postgres'ta id UUID ise, hatali id icin erken don
+        try:
+            import re as _re
+            if not _re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", announcement_id, flags=_re.IGNORECASE):
+                raise HTTPException(status_code=400, detail="announcement_id must be a UUID")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
         # 1) İlan kaydını getir
         try:
             ann_q = (

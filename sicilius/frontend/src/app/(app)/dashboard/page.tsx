@@ -246,7 +246,7 @@ export default function DashboardPage() {
               }
             >
               <h1 className="text-4xl md:text-5xl font-semibold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-[#0A192F] via-[#1E3A8A] to-[#0EA5E9]">
-                Sicilius
+                Sicilius <span className=" align-bottom text-xs md:text-sm text-slate-400">v0.06</span>
               </h1>
             </div>
           )}

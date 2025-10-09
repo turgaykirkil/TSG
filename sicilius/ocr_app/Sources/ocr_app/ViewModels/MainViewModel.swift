@@ -275,7 +275,7 @@ class MainViewModel: ObservableObject {
         }
 
         // NLP Base URL (Config.plist: NLP_BASE_URL). Yoksa localhost'a düş.
-        let nlpBase: String = (try? ConfigService.get(key: "NLP_BASE_URL")) ?? "http://127.0.0.1:5001"
+        let nlpBase: String = (try? ConfigService.get(key: "NLP_BASE_URL")) ?? "http://127.0.0.1:5002"
         guard let nlpURL = URL(string: nlpBase) else {
             fatalError("Geçersiz NLP_BASE_URL: \(nlpBase)")
         }

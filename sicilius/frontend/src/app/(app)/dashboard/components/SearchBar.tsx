@@ -162,7 +162,7 @@ export default function SearchBar({
 
   return (
     <form onSubmit={handleSubmit} role="search" aria-label="Genel arama" aria-controls="results" className={"w-full " + (className ?? '')}>
-      <div className="relative rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm transition-all duration-150 ease-out focus-within:shadow-md focus-within:scale-[1.005]">
+      <div className="group relative rounded-full focus-within:rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm transition-all duration-150 ease-out focus-within:shadow-md focus-within:scale-[1.005]">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} aria-hidden />
         <SimpleTooltip content={<span>Kısayollar: <kbd>/</kbd>, <kbd>⌘K</kbd>, <kbd>Ctrl K</kbd></span>}>
           <input
@@ -201,7 +201,7 @@ export default function SearchBar({
           type="submit"
           aria-label="Ara"
           variant="gradientText"
-          className="absolute right-3 top-1/2 -translate-y-1/2 px-4 py-2 text-sm font-medium"
+          className="absolute right-3 top-1/2 -translate-y-1/2 px-4 py-2 text-sm font-medium rounded-full group-focus-within:rounded-xl transition-all"
         >
           Ara
         </Button>

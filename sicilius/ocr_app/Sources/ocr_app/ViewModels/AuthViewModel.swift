@@ -42,7 +42,7 @@ class AuthViewModel: ObservableObject {
         errorMessage = nil
 
         // 1. URL'yi oluştur
-        guard let url = URL(string: "http://127.0.0.1:5001/api/v1/auth/login/access-token") else {
+        guard let url = URL(string: "http://127.0.0.1:5002/api/v1/auth/login/access-token") else {
             errorMessage = "Geçersiz API URL'si"
             isLoading = false
             return

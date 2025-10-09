@@ -41,7 +41,60 @@ function AnnouncementItem({ ann, extractHususFn, forceOpenOnPrint = false }: { a
   const issue = ann?.issue_number || '';
   const page = ann?.page_number || '';
   const gazette = ann?.newspaper_name || '';
-  const dateText = dt ? new Date(dt).toLocaleDateString('tr-TR') : '-';
+  // Metinden tarih/sayi/sayfa cikarimlari (fallback)
+  const extractDate = (t?: string | null): string | null => {
+    if (!t) return null;
+    try {
+      const m = t.match(/\b(\d{1,2})[./](\d{1,2})[./](\d{4})\b/);
+      if (m) {
+        const d = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+        if (!isNaN(d.getTime())) return d.toLocaleDateString('tr-TR');
+        return `${m[1]}.${m[2]}.${m[3]}`;
+      }
+    } catch {}
+    return null;
+  };
+  const extractIssue = (t?: string | null): string | null => {
+    if (!t) return null;
+    try {
+      // İlan Sıra No: 12345 veya Sayı: 12345
+      const m1 = t.match(/İ?Ilan\s*Sıra\s*No\s*[:：]\s*(\d{1,8})/i);
+      if (m1 && m1[1]) return m1[1];
+      const m2 = t.match(/Sayı\s*[:：]\s*(\d{1,8})/i);
+      if (m2 && m2[1]) return m2[1];
+    } catch {}
+    return null;
+  };
+  const extractPage = (t?: string | null): string | null => {
+    if (!t) return null;
+    try {
+      const m = t.match(/Sayfa\s*[:：]\s*(\d{1,4})/i);
+      if (m && m[1]) return m[1];
+    } catch {}
+    return null;
+  };
+
+  const dateText = (() => {
+    if (!dt) return '-';
+    // ISO ise
+    let d = new Date(dt);
+    if (!isNaN(d.getTime())) return d.toLocaleDateString('tr-TR');
+    // DD.MM.YYYY veya DD/MM/YYYY yakala
+    const m = String(dt).match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/);
+    if (m) {
+      const day = parseInt(m[1], 10);
+      const mon = parseInt(m[2], 10) - 1;
+      const yr = parseInt(m[3], 10);
+      const d2 = new Date(yr, mon, day);
+      if (!isNaN(d2.getTime())) return d2.toLocaleDateString('tr-TR');
+    }
+    // Parse edilemiyorsa ham degeri goster
+    return String(dt);
+  })();
+  const textSrc = (ann?.original_text || (typeof data?.original_text === 'string' ? data?.original_text : '')) as string;
+  const issueText = issue || extractIssue(textSrc) || '';
+  const pageText = page || extractPage(textSrc) || '';
+  const dateDisplay = dateText === '-' ? (extractDate(textSrc) || '-') : dateText;
 
   return (
     <li className="border rounded p-2 bg-white dark:bg-slate-900 dark:border-slate-700 text-left print-avoid-break" style={{ textAlign: 'left' }}>
@@ -56,10 +109,10 @@ function AnnouncementItem({ ann, extractHususFn, forceOpenOnPrint = false }: { a
           <div className="min-w-0 text-left w-full flex-1" style={{ textAlign: 'left' }}>
             <div className="font-medium text-left whitespace-pre-wrap break-words" style={{ textAlign: 'left' }} title={title}>{title}</div>
             <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex flex-wrap gap-x-3 gap-y-1">
-              <span>Tarih: {dateText}</span>
+              <span>Tarih: {dateDisplay}</span>
               {gazette ? <span>Gazete: {gazette}</span> : null}
-              {issue ? <span>Sayı: {issue}</span> : null}
-              {page ? <span>Sayfa: {page}</span> : null}
+              {issueText ? <span>Sayı: {issueText}</span> : null}
+              {pageText ? <span>Sayfa: {pageText}</span> : null}
             </div>
           </div>
           <div className="shrink-0 self-start">
@@ -159,6 +212,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
   </style>
   <style media="print">
     .container { max-width: none; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   </style>
   </head>
   <body>
@@ -238,7 +292,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
     <script>
       window.onload = function() {
         try { window.focus(); } catch(e){}
-        setTimeout(function(){ try { window.print(); } catch(e){} }, 30);
+        setTimeout(function(){ try { window.print(); } catch(e){} }, 60);
       };
     </script>
   </body>
@@ -491,6 +545,9 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
         for (const a of firstFew) {
           const id = (a?.id || '').trim();
           if (!id) continue;
+          // UUID degilse detay fetch atlama (ocr-* vb. id'ler icin backend hata veriyor)
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+          if (!isUuid) continue;
           const url = `/api/v1/search/announcement-detail?announcement_id=${encodeURIComponent(id)}`;
           const res = await fetch(url, { credentials: 'include' });
           if (!res.ok) continue;
@@ -547,9 +604,13 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
     const cand = sorted[0];
     const t = (cand?.title || cand?.company_title || cand?.company_name || '') as string;
     const tt = (t || '').trim();
-    return tt || null;
+    if (!tt) return null;
+    // Müdürlüğü gibi başlıkları başlıkta göstermeyelim (ör: "... Ticaret Sicil Müdürlüğü")
+    const isOffice = /ticaret\s*sicil.*m[üu]d[üu]rl[üu][ğg][üu]/i.test(tt)
+      || (/m[üu]d[üu]rl[üu][ğg][üu]/i.test(tt) && tt.toLowerCase().includes('ticaret'));
+    return isOffice ? null : tt;
   }, [data?.announcements]);
-  const headerTitle = latestAnnTitle || company?.firma_unvani || company?.unvan || 'Şirket Detayı';
+  const headerTitle = company?.firma_unvani || company?.unvan || latestAnnTitle || 'Şirket Detayı';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
