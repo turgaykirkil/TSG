@@ -89,7 +89,7 @@ async def _toast_error_present(p: Page) -> bool:
         return False
 
 
-async def ensure_captcha(p: Page, max_tries: int = 3) -> bool:
+async def ensure_captcha(p: Page, max_tries: int = 25) -> bool:
     try:
         await p.wait_for_load_state("domcontentloaded", timeout=10_000)
     except Exception:

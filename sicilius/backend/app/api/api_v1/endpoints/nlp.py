@@ -1803,20 +1803,20 @@ async def ingest_structured(
             except Exception:
                 logger.warning("ingest-structured post-upsert company link by content_sha256 failed", exc_info=True)
 
-        # 9) Storage silme DEVRE DISI (emniyet icin)
+        # 9) Storage silme (delete_after_ingest true ise)
         storage_deleted = False
         delete_error: Optional[str] = None
-        # if source_file and delete_after_ingest:
-        #     bucket = source_file.get("bucket")
-        #     path = source_file.get("path")
-        #     if bucket and path:
-        #         try:
-        #             supabase.storage.from_(bucket).remove([path])
-        #             storage_deleted = True
-        #             logger.info("Storage deletion succeeded for %s/%s", bucket, path)
-        #         except Exception as e:
-        #             delete_error = f"Storage deletion failed: {e}"
-        #             logger.error(delete_error, exc_info=True)
+        if source_file and delete_after_ingest:
+            bucket = source_file.get("bucket")
+            path = source_file.get("path")
+            if bucket and path:
+                try:
+                    supabase.storage.from_(bucket).remove([path])
+                    storage_deleted = True
+                    logger.info("Storage deletion succeeded for %s/%s", bucket, path)
+                except Exception as e:
+                    delete_error = f"Storage deletion failed: {e}"
+                    logger.error(delete_error, exc_info=True)
 
         result = {
             "inserted": inserted,
