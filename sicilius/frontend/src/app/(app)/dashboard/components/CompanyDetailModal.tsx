@@ -14,6 +14,70 @@ import { FileText, Users, Clock, MapPin, FileDown } from 'lucide-react';
 
 const MiniMap = dynamic(() => import('@/components/maps/MiniMap').then(m => m.MiniMap), { ssr: false });
 
+function maskUiName(full: string): string {
+  try {
+    const s = String(full || '');
+    if (!s.trim()) return s;
+    const tokens = s.split(/\s+/);
+    // Bir karakter harf mi? (Unicode uyumlu, regex flag gerektirmez)
+    const isLetter = (ch: string) => {
+      return ch.toLowerCase() !== ch.toUpperCase();
+    };
+    // Kelimenin tamamı büyük harf mi? (harf olan karakterlerin hepsi uppercase olmalı)
+    const isUpperWord = (w: string) => {
+      let hasLetter = false;
+      for (const ch of w) {
+        if (!isLetter(ch)) continue;
+        hasLetter = true;
+        if (ch !== ch.toUpperCase()) return false;
+      }
+      return hasLetter;
+    };
+    const upperIdx: number[] = [];
+    for (let i = 0; i < tokens.length; i++) {
+      if (isUpperWord(tokens[i])) upperIdx.push(i);
+    }
+    if (upperIdx.length === 0) return s;
+    const toMask: number[] = upperIdx.length >= 3 ? upperIdx.slice(0, 2) : [upperIdx[0]];
+    const maskWord = (w: string) => {
+      let seen = 0;
+      let out = '';
+      for (const ch of w) {
+        if (isLetter(ch)) {
+          seen++;
+          out += (seen <= 2) ? ch : '*';
+        } else {
+          out += ch;
+        }
+      }
+      return out;
+    };
+    for (const idx of toMask) {
+      tokens[idx] = maskWord(tokens[idx]);
+    }
+    return tokens.join(' ');
+  } catch {
+    return String(full || '');
+  }
+}
+
+function maskMersisUi(v: any): string {
+  try {
+    const raw = (v === undefined || v === null) ? '' : String(v).trim();
+    if (!raw) return '-';
+    if (raw.includes('*')) return raw; // already masked
+    const d = raw.replace(/\D+/g, '');
+    if (d.length === 16 && d[0] !== '0') {
+      const arr = d.split('');
+      for (let i = 3; i <= 7; i++) arr[i] = '*';
+      return arr.join('');
+    }
+    return raw;
+  } catch {
+    return '-';
+  }
+}
+
 // İlan öğesi: tıklanınca çekmece açılır ve detay (OCR metni) lazy-load edilir
 function AnnouncementItem({ ann, extractHususFn, forceOpenOnPrint = false }: { ann: any; extractHususFn: (t?: string | null) => string | null; forceOpenOnPrint?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -184,10 +248,14 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
       const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
       const relStrong = rel.filter((rc: any) => {
+        if (typeof rc?.match_strength === 'string') return rc.match_strength === 'high';
         const ps = Array.isArray(rc.shared_persons) ? rc.shared_persons : [];
         return ps.some((sp: any) => (sp?.relation_type === 'OCR_ORTAK') || ((sp?.full_name && String(sp.full_name).trim().length > 0) && Array.isArray(sp?.masked_ids) && sp.masked_ids.length > 0));
       });
-      const relWeak = rel.filter((rc: any) => !relStrong.includes(rc));
+      const relWeak = rel.filter((rc: any) => {
+        if (typeof rc?.match_strength === 'string') return rc.match_strength !== 'high';
+        return !relStrong.includes(rc);
+      });
       const nearbyList: any[] = Array.isArray(nearby) ? nearby : [];
 
       const html = `<!doctype html>
@@ -225,7 +293,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
       <div class="section">
         <h2>Şirket Bilgileri</h2>
         <div class="row">Sicil No: ${esc(company.sicil_no || '-')}</div>
-        <div class="row">MERSİS No: ${esc(company.mersis_number || company.mersis_number_ocr || '-')}</div>
+        <div class="row">MERSİS No: ${esc(maskMersisUi(company.mersis_number || company.mersis_number_ocr))}</div>
         <div class="row">Müdürlük: ${esc(company.sicil_mudurluk || '-')}</div>
         <div class="row">Adres: ${esc(company.adres || company.address || '-')}</div>
         <div class="row">Son Güncelleme: ${esc(formatDateTime(company.updated_at || company.last_scraped_at || company.created_at || '-'))}</div>
@@ -258,7 +326,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
             const role = (roleRaw === 'MASKELI_KIMLIK' || roleRaw === 'OCR') ? '' : roleRaw;
             const status = p.is_current === false ? 'Geçmiş' : 'Aktif';
             const mids: string[] = Array.isArray(p.masked_ids) ? p.masked_ids : [];
-            return `<li><span><strong>${esc(name)}</strong></span>${role ? ` • ${esc(role)}` : ''} • ${esc(status)}${mids.length ? ` • ${mids.map(m => `Kimlik: ${esc(m)}`).join(' • ')}` : ''}</li>`;
+            return `<li><span><strong>${esc(maskUiName(name))}</strong></span>${role ? ` • ${esc(role)}` : ''} • ${esc(status)}${mids.length ? ` • ${mids.map(m => `Kimlik: ${esc(m)}`).join(' • ')}` : ''}</li>`;
           }).join('')}
         </ul>
       </div>` : ''}
@@ -272,20 +340,20 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
       ${sameAddr ? `
       <div class="section">
         <h2>İlişkiler (Aynı Adres)</h2>
-        ${sameAddr.length ? `<ul>${sameAddr.map((c: any) => `<li><div><strong>${esc(c.firma_unvani || c.unvan || 'Bilinmeyen Firma')}</strong></div><div class="muted">MERSİS: ${esc(c.mersis_number || c.mersis_number_ocr || '-')}</div><div class="muted">${esc(c.adres || c.address || '-')}</div></li>`).join('')}</ul>` : `<div class="row muted">Aynı adres üzerinden ilişki bulunamadı.</div>`}
+        ${sameAddr.length ? `<ul>${sameAddr.map((c: any) => `<li><div><strong>${esc(c.firma_unvani || c.unvan || 'Bilinmeyen Firma')}</strong></div><div class="muted">MERSİS: ${esc(maskMersisUi(c.mersis_number || c.mersis_number_ocr))}</div><div class="muted">${esc(c.adres || c.address || '-')}</div></li>`).join('')}</ul>` : `<div class="row muted">Aynı adres üzerinden ilişki bulunamadı.</div>`}
       </div>` : ''}
 
       ${regRel ? `
       <div class="section">
         <h2>İlişkiler (MERSİS/Sicil)</h2>
-        ${regRel.length ? `<ul>${regRel.map((c: any) => `<li><div><strong>${esc(c.firma_unvani || c.unvan || 'Bilinmeyen Firma')}</strong></div><div class="muted">MERSİS: ${esc(c.mersis_number || c.mersis_number_ocr || '-')}</div>${(c.adres || c.address) ? `<div class="muted">${esc(c.adres || c.address)}</div>` : ''}</li>`).join('')}</ul>` : `<div class="row muted">MERSİS/Sicil üzerinden ilişki bulunamadı.</div>`}
+        ${regRel.length ? `<ul>${regRel.map((c: any) => `<li><div><strong>${esc(c.firma_unvani || c.unvan || 'Bilinmeyen Firma')}</strong></div><div class="muted">MERSİS: ${esc(maskMersisUi(c.mersis_number || c.mersis_number_ocr))}</div>${(c.adres || c.address) ? `<div class="muted">${esc(c.adres || c.address)}</div>` : ''}</li>`).join('')}</ul>` : `<div class="row muted">MERSİS/Sicil üzerinden ilişki bulunamadı.</div>`}
       </div>` : ''}
 
       ${(relStrong.length + relWeak.length) ? `
       <div class="section">
         <h2>İlişkiler (Ortak Kişiler)</h2>
-        ${relStrong.length ? `<div class="row"><strong>İsim + Kimlik ile eşleşenler (yüksek güven)</strong></div><ul>${relStrong.map((rc: any) => `<li><strong>${esc(rc.firma_unvani || rc.unvan || 'Şirket')}</strong>${Array.isArray(rc.shared_persons) && rc.shared_persons.length ? ` • ${rc.shared_persons.length} ortak kişi` : ''}</li>`).join('')}</ul>` : ''}
-        ${relWeak.length ? `<div class="row"><strong>Sadece Kimlik ile eşleşenler</strong></div><ul>${relWeak.map((rc: any) => `<li><strong>${esc(rc.firma_unvani || rc.unvan || 'Şirket')}</strong>${Array.isArray(rc.shared_persons) && rc.shared_persons.length ? ` • ${rc.shared_persons.length} ortak kişi` : ''}</li>`).join('')}</ul>` : ''}
+        ${relStrong.length ? `<div class="row"><strong>İsim + Kimlik ile eşleşenler (yüksek güven)</strong></div><ul>${relStrong.map((rc: any) => `<li><strong>${esc(rc.firma_unvani || rc.unvan || 'Şirket')}</strong> • güven: yüksek${Array.isArray(rc.shared_persons) && rc.shared_persons.length ? ` • ${rc.shared_persons.length} ortak kişi` : ''}</li>`).join('')}</ul>` : ''}
+        ${relWeak.length ? `<div class="row"><strong>Sadece Kimlik ile eşleşenler (düşük güven)</strong></div><ul>${relWeak.map((rc: any) => `<li><strong>${esc(rc.firma_unvani || rc.unvan || 'Şirket')}</strong> • güven: düşük${Array.isArray(rc.shared_persons) && rc.shared_persons.length ? ` • ${rc.shared_persons.length} ortak kişi` : ''}</li>`).join('')}</ul>` : ''}
       </div>` : ''}
 
     </div>
@@ -679,7 +747,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
               <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Şirket Bilgileri</h3>
               <div className="mt-2 space-y-1 text-sm">
                 <div><span className="text-slate-500 dark:text-slate-400">Sicil No:</span> {company.sicil_no || '-'}</div>
-                <div><span className="text-slate-500 dark:text-slate-400">MERSİS No:</span> {company.mersis_number || company.mersis_number_ocr || '-'}</div>
+                <div><span className="text-slate-500 dark:text-slate-400">MERSİS No:</span> {maskMersisUi(company.mersis_number || company.mersis_number_ocr)}</div>
                 <div><span className="text-slate-500 dark:text-slate-400">Müdürlük:</span> {company.sicil_mudurluk || '-'}</div>
                 <div><span className="text-slate-500 dark:text-slate-400">Adres:</span> {company.adres || company.address || '-'}</div>
                 <div><span className="text-slate-500 dark:text-slate-400">Son Güncelleme:</span> {formatDateTime(company.updated_at || company.last_scraped_at || company.created_at || '-')}</div>
@@ -818,7 +886,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
                     return (
                       <li key={`${p.id}-${i}`} className="flex items-center justify-between">
                         <div className="min-w-0 pr-2">
-                          <span className="font-medium truncate inline-block max-w-[16rem] align-middle" title={name}>{name}</span>
+                          <span className="font-medium truncate inline-block max-w-[16rem] align-middle" title={maskUiName(name)}>{maskUiName(name)}</span>
                           {role ? <span className="ml-2 text-xs text-slate-500 align-middle">{role}</span> : null}
                           {p.is_starred ? <Badge variant="secondary" className="ml-2 align-middle">Yıldızlı</Badge> : null}
                           {mids.length ? (
@@ -964,16 +1032,14 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
                   <div className="mt-2 space-y-4">
                     {(() => {
                       const related = (data as any).related_companies as any[];
-                      const isNameMatch = (rc: any) => {
+                      const isHigh = (rc: any) => {
+                        if (typeof rc?.match_strength === 'string') return rc.match_strength === 'high';
                         const persons: any[] = Array.isArray(rc.shared_persons) ? rc.shared_persons : [];
-                        return persons.some((sp) => (
-                          (sp?.relation_type === 'OCR_ORTAK') ||
-                          ((sp?.full_name && String(sp.full_name).trim().length > 0) && Array.isArray(sp?.masked_ids) && sp.masked_ids.length > 0)
-                        ));
+                        return persons.some((sp) => sp?.relation_type === 'MASK_NAME_MATCH');
                       };
-                      const strong = related.filter(isNameMatch);
-                      const weak = related.filter((rc) => !isNameMatch(rc));
-
+                      const strong = related.filter(isHigh);
+                      const weak = related.filter((rc) => !isHigh(rc));
+                      
                       const renderList = (arr: any[]) => (
                         <ul className="space-y-2 text-sm max-h-72 overflow-auto pr-1">
                           {arr.map((rc) => {
@@ -995,20 +1061,39 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
                                   <div>
                                     <span className="font-medium">{title}</span>
                                     {sub ? <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">{sub}</span> : null}
-                                    {mersis ? <Badge variant="outline" className="ml-2 align-middle dark:border-slate-700 dark:text-slate-300">MERSİS: {mersis}</Badge> : null}
+                                    {mersis ? <Badge variant="outline" className="ml-2 align-middle dark:border-slate-700 dark:text-slate-300">MERSİS: {maskMersisUi(mersis)}</Badge> : null}
                                   </div>
-                                  <span className="text-xs text-slate-500 dark:text-slate-400">{persons.length} ortak kişi</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500 dark:text-slate-400">{persons.length} ortak kişi</span>
+                                    {(() => {
+                                      const isHighRc = (typeof rc?.match_strength === 'string') ? (rc.match_strength === 'high') : (Array.isArray(persons) && persons.some((sp: any) => sp?.relation_type === 'MASK_NAME_MATCH'));
+                                      return (
+                                        <Badge variant={isHighRc ? 'default' : 'outline'} className="text-[10px] py-0.5 dark:border-slate-700 dark:text-slate-300">
+                                          {isHighRc ? 'Yüksek Güven' : 'Düşük Güven'}
+                                        </Badge>
+                                      );
+                                    })()}
+                                  </div>
                                 </div>
                                 {persons.length ? (
                                   <ul className="mt-1 grid grid-cols-1 gap-1">
                                     {persons.map((sp: any, idx: number) => {
                                       const nmRaw = sp.full_name || `${sp.first_name || ''} ${sp.last_name || ''}`.trim();
                                       const nm = nmRaw && nmRaw.length > 0 ? nmRaw : '';
+                                      const baseNm = typeof sp.full_name_base === 'string' ? sp.full_name_base.trim() : '';
+                                      const otherNm = typeof sp.full_name_other === 'string' ? sp.full_name_other.trim() : '';
                                       const mids: string[] = Array.isArray(sp.masked_ids) ? sp.masked_ids : (nm && nm.includes('*') ? [nm] : []);
                                       const showName = nm && !nm.includes('*');
+                                      const showPair = !showName && (baseNm || otherNm);
                                       return (
                                         <li key={`${rc.id}-sp-${idx}`} className="text-xs text-slate-600 dark:text-slate-300">
-                                          {showName ? <span className="font-medium">{nm}</span> : null}
+                                          {showName ? (
+                                            <span className="font-medium">{maskUiName(nm)}</span>
+                                          ) : showPair ? (
+                                            <span className="font-medium">
+                                              {otherNm ? `İlişkili şirkette: ${maskUiName(otherNm)}` : ''}
+                                            </span>
+                                          ) : null}
                                           {mids.length ? (
                                             <span className="ml-1 inline-flex flex-wrap gap-1 align-middle">
                                               {mids.map((m, mi) => (
@@ -1037,7 +1122,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
                           )}
                           {weak.length > 0 && (
                             <div>
-                              <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-200">Sadece Kimlik ile eşleşenler</h4>
+                              <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-200">Sadece Kimlik ile eşleşenler (düşük güven)</h4>
                               <div className="mt-2">{renderList(weak)}</div>
                             </div>
                           )}

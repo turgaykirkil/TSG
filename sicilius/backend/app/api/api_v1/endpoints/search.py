@@ -2336,18 +2336,53 @@ def company_detail(
                 for p in (persons or []):
                     if not isinstance(p, dict):
                         continue
-                    if p.get('source') != 'OCR':
-                        continue
-                    nm = (p.get('full_name') or '').strip()
+                    fn_ln = (f"{p.get('first_name') or ''} {p.get('last_name') or ''}").strip()
+                    nm = (p.get('full_name') or fn_ln or p.get('name') or p.get('text') or '').strip()
                     if not nm or '*' in nm:
                         continue
                     mids = p.get('masked_ids') or []
-                    if isinstance(mids, list):
-                        for mm in mids:
-                            if isinstance(mm, str) and '*' in mm and mm not in name_by_mid:
-                                name_by_mid[mm] = nm
+                    mm_list = mids if isinstance(mids, list) else ([mids] if isinstance(mids, str) else [])
+                    for mm in mm_list:
+                        if isinstance(mm, str) and '*' in mm and mm not in name_by_mid:
+                            name_by_mid[mm] = nm
             except Exception:
                 pass
+
+            # Yardımcı: isim normalize (aksan, noktalama ve boşluk farklarına toleranslı)
+            def _norm_name(n: str) -> str:
+                try:
+                    def _letters_digits_tr(s: str) -> str:
+                        try:
+                            t = unicodedata.normalize('NFKD', (s or ''))
+                            t = t.encode('ASCII', 'ignore').decode('ASCII')
+                            t = t.lower()
+                            t = re.sub(r"[^a-z0-9\s]", " ", t)
+                            t = re.sub(r"\s+", " ", t).strip()
+                            return t
+                        except Exception:
+                            ss = (s or '').strip().lower()
+                            return re.sub(r"\s+", " ", ss)
+                    return _letters_digits_tr(n)
+                except Exception:
+                    ss = (n or '').strip().lower()
+                    return re.sub(r"\s+", " ", ss)
+
+            # Yardımcı: maske eşleştirmesi ('*' joker)
+            def _mask_match(a: Any, b: Any) -> bool:
+                try:
+                    sa, sb = str(a or ''), str(b or '')
+                    if not sa or not sb:
+                        return False
+                    if len(sa) != len(sb):
+                        return False
+                    for ca, cb in zip(sa, sb):
+                        if ca == '*' or cb == '*':
+                            continue
+                        if ca != cb:
+                            return False
+                    return True
+                except Exception:
+                    return False
 
             # 3) Son olarak yalnızca masked_id ortaklığına göre (fallback)
             for mid in list(masked_id_set)[:20]:  # performans için ilk 20 maske
@@ -2365,16 +2400,213 @@ def company_detail(
                     continue
                 for row in (occ.data or []):
                     rcid = row.get('company_id')
-                    if not rcid or rcid == cid or rcid in (existing_related_ids or set()):
+                    if not rcid or rcid == cid:
                         continue
                     comp_obj = row.get('companies') if isinstance(row.get('companies'), dict) else None
-                    shared_name = name_by_mid.get(mid)
-                    shared = [{'full_name': shared_name, 'masked_ids': [mid], 'relation_type': 'MASK_MATCH', 'is_current': True}]
-                    related_companies.append({
-                        **(comp_obj or {'id': rcid}),
-                        'shared_persons': shared,
-                    })
-                    existing_related_ids.add(rcid)
+                    other_name = None
+                    try:
+                        ppl = row.get('persons') or []
+                        if isinstance(ppl, list):
+                            for pp in ppl:
+                                if not isinstance(pp, dict):
+                                    continue
+                                mids = pp.get('masked_ids')
+                                mm_list = mids if isinstance(mids, list) else ([mids] if isinstance(mids, str) else [])
+                                if any(isinstance(m, str) and _mask_match(m, mid) for m in mm_list):
+                                    fn_ln = (f"{pp.get('first_name') or ''} {pp.get('last_name') or ''}").strip()
+                                    cand = (pp.get('full_name') or fn_ln or pp.get('name') or '').strip()
+                                    if cand:
+                                        other_name = cand
+                                        break
+                        # Heuristik: kişi listesi tek bir kişi ve adı mevcutsa, o adı kullan (row-level masked_ids zaten bu mid'i içeriyor)
+                        if not other_name and isinstance(ppl, list) and len(ppl) == 1:
+                            onlyp = ppl[0]
+                            if isinstance(onlyp, dict):
+                                fn_ln = (f"{onlyp.get('first_name') or ''} {onlyp.get('last_name') or ''}").strip()
+                                cand = (onlyp.get('full_name') or fn_ln or onlyp.get('name') or '').strip()
+                                if cand and '*' not in cand:
+                                    other_name = cand
+                    except Exception:
+                        other_name = None
+                    # Registry fallback: company_person_relations + persons üzerinden kişi adı bul
+                    if not other_name:
+                        try:
+                            rels = (
+                                supabase
+                                .table("company_person_relations")
+                                .select("person_id")
+                                .eq("company_id", rcid)
+                                .limit(500)
+                                .execute()
+                            )
+                            pids = [r.get('person_id') for r in (rels.data or []) if isinstance(r, dict) and r.get('person_id')]
+                            if pids:
+                                prs = (
+                                    supabase
+                                    .table("persons")
+                                    .select("id, full_name, first_name, last_name, nationality_id")
+                                    .in_("id", pids)
+                                    .limit(len(pids))
+                                    .execute()
+                                )
+                                for p in (prs.data or []):
+                                    nat = p.get('nationality_id')
+                                    if isinstance(nat, str) and _mask_match(nat, mid):
+                                        fn_ln = (f"{p.get('first_name') or ''} {p.get('last_name') or ''}").strip()
+                                        other_name = (p.get('full_name') or fn_ln or '').strip()
+                                        if other_name:
+                                            break
+                        except Exception:
+                            pass
+                    # Fallback: aynı şirketin yakın OCR satırlarında bu masked_id ile isim var mı?
+                    if not other_name:
+                        try:
+                            fb = (
+                                supabase
+                                .table("ocr_results")
+                                .select("id, company_id, masked_ids, persons")
+                                .eq("company_id", rcid)
+                                .order("id", desc=True)
+                                .limit(200)
+                                .execute()
+                            )
+                            rows_fb = fb.data or []
+                            for rr in rows_fb:
+                                ppl2 = rr.get('persons') or []
+                                if isinstance(ppl2, list):
+                                    for pp2 in ppl2:
+                                        if not isinstance(pp2, dict):
+                                            continue
+                                        mids2 = pp2.get('masked_ids')
+                                        mm2 = mids2 if isinstance(mids2, list) else ([mids2] if isinstance(mids2, str) else [])
+                                        if any(isinstance(m, str) and _mask_match(m, mid) for m in mm2):
+                                            fn_ln2 = (f"{pp2.get('first_name') or ''} {pp2.get('last_name') or ''}").strip()
+                                            cand2 = (pp2.get('full_name') or fn_ln2 or pp2.get('name') or '').strip()
+                                            if cand2:
+                                                other_name = cand2
+                                                break
+                                # Heuristik fallback: row-level masked_ids bu mid'i içeriyor ve tek kişi varsa onu kullan
+                                if not other_name:
+                                    row_mids = rr.get('masked_ids') or []
+                                    row_mm = row_mids if isinstance(row_mids, list) else ([row_mids] if isinstance(row_mids, str) else [])
+                                    if any(isinstance(m, str) and _mask_match(m, mid) for m in row_mm):
+                                        if isinstance(ppl2, list) and len(ppl2) == 1 and isinstance(ppl2[0], dict):
+                                            fn_ln3 = (f"{ppl2[0].get('first_name') or ''} {ppl2[0].get('last_name') or ''}").strip()
+                                            cand3 = (ppl2[0].get('full_name') or fn_ln3 or ppl2[0].get('name') or '').strip()
+                                            if cand3 and '*' not in cand3:
+                                                other_name = cand3
+                                if other_name:
+                                    break
+                        except Exception:
+                            pass
+                    # Registry fallback: company_person_relations + persons üzerinden kişi adı bul
+                    if not other_name:
+                        try:
+                            rels = (
+                                supabase
+                                .table("company_person_relations")
+                                .select("person_id")
+                                .eq("company_id", rcid)
+                                .limit(500)
+                                .execute()
+                            )
+                            pids = [r.get('person_id') for r in (rels.data or []) if isinstance(r, dict) and r.get('person_id')]
+                            if pids:
+                                prs = (
+                                    supabase
+                                    .table("persons")
+                                    .select("id, full_name, first_name, last_name, nationality_id")
+                                    .in_("id", pids)
+                                    .limit(len(pids))
+                                    .execute()
+                                )
+                                for p in (prs.data or []):
+                                    nat = p.get('nationality_id')
+                                    if isinstance(nat, str) and _mask_match(nat, mid):
+                                        fn_ln = (f"{p.get('first_name') or ''} {p.get('last_name') or ''}").strip()
+                                        other_name = (p.get('full_name') or fn_ln or '').strip()
+                                        if other_name:
+                                            break
+                        except Exception:
+                            pass
+                    # Fallback: aynı şirketin yakın OCR satırlarında bu masked_id ile isim var mı?
+                    if not other_name:
+                        try:
+                            fb = (
+                                supabase
+                                .table("ocr_results")
+                                .select("id, company_id, persons")
+                                .eq("company_id", rcid)
+                                .order("id", desc=True)
+                                .limit(30)
+                                .execute()
+                            )
+                            rows_fb = fb.data or []
+                            for rr in rows_fb:
+                                ppl2 = rr.get('persons') or []
+                                if isinstance(ppl2, list):
+                                    for pp2 in ppl2:
+                                        if not isinstance(pp2, dict):
+                                            continue
+                                        mids2 = pp2.get('masked_ids')
+                                        mm2 = mids2 if isinstance(mids2, list) else ([mids2] if isinstance(mids2, str) else [])
+                                        if any(isinstance(m, str) and m == mid for m in mm2):
+                                            fn_ln = (f"{pp2.get('first_name') or ''} {pp2.get('last_name') or ''}").strip()
+                                            cand2 = (pp2.get('full_name') or fn_ln or pp2.get('name') or '').strip()
+                                            if cand2:
+                                                other_name = cand2
+                                                break
+                                if other_name:
+                                    break
+                        except Exception:
+                            pass
+                    # Display fallback: other_display (only for UI). If other_name missing, try OCR text.
+                    other_display = other_name
+                    if not other_display:
+                        try:
+                            ppl_disp = row.get('persons') or []
+                            if isinstance(ppl_disp, list):
+                                for ppd in ppl_disp:
+                                    if not isinstance(ppd, dict):
+                                        continue
+                                    midsd = ppd.get('masked_ids')
+                                    mm_list_d = midsd if isinstance(midsd, list) else ([midsd] if isinstance(midsd, str) else [])
+                                    if any(isinstance(m, str) and _mask_match(m, mid) for m in mm_list_d):
+                                        candt = (ppd.get('text') or '').strip()
+                                        if candt:
+                                            other_display = candt
+                                            break
+                        except Exception:
+                            pass
+                    base_name = name_by_mid.get(mid)
+                    # Eğer structured isim yok ama OCR text varsa ve baz isimle eşitse, other_name olarak kabul et (yüksek güven için)
+                    if not other_name and other_display and base_name and _norm_name(base_name) == _norm_name(other_display):
+                        other_name = other_display
+                    is_high = bool(base_name and other_name and _norm_name(base_name) == _norm_name(other_name))
+                    shared = [{
+                        'full_name': other_name if is_high else '',
+                        'full_name_base': (base_name or ''),
+                        'full_name_other': (other_display or ''),
+                        'masked_ids': [mid],
+                        'relation_type': ('MASK_NAME_MATCH' if is_high else 'MASK_ONLY'),
+                        'is_current': True,
+                    }]
+                    # Eğer aynı rcid için önceden düşük güven eklenmişse ve şimdi yüksek güven bulunduysa güncelle
+                    existing_idx = next((i for i, e in enumerate(related_companies) if isinstance(e, dict) and e.get('id') == rcid), -1)
+                    if existing_idx != -1:
+                        prev_strength = related_companies[existing_idx].get('match_strength')
+                        if is_high and prev_strength != 'high':
+                            related_companies[existing_idx]['shared_persons'] = shared
+                            related_companies[existing_idx]['match_strength'] = 'high'
+                        existing_related_ids.add(rcid)
+                    else:
+                        entry = {
+                            **(comp_obj or {'id': rcid}),
+                            'shared_persons': shared,
+                            'match_strength': ('high' if is_high else 'low'),
+                        }
+                        related_companies.append(entry)
+                        existing_related_ids.add(rcid)
 
                 # Ek: persons JSON içinde masked_ids içeren kayıtları da ara (string veya liste)
                 occ2_data = []
@@ -2406,14 +2638,68 @@ def company_detail(
                 seen_rc_in_occ2 = set()
                 for row in occ2_data:
                     rcid = row.get('company_id')
-                    if not rcid or rcid == cid or rcid in (existing_related_ids or set()) or rcid in seen_rc_in_occ2:
+                    if not rcid or rcid == cid or rcid in seen_rc_in_occ2:
                         continue
                     comp_obj = row.get('companies') if isinstance(row.get('companies'), dict) else None
-                    related_companies.append({
-                        **(comp_obj or {'id': rcid}),
-                        'shared_persons': [{'full_name': None, 'masked_ids': [mid], 'relation_type': 'MASK_IN_PERSONS', 'is_current': True}],
-                    })
-                    existing_related_ids.add(rcid)
+                    other_name = None
+                    try:
+                        ppl = row.get('persons') or []
+                        if isinstance(ppl, list):
+                            for pp in ppl:
+                                if not isinstance(pp, dict):
+                                    continue
+                                mids = pp.get('masked_ids')
+                                mm_list = mids if isinstance(mids, list) else ([mids] if isinstance(mids, str) else [])
+                                if any(isinstance(m, str) and m == mid for m in mm_list):
+                                    fn_ln = (f"{pp.get('first_name') or ''} {pp.get('last_name') or ''}").strip()
+                                    cand = (pp.get('full_name') or fn_ln or pp.get('name') or '').strip()
+                                    if cand:
+                                        other_name = cand
+                                        break
+                    except Exception:
+                        other_name = None
+                    # Display fallback: other_display (only for UI). If other_name missing, try OCR text.
+                    other_display = other_name
+                    if not other_display:
+                        try:
+                            ppl_disp = row.get('persons') or []
+                            if isinstance(ppl_disp, list):
+                                for ppd in ppl_disp:
+                                    if not isinstance(ppd, dict):
+                                        continue
+                                    midsd = ppd.get('masked_ids')
+                                    mm_list_d = midsd if isinstance(midsd, list) else ([midsd] if isinstance(midsd, str) else [])
+                                    if any(isinstance(m, str) and _mask_match(m, mid) for m in mm_list_d):
+                                        candt = (ppd.get('text') or '').strip()
+                                        if candt:
+                                            other_display = candt
+                                            break
+                        except Exception:
+                            pass
+                    base_name = name_by_mid.get(mid)
+                    is_high = bool(base_name and other_name and _norm_name(base_name) == _norm_name(other_name))
+                    shared = [{
+                        'full_name': other_name if is_high else '',
+                        'full_name_base': (base_name or ''),
+                        'full_name_other': (other_display or ''),
+                        'masked_ids': [mid],
+                        'relation_type': ('MASK_NAME_MATCH' if is_high else 'MASK_ONLY'),
+                        'is_current': True,
+                    }]
+                    # Mevcut kayıt varsa ve yüksek güven bulunduysa yükselt
+                    existing_idx = next((i for i, e in enumerate(related_companies) if isinstance(e, dict) and e.get('id') == rcid), -1)
+                    if existing_idx != -1:
+                        prev_strength = related_companies[existing_idx].get('match_strength')
+                        if is_high and prev_strength != 'high':
+                            related_companies[existing_idx]['shared_persons'] = shared
+                            related_companies[existing_idx]['match_strength'] = 'high'
+                    else:
+                        related_companies.append({
+                            **(comp_obj or {'id': rcid}),
+                            'shared_persons': shared,
+                            'match_strength': ('high' if is_high else 'low'),
+                        })
+                        existing_related_ids.add(rcid)
                     seen_rc_in_occ2.add(rcid)
         except Exception as e:
             logger.warning(f"[Company Detail] OCR-based related companies failed: {e}")

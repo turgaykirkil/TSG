@@ -3,6 +3,8 @@ import httpx
 import os
 import asyncio
 import datetime
+import re
+import unicodedata
 from fastapi import APIRouter, Depends, HTTPException, Body, Request
 from pydantic import BaseModel
 from supabase import Client
@@ -36,6 +38,35 @@ def clean_address(address: str) -> str:
     # Remove extra spaces
     address = ' '.join(address.split())
     return address
+
+
+def normalize_for_geocoding(address: str) -> str:
+    s = address or ""
+    s = unicodedata.normalize("NFC", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    s = s.replace("ISTANBUL", "İstanbul").replace("İSTANBUL", "İstanbul").replace("istanbul", "İstanbul")
+    s = s.replace("IZMIR", "İzmir").replace("İZMİR", "İzmir").replace("izmir", "İzmir")
+    s = re.sub(r"\b(MH|MH\.|MAH|MAH\.)\b", "Mahallesi", s, flags=re.IGNORECASE)
+    s = re.sub(r"\b(CD|CD\.|CAD|CAD\.|CADD?E?)\b", "Cadde", s, flags=re.IGNORECASE)
+    s = re.sub(r"\b(SOK|SOK\.|SK|SK\.)\b", "Sokak", s, flags=re.IGNORECASE)
+    s = re.sub(r"\b(BUL|BUL\.|BLV|BLV\.|BLVR?)\b", "Bulvarı", s, flags=re.IGNORECASE)
+    s = re.sub(r"\bST\b\.?", "Sokak", s, flags=re.IGNORECASE)
+    s = re.sub(r"\bBLK?\b\.?", "Blok", s, flags=re.IGNORECASE)
+    s = re.sub(r"\bNO\s*[:\.]?\s*", "No ", s, flags=re.IGNORECASE)
+    s = re.sub(r"\bİÇ\s*KAPI\s*NO\s*[:\.]?\s*", "İç Kapı No ", s, flags=re.IGNORECASE)
+    s = re.sub(r"\bN[O\.]?\s*[:\.]?\s*(\d+)", r"No \1", s, flags=re.IGNORECASE)
+    s = re.sub(r"\b(Mahallesi|Cadde|Sokak|Bulvarı)\.", r"\1", s, flags=re.IGNORECASE)
+    s = re.sub(r"\s*\.\s*", " ", s)
+    # Anahtar kelimelerden sonra bitisik gelen buyuk harf/rakam oncesine bosluk koy
+    s = re.sub(r"\b(Mahallesi|Cadde|Sokak|Bulvarı|Blok)(?=[A-ZÇĞİÖŞÜ0-9])", r"\1 ", s)
+    # Ozel bitisik kombinasyonlar
+    s = re.sub(r"\b(Blok|Sokak)No\b", r"\1 No", s, flags=re.IGNORECASE)
+    # Harf-buyuk harf arasi, harf-rakam ve rakam-harf arasi bosluk ekle
+    s = re.sub(r"([A-Za-zÇĞİÖŞÜçğıöşü])([A-ZÇĞİÖŞÜ])", r"\1 \2", s)
+    s = re.sub(r"([A-Za-zÇĞİÖŞÜçğıöşü])(\d)", r"\1 \2", s)
+    s = re.sub(r"(\d)([A-Za-zÇĞİÖŞÜçğıöşü])", r"\1 \2", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 
 class CoordinateProcessingRequest(BaseModel):
@@ -75,7 +106,18 @@ async def process_coordinates(request: Request, request_body: CoordinateProcessi
 
                 try:
                     # 2. Call LocationIQ API
-                    params = {"key": settings.locationiq_token, "q": cleaned_address, "format": "json"}
+                    normalized = normalize_for_geocoding(cleaned_address)
+                    if not normalized:
+                        failed_count += 1
+                        continue
+                    params = {
+                        "key": settings.locationiq_token,
+                        "q": normalized,
+                        "format": "json",
+                        "countrycodes": "tr",
+                        "accept-language": "tr",
+                        "limit": 1,
+                    }
                     api_response = await client.get(LOCATIONIQ_API_URL, params=params)
                     api_response.raise_for_status()
                     geocoding_data = api_response.json()
@@ -95,6 +137,16 @@ async def process_coordinates(request: Request, request_body: CoordinateProcessi
                         logger.warning(f"Could not geocode address for company {company_id}: '{cleaned_address}'")
                         failed_count += 1
 
+                except httpx.HTTPStatusError as e:
+                    try:
+                        status = e.response.status_code if e.response is not None else None
+                    except Exception:
+                        status = None
+                    if status == 404:
+                        failed_count += 1
+                        continue
+                    logger.error(f"Error processing company {company_id}: {e}", exc_info=True)
+                    failed_count += 1
                 except Exception as e:
                     logger.error(f"Error processing company {company_id}: {e}", exc_info=True)
                     failed_count += 1

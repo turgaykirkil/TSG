@@ -531,6 +531,49 @@ def _sicil_ilike_pattern_from_canonical(canon: str) -> str:
     p = re.sub(r"%+", "%", p)
     return p
 
+def _mask_mersis_value(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return None
+    s = str(v)
+    d = re.sub(r"\D+", "", s)
+    if len(d) == 16 and d[0] != "0":
+        lst = list(d)
+        for i in range(3, 8):
+            lst[i] = "*"
+        return "".join(lst)
+    return v
+
+def _mask_mersis_in_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for it in items or []:
+        try:
+            mv = _mask_mersis_value(it.get("mersis_no")) if isinstance(it, dict) else None
+            if isinstance(it, dict):
+                tmp = dict(it)
+                if mv is not None:
+                    tmp["mersis_no"] = mv
+                out.append(tmp)
+        except Exception:
+            if isinstance(it, dict):
+                out.append(dict(it))
+    return out
+
+def _force_update_masked_mersis(supabase: Client, items: List[Dict[str, Any]]) -> None:
+    try:
+        for it in items or []:
+            try:
+                orig_text = it.get("original_text") or ""
+                if not isinstance(orig_text, str):
+                    continue
+                h = hashlib.sha256(orig_text.encode("utf-8")).hexdigest()
+                mv = _mask_mersis_value(it.get("mersis_no"))
+                if h and mv is not None:
+                    supabase.table("ocr_results").update({"mersis_no": mv}).eq("content_sha256", h).execute()
+            except Exception:
+                continue
+    except Exception:
+        logger.warning("force_update_masked_mersis failed", exc_info=True)
+
 def _find_or_create_company(
     supabase: Client,
     office_header: Optional[str],
@@ -597,8 +640,9 @@ def _find_or_create_company(
             "unvan": trade_name,
             "address": addr0,
         }
-        if isinstance(mersis_no, str) and mersis_no.strip():
-            insert_obj["mersis_number"] = mersis_no.strip()
+        mv = _mask_mersis_value(mersis_no)
+        if isinstance(mv, str) and mv.strip():
+            insert_obj["mersis_number"] = mv.strip()
         # Insert için de aynı transient hata toleransı
         ins = None
         for attempt in range(3):
@@ -790,19 +834,25 @@ async def parse_text_multiple(
                 "parse-announcements: scheduling fallback side-write in background (no announcement_id) meta_present=%s",
                 bool(publication_date or issue_number is not None or page_number is not None or pdf_url or pdf_page_count is not None),
             )
-            background_tasks.add_task(
-                _fallback_sidewrite_task,
-                supabase,
-                parsed_list,
-                publication_date,
-                issue_number,
-                page_number,
-                pdf_url,
-                pdf_page_count,
-                None,
-                pdf_file_name,
-            )
-            return parsed_list
+            masked_items = _mask_mersis_in_items(parsed_list)
+            if not skip_ingest:
+                background_tasks.add_task(
+                    _fallback_sidewrite_task,
+                    supabase,
+                    masked_items,
+                    publication_date,
+                    issue_number,
+                    page_number,
+                    pdf_url,
+                    pdf_page_count,
+                    None,
+                    pdf_file_name,
+                )
+                try:
+                    _force_update_masked_mersis(supabase, masked_items)
+                except Exception:
+                    logger.warning("parse-announcements: force_update_masked_mersis (no-ann-id) failed", exc_info=True)
+            return masked_items
 
         # If client provided announcement_id, resolve meta and do RPC ingest with meta
         if announcement_id:
@@ -838,13 +888,14 @@ async def parse_text_multiple(
                         fb_pdf_url = m_pdf
                     # Use effective (fallback) meta values for RPC decision
                     if (fb_publication_date is not None) and (fb_issue_number is not None) and (fb_page_number is not None):
+                        masked_items = _mask_mersis_in_items(parsed_list)
                         rpc_params = {
                             "_publication_date": fb_publication_date,
                             "_issue_number": int(fb_issue_number) if fb_issue_number is not None else None,
                             "_page_number": int(fb_page_number) if fb_page_number is not None else None,
                             "_pdf_url": fb_pdf_url,
                             "_raw_text": request_body.text,
-                            "_structured": {"items": parsed_list},
+                            "_structured": {"items": masked_items},
                             "_company_id": None,
                             "_status": "completed",
                             "_pdf_page_count": int(pdf_page_count) if pdf_page_count is not None else None,
@@ -852,9 +903,13 @@ async def parse_text_multiple(
                         rpc_res = supabase.rpc("fn_ingest_ocr_by_ann_key", rpc_params).execute()
                         logger.info("parse-announcements RPC ingest done. rows=%s", len(getattr(rpc_res, "data", []) or []))
                         # Schedule background company link updates instead of blocking here
-                        background_tasks.add_task(_link_companies_for_rpc_task, supabase, parsed_list, fb_publication_date, fb_issue_number, fb_page_number)
+                        background_tasks.add_task(_link_companies_for_rpc_task, supabase, masked_items, fb_publication_date, fb_issue_number, fb_page_number)
                         logger.info("parse-announcements: scheduled company link updates via RPC path (background)")
-                        return parsed_list
+                        try:
+                            _force_update_masked_mersis(supabase, masked_items)
+                        except Exception:
+                            logger.warning("parse-announcements: force_update_masked_mersis after RPC failed", exc_info=True)
+                        return masked_items
                     else:
                         logger.warning("parse-announcements: announcement meta incomplete; falling back to content hash upsert")
                 else:
@@ -863,20 +918,26 @@ async def parse_text_multiple(
                 logger.warning("parse-announcements RPC ingest failed: %s", e, exc_info=True)
 
         # Schedule background fallback side-write instead of blocking here (meta missing or RPC failed)
-        background_tasks.add_task(
-            _fallback_sidewrite_task,
-            supabase,
-            parsed_list,
-            publication_date,
-            issue_number,
-            page_number,
-            pdf_url,
-            pdf_page_count,
-            announcement_id,
-            pdf_file_name,
-        )
-        logger.info("parse-announcements: scheduled fallback side-write (background)")
-        return parsed_list
+        masked_items_bg = _mask_mersis_in_items(parsed_list)
+        if not skip_ingest:
+            background_tasks.add_task(
+                _fallback_sidewrite_task,
+                supabase,
+                masked_items_bg,
+                publication_date,
+                issue_number,
+                page_number,
+                pdf_url,
+                pdf_page_count,
+                announcement_id,
+                pdf_file_name,
+            )
+            logger.info("parse-announcements: scheduled fallback side-write (background)")
+            try:
+                _force_update_masked_mersis(supabase, masked_items_bg)
+            except Exception:
+                logger.warning("parse-announcements: force_update_masked_mersis (fallback) failed", exc_info=True)
+        return masked_items_bg
 
         # Fallback: Side-write to Supabase (content hash upsert). Non-blocking best-effort.
         try:
@@ -996,7 +1057,11 @@ async def parse_text_multiple(
         except Exception as e:
             logger.warning("parse-announcements side-write failed: %s", e, exc_info=True)
 
-        return parsed_list
+        # Yanitta da maskeli liste dondur
+        try:
+            return _mask_mersis_in_items(parsed_list)
+        except Exception:
+            return parsed_list
     except Exception as e:
         logger.error(f"An error occurred during MULTI NLP parsing: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to parse text due to an internal server error: {e}")
@@ -1390,7 +1455,8 @@ async def ingest_announcements(
         updated = 0
         rpc_data = None
         if use_rpc:
-            structured_payload = {"items": parsed_list}
+            masked_items_for_rpc = _mask_mersis_in_items(parsed_list)
+            structured_payload = {"items": masked_items_for_rpc}
             rpc_params = {
                 "_publication_date": publication_date,
                 "_issue_number": int(issue_number),
@@ -1603,6 +1669,9 @@ async def ingest_structured(
         if not parsed_list:
             raise HTTPException(status_code=400, detail="Parsed list is empty.")
 
+        # MERSIS: parsed_list'i DB'ye gitmeden once maskeye tabi tut
+        parsed_list = _mask_mersis_in_items(parsed_list)
+
         # 2) Üst seviye meta ve announcement_id
         publication_date = None
         issue_number = None
@@ -1725,6 +1794,7 @@ async def ingest_structured(
             )
             orig_text = it.get("original_text") or ""
             h = hashlib.sha256(orig_text.encode("utf-8")).hexdigest() if isinstance(orig_text, str) else None
+            masked_mersis = _mask_mersis_value(it.get("mersis_no"))
             row = {
                 "publication_date": publication_date,
                 "issue_number": int(issue_number) if issue_number is not None else None,
@@ -1736,7 +1806,7 @@ async def ingest_structured(
                 "content_sha256": h,
                 "sicil_office_header": it.get("sicil_office_header"),
                 "sicil_dosya_no": it.get("sicil_dosya_no"),
-                "mersis_no": it.get("mersis_no"),
+                "mersis_no": masked_mersis,
                 "trade_name": it.get("trade_name"),
                 "old_trade_name": it.get("old_trade_name"),
                 "addresses": it.get("addresses"),
@@ -1773,6 +1843,18 @@ async def ingest_structured(
         data = getattr(up, "data", None) or []
         inserted = len(data)
         updated = 0
+
+        # Zorlayici: tum satirlarda mersis_no'yu maskeli degerle guncelle
+        for r in rows_to_upsert:
+            try:
+                hval = r.get("content_sha256")
+                if not hval:
+                    continue
+                mv = r.get("mersis_no")
+                if mv is not None:
+                    supabase.table("ocr_results").update({"mersis_no": mv}).eq("content_sha256", hval).execute()
+            except Exception:
+                logger.warning("ingest-structured: forced mersis update failed", exc_info=True)
 
         # 7) Zorlayıcı UPDATE: announcement_id/meta garanti
         if announcement_id:
@@ -2006,7 +2088,8 @@ async def parse_and_ingest(
             nlp_service.load_spacy_model()
         items = nlp_service.parse_multiple_announcements(req.text)
 
-        structured_payload = {"items": items}
+        masked_items_for_rpc = _mask_mersis_in_items(items)
+        structured_payload = {"items": masked_items_for_rpc}
         rpc_params = {
             "_publication_date": req.publication_date,
             "_issue_number": req.issue_number,
@@ -2104,7 +2187,8 @@ async def parse_for_announcement(
         items = nlp_service.parse_multiple_announcements(req.text)
 
         # 3) RPC ile ingest
-        structured_payload = {"items": items}
+        masked_items_for_rpc = _mask_mersis_in_items(items)
+        structured_payload = {"items": masked_items_for_rpc}
         rpc_params = {
             "_publication_date": publication_date,
             "_issue_number": int(issue_number),
