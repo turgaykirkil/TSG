@@ -95,20 +95,22 @@ def supabase_overview(
         except Exception:
             db_size_bytes = None
 
-        # Per-table sizes and approx rows
+        # Per-table sizes and approx rows (include app & public, tables and matviews)
         tables = []
         try:
             size_rows = db.execute(text(
                 """
-                SELECT c.relname AS table,
-                       pg_total_relation_size(c.oid) AS total_bytes,
-                       COALESCE(s.n_live_tup, 0) AS approx_rows
+                SELECT 
+                  c.relname AS table,
+                  pg_total_relation_size(c.oid) AS total_bytes,
+                  COALESCE(st.n_live_tup, 0) AS approx_rows
                 FROM pg_class c
                 JOIN pg_namespace n ON n.oid = c.relnamespace
-                LEFT JOIN pg_stat_user_tables s ON s.relname = c.relname
-                WHERE n.nspname = 'public' AND c.relkind = 'r'
-                ORDER BY total_bytes DESC
-                LIMIT 50
+                LEFT JOIN pg_stat_all_tables st ON st.relid = c.oid
+                WHERE n.nspname IN ('app','public')
+                  AND c.relkind IN ('r','m')
+                ORDER BY pg_total_relation_size(c.oid) DESC
+                LIMIT 200
                 """
             )).mappings().all()
             for r in size_rows:

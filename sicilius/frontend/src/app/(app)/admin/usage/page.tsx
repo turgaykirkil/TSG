@@ -23,8 +23,17 @@ interface UsageResponse {
   };
 }
 
+interface DbTableRow {
+  schema: string;
+  table: string;
+  approx_rows: number;
+  size_bytes: number;
+  size: string;
+}
+
 export default function SupabaseUsagePage() {
   const [data, setData] = useState<UsageResponse | null>(null);
+  const [dbTables, setDbTables] = useState<DbTableRow[] | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,6 +63,13 @@ export default function SupabaseUsagePage() {
       }
       const json = (await res.json()) as UsageResponse;
       setData(json);
+      // Fetch full table list (app/public, physical tables)
+      const resTables = await fetch(`${apiUrl}/stats/db-tables`, { credentials: 'include' });
+      if (resTables.ok) {
+        const tjson = await resTables.json();
+        const rows: DbTableRow[] = Array.isArray(tjson?.tables) ? tjson.tables : [];
+        setDbTables(rows);
+      }
     } catch (e: any) {
       setError(e.message);
       toast.error(e.message || 'Kullanım bilgisi alınamadı');
@@ -67,6 +83,20 @@ export default function SupabaseUsagePage() {
   }, [fetchUsage]);
 
   const topTables = (data?.db.tables || []).slice(0, 10);
+  const tableRows: { name: string; approx_rows: number; sizeText: string; sizeBytes: number }[] =
+    (dbTables && dbTables.length > 0)
+      ? dbTables.map(r => ({
+          name: `${r.schema}.${r.table}`,
+          approx_rows: r.approx_rows ?? 0,
+          sizeText: r.size ?? '',
+          sizeBytes: r.size_bytes ?? 0,
+        }))
+      : topTables.map(t => ({
+          name: t.table,
+          approx_rows: t.approx_rows ?? 0,
+          sizeText: humanBytes(t.total_bytes ?? 0),
+          sizeBytes: t.total_bytes ?? 0,
+        }));
 
   return (
     <div className="space-y-6">
@@ -105,7 +135,7 @@ export default function SupabaseUsagePage() {
           </div>
 
           <div className="mt-6">
-            <div className="font-medium mb-2">Tablo Ölçüleri (İlk 10)</div>
+            <div className="font-medium mb-2">Tablo Ölçüleri</div>
             <div className="overflow-auto rounded border">
               <table className="w-full text-sm">
                 <thead>
@@ -116,18 +146,18 @@ export default function SupabaseUsagePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {topTables.length === 0 && (
+                  {tableRows.length === 0 && (
                     <tr>
                       <td colSpan={3} className="px-3 py-4 text-center text-muted-foreground">
                         Veri bulunamadı.
                       </td>
                     </tr>
                   )}
-                  {topTables.map((t) => (
-                    <tr key={t.table} className="border-t">
-                      <td className="px-3 py-2 font-mono">{t.table}</td>
-                      <td className="px-3 py-2">{t.approx_rows.toLocaleString('tr-TR')}</td>
-                      <td className="px-3 py-2">{humanBytes(t.total_bytes)}</td>
+                  {tableRows.map((t) => (
+                    <tr key={t.name} className="border-t">
+                      <td className="px-3 py-2 font-mono">{t.name}</td>
+                      <td className="px-3 py-2">{(t.approx_rows ?? 0).toLocaleString('tr-TR')}</td>
+                      <td className="px-3 py-2">{t.sizeText}</td>
                     </tr>
                   ))}
                 </tbody>

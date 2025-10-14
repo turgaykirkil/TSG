@@ -2,6 +2,7 @@
 Database session management
 """
 from sqlalchemy import create_engine
+from sqlalchemy import event
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.pool import NullPool
 
@@ -45,6 +46,20 @@ engine = create_engine(
     connect_args=connect_args,
     **engine_kwargs,
 )
+
+# Ensure ORM resolves unqualified names to 'app' first on Postgres
+if DATABASE_URL_STR.startswith("postgres") or ":5432/" in DATABASE_URL_STR or "supabase" in DATABASE_URL_STR:
+    @event.listens_for(engine, "connect")
+    def _set_search_path(dbapi_conn, conn_record):
+        try:
+            cur = dbapi_conn.cursor()
+            try:
+                cur.execute("SET search_path TO app, public")
+            finally:
+                cur.close()
+        except Exception:
+            # Ignore if not a Postgres connection
+            pass
 
 # Create a configured "Session" class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

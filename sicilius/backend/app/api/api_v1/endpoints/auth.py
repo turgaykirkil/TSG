@@ -21,6 +21,7 @@ from pydantic import BaseModel, EmailStr, Field
 from supabase import create_client
 import httpx
 import re
+import hashlib
 from app.models.app_setting import AppSetting
 from app.services import email_service
 
@@ -685,4 +686,127 @@ def invite_revoke(
     return {"msg": "Davet iptal edildi"}
 
 
+
+
+class SignupProxyRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
+    full_name: str | None = None
+    auto_login: bool = True
+
+
+@router.post("/signup-proxy")
+def signup_proxy(
+    response: Response,
+    body: SignupProxyRequest,
+    db: Session = Depends(deps.get_db),
+):
+    sec = _get_security_settings(db)
+    _validate_password_policy(body.password, sec)
+
+    try:
+        sha1 = hashlib.sha1(body.password.encode("utf-8")).hexdigest().upper()
+        prefix = sha1[:5]
+        suffix = sha1[5:]
+        url = f"https://api.pwnedpasswords.com/range/{prefix}"
+        with httpx.Client(timeout=10.0) as http:
+            r = http.get(url, headers={"Add-Padding": "true"})
+            if r.status_code // 100 == 2:
+                for line in r.text.splitlines():
+                    parts = line.split(":")
+                    if len(parts) == 2 and parts[0].strip().upper() == suffix:
+                        cnt = int(parts[1].strip() or "0")
+                        if cnt > 0:
+                            raise HTTPException(status_code=400, detail="Password found in breach database")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    if getattr(settings, "auth_mode", "local").lower() != "supabase":
+        user = crud.user.get_by_email(db, email=str(body.email).lower())
+        if user:
+            raise HTTPException(status_code=409, detail="This email is already registered")
+        user_in = user_schema.UserCreate(
+            email=str(body.email).lower(),
+            password=body.password,
+            full_name=body.full_name or str(body.email).lower(),
+        )
+        user = crud.user.create(db, obj_in=user_in)
+        if body.auto_login:
+            access_token = security.create_access_token(
+                user.id, expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+            )
+            response.set_cookie(
+                "auth_token",
+                value=access_token,
+                httponly=True,
+                max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                expires=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                path="/",
+                samesite="lax",
+                secure=settings.SECURE_COOKIE,
+                domain=getattr(settings, "COOKIE_DOMAIN", None),
+            )
+        return {"msg": "User created"}
+
+    admin_key = settings.supabase_service_role_key
+    if not admin_key:
+        raise HTTPException(status_code=500, detail="Supabase service role key is not configured")
+
+    create_url = f"{settings.supabase_url}/auth/v1/admin/users"
+    headers = {
+        "apikey": admin_key,
+        "Authorization": f"Bearer {admin_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "email": str(body.email).lower(),
+        "password": body.password,
+        "email_confirm": True,
+    }
+    try:
+        with httpx.Client(timeout=15.0) as http:
+            resp = http.post(create_url, headers=headers, json=payload)
+            proceed = resp.status_code in (200, 201, 409)
+            if not proceed:
+                try:
+                    detail = resp.json()
+                except Exception:
+                    detail = resp.text
+                raise HTTPException(status_code=400, detail=f"Could not sign up user: {detail}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not sign up user: {e}")
+
+    if body.auto_login:
+        try:
+            client = create_client(settings.supabase_url, settings.supabase_key)
+            res = client.auth.sign_in_with_password({
+                "email": str(body.email).lower(),
+                "password": body.password,
+            })
+            if not res or not getattr(res, "session", None) or not res.session:
+                raise HTTPException(status_code=400, detail="Could not sign in after signup")
+            access_token = getattr(res.session, "access_token", None)
+            if not access_token:
+                raise HTTPException(status_code=400, detail="Could not sign in after signup")
+            response.set_cookie(
+                "auth_token",
+                value=access_token,
+                httponly=True,
+                max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                expires=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                path="/",
+                samesite="lax",
+                secure=settings.SECURE_COOKIE,
+                domain=getattr(settings, "COOKIE_DOMAIN", None),
+            )
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=400, detail="Could not sign in after signup")
+
+    return {"msg": "User created"}
 

@@ -3,7 +3,9 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from supabase import Client
 
-from app.core.dependencies import get_supabase_client
+from app.core.dependencies import get_supabase_client, get_db
+from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 router = APIRouter()
 
@@ -66,7 +68,7 @@ def get_coordinate_stats(supabase: Client = Depends(get_supabase_client)):
     """
     try:
         logger.info("Fetching coordinate stats via RPC call...")
-        response = supabase.rpc('get_coordinate_statistics').execute()
+        response = supabase.postgrest.schema('app').rpc('get_coordinate_statistics', {}).execute()
         
         if not response.data:
             logger.error("Failed to get data from RPC call 'get_coordinate_statistics'")
@@ -83,6 +85,31 @@ def get_coordinate_stats(supabase: Client = Depends(get_supabase_client)):
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 
+@router.get("/db-tables", summary="List database tables for usage page")
+def list_db_tables(db: Session = Depends(get_db)):
+    try:
+        sql = text(
+            """
+            SELECT 
+              n.nspname AS schema,
+              c.relname AS table,
+              c.reltuples::bigint AS approx_rows,
+              pg_total_relation_size(c.oid) AS size_bytes,
+              pg_size_pretty(pg_total_relation_size(c.oid)) AS size
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relkind IN ('r','m')
+              AND n.nspname IN ('app','public')
+            ORDER BY pg_total_relation_size(c.oid) DESC, n.nspname, c.relname
+            LIMIT 200
+            """
+        )
+        rows = db.execute(sql).mappings().all()
+        return {"tables": [dict(r) for r in rows]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list tables: {e}")
+
+
 @router.get("", summary="Get application-wide statistics", include_in_schema=False)
 @router.get("/", summary="Get application-wide statistics")
 def get_stats(supabase: Client = Depends(get_supabase_client)):
@@ -92,7 +119,7 @@ def get_stats(supabase: Client = Depends(get_supabase_client)):
     """
     try:
         logger.info("Fetching general statistics via RPC call 'get_general_statistics'...")
-        response = supabase.rpc('get_general_statistics').execute()
+        response = supabase.postgrest.schema('app').rpc('get_general_statistics', {}).execute()
         
         if not response.data:
             logger.error("Failed to get data from RPC call 'get_general_statistics'")
