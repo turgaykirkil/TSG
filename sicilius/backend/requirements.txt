@@ -71,3 +71,6 @@ rapidfuzz
 dateparser
 Unidecode
 phonenumbers
+
+# Firebase Admin SDK
+firebase-admin

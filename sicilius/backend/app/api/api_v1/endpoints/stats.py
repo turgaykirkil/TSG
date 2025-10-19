@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from supabase import Client
+from app.core.firebase import get_firestore_client
 
 from app.core.dependencies import get_supabase_client, get_db
 from sqlalchemy.orm import Session
@@ -12,6 +13,33 @@ router = APIRouter()
 # Configure logging
 
 logger = logging.getLogger(__name__)
+
+@router.get("/firebase", summary="Check Firebase/Firestore connectivity")
+def firebase_health():
+    """
+    Firebase Admin SDK üzerinden Firestore erişimini doğrular.
+    Başarılıysa proje adını döner.
+    """
+    try:
+        db = get_firestore_client()
+        return {"ok": True, "project": db.project}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Firebase connection failed: {e}")
+
+@router.get("/company-firestore/{company_id}", summary="Get a single company doc from Firestore")
+def get_company_firestore(company_id: str):
+    try:
+        db = get_firestore_client()
+        snap = db.collection("companies").document(company_id).get()
+        if not snap.exists:
+            raise HTTPException(status_code=404, detail="Company not found in Firestore")
+        data = snap.to_dict() or {}
+        data["id"] = snap.id
+        return data
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch company from Firestore: {e}")
 
 @router.get("/storage-pdfs-count", summary="Get total count of PDF files in gazette-pdfs bucket")
 def get_storage_pdfs_count(supabase: Client = Depends(get_supabase_client)):

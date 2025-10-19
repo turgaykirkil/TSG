@@ -15,6 +15,7 @@ from collections import deque
 from app.core.dependencies import get_supabase_client
 from app.api.deps import enforce_daily_limit
 from app.core.config import settings
+from app.core.search_tokens import tr_normalize_py as _tr_normalize_py, tr_letters_digits as _tr_letters_digits
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -268,19 +269,11 @@ def tr_normalize_py(s: Optional[str]) -> str:
     - Unicode accent kaldırma
     - lower()
     """
-    if not s:
-        return ""
-    s = s.replace("İ", "I").replace("ı", "i")
-    # NFKD ile ayır ve ASCII dışını temizle (örn. ç->c, ş->s)
-    s = unicodedata.normalize("NFKD", s)
-    s = s.encode("ascii", "ignore").decode("ascii")
-    return s.lower().strip()
+    return _tr_normalize_py(s)
 
 def tr_letters_digits(s: Optional[str]) -> str:
     """Normalize et ve harf/rakam dışını çıkar. Maskeli OCR metinleri için faydalı."""
-    if not s:
-        return ""
-    return re.sub(r"[^a-z0-9]+", "", tr_normalize_py(s))
+    return _tr_letters_digits(s)
 
 def search_all_related(query: str, supabase: Client) -> SearchResult:
     """
@@ -314,7 +307,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
             comp_hits_ids: Set[str] = set()
             try:
                 c_mersis = (
-                    supabase.table("companies").select("id, unvan, mersis_number")
+                    supabase.postgrest.schema('app').table("companies").select("id, unvan, mersis_number")
                     .like("mersis_number", f"%{q_digits}%").limit(500).execute()
                 ).data or []
                 for r in c_mersis:
@@ -326,7 +319,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                 pass
             try:
                 c_sicil = (
-                    supabase.table("companies").select("id, unvan, sicil_no")
+                    supabase.postgrest.schema('app').table("companies").select("id, unvan, sicil_no")
                     .like("sicil_no", f"%{q_digits}%").limit(500).execute()
                 ).data or []
                 for r in c_sicil:
@@ -344,7 +337,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
             try:
                 ocr_rows = (
                     supabase
-                    .table("ocr_results")
+                    .postgrest.schema('app').table("ocr_results")
                     .select("id, company_id, mersis_no, trade_name")
                     .or_(f"mersis_no.like.%{q_digits}%,original_text.like.%{q_digits}%")
                     .limit(2000)
@@ -364,7 +357,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                         end = start + batch - 1
                         q = (
                             supabase
-                            .table("ocr_results")
+                            .postgrest.schema('app').table("ocr_results")
                             .select("id, company_id, mersis_no, trade_name, original_text")
                             .order("id", desc=True)
                             .range(start, end)
@@ -414,7 +407,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
             persons_fast: List[Dict[str, Any]] = []
             try:
                 persons_fast = (
-                    supabase.table("persons").select("*").like("nationality_id", f"%{q_digits}%").limit(500).execute()
+                    supabase.postgrest.schema('app').table("persons").select("*").like("nationality_id", f"%{q_digits}%").limit(500).execute()
                 ).data or []
             except Exception:
                 pass
@@ -426,7 +419,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                     if pids:
                         rels = (
                             supabase
-                            .table("company_person_relations")
+                            .postgrest.schema('app').table("company_person_relations")
                             .select("company_id, person_id")
                             .in_("person_id", pids)
                             .limit(5000)
@@ -461,7 +454,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                         try:
                             r1 = (
                                 supabase
-                                .table("ocr_results")
+                                .postgrest.schema('app').table("ocr_results")
                                 .select("company_id, masked_ids")
                                 .filter("masked_ids", "cs", json.dumps([msk]))
                                 .limit(500)
@@ -473,7 +466,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                                     ocr_mask_ids.add(cid)
                             r2 = (
                                 supabase
-                                .table("ocr_results")
+                                .postgrest.schema('app').table("ocr_results")
                                 .select("company_id, persons")
                                 .filter("persons", "cs", json.dumps([{"masked_ids": msk}]))
                                 .limit(500)
@@ -499,7 +492,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                 if candidate_ids:
                     comp_resp2 = (
                         supabase
-                        .table("companies")
+                        .postgrest.schema('app').table("companies")
                         .select("*")
                         .in_("id", list(candidate_ids))
                         .limit(min(2000, len(candidate_ids)))
@@ -573,7 +566,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                 if pattern:
                     persons_rows = (
                         supabase
-                        .table("persons")
+                        .postgrest.schema('app').table("persons")
                         .select("id")
                         .like("nationality_id", pattern)
                         .limit(1000)
@@ -591,7 +584,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                 if persons_ids:
                     rels = (
                         supabase
-                        .table("company_person_relations")
+                        .postgrest.schema('app').table("company_person_relations")
                         .select("company_id, person_id")
                         .in_("person_id", list(persons_ids))
                         .limit(5000)
@@ -610,7 +603,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                 # masked_ids dizisi doğrudan bu maskeyi içeriyor mu?
                 m1 = (
                     supabase
-                    .table("ocr_results")
+                    .postgrest.schema('app').table("ocr_results")
                     .select("company_id, masked_ids")
                     .filter("masked_ids", "cs", json.dumps([q_raw]))
                     .limit(2000)
@@ -623,7 +616,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                 # persons JSON'i içinde masked_ids alanında bu maske geçiyor mu?
                 m2 = (
                     supabase
-                    .table("ocr_results")
+                    .postgrest.schema('app').table("ocr_results")
                     .select("company_id, persons")
                     .filter("persons", "cs", json.dumps([{"masked_ids": q_raw}]))
                     .limit(2000)
@@ -647,7 +640,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                 try:
                     comp_resp = (
                         supabase
-                        .table("companies")
+                        .postgrest.schema('app').table("companies")
                         .select("*")
                         .in_("id", list(all_cids))
                         .limit(1000)
@@ -713,7 +706,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                 or_expr = ",".join(conds)
                 coarse = (
                     supabase
-                    .table("companies")
+                    .postgrest.schema('app').table("companies")
                     .select("*")
                     .or_(or_expr)
                     .limit(500)
@@ -733,7 +726,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                             ])
                     or_expr = ",".join(conds)
                     coarse = (
-                        supabase.table("companies").select("*").or_(or_expr).limit(500).execute()
+                        supabase.postgrest.schema('app').table("companies").select("*").or_(or_expr).limit(500).execute()
                     ).data or []
                 except Exception:
                     coarse = []
@@ -842,7 +835,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
             f"address_unaccent.ilike.%{q_norm}%"
         )
         companies_data = (
-            supabase.table("companies")
+            supabase.postgrest.schema('app').table("companies")
             .select("*")
             .or_(filter_expr)
             .limit(100)
@@ -851,7 +844,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
     except Exception:
         # Fallback: orijinal kolonlarla geniş arama, sonra Python normalize ile filtre
         coarse = (
-            supabase.table("companies")
+            supabase.postgrest.schema('app').table("companies")
             .select("*")
             .or_(f"unvan.ilike.%{q_raw}%,sicil_no.ilike.%{q_raw}%,address.ilike.%{q_raw}%")
             .limit(200)
@@ -879,7 +872,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                 ])
             or_expr = ",".join(conds)
             coarse_multi = (
-                supabase.table("companies").select("*").or_(or_expr).limit(300).execute()
+                supabase.postgrest.schema('app').table("companies").select("*").or_(or_expr).limit(300).execute()
             ).data or []
             companies_data = [
                 c for c in coarse_multi
@@ -908,7 +901,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                     ])
                 or_expr = ",".join(conds)
                 coarse_multi = (
-                    supabase.table("companies").select("*").or_(or_expr).limit(300).execute()
+                    supabase.postgrest.schema('app').table("companies").select("*").or_(or_expr).limit(300).execute()
                 ).data or []
                 companies_data = [
                     c for c in coarse_multi
@@ -934,7 +927,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
             try:
                 mersis_hits = (
                     supabase
-                    .table("companies")
+                    .postgrest.schema('app').table("companies")
                     .select("*")
                     .like("mersis_number", f"%{q_digits}%")
                     .limit(100)
@@ -949,7 +942,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
             try:
                 sicil_hits = (
                     supabase
-                    .table("companies")
+                    .postgrest.schema('app').table("companies")
                     .select("*")
                     .like("sicil_no", f"%{q_digits}%")
                     .limit(100)
@@ -964,7 +957,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                 # 1) OCR'da mersis_no alanında alt-dize araması
                 ocr_mersis_rows = (
                     supabase
-                    .table("ocr_results")
+                    .postgrest.schema('app').table("ocr_results")
                     .select("id, company_id, mersis_no, trade_name")
                     .like("mersis_no", f"%{q_digits}%")
                     .limit(1000)
@@ -974,7 +967,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                 # 2) OCR'da original_text içinde alt-dize araması
                 ocr_text_rows = (
                     supabase
-                    .table("ocr_results")
+                    .postgrest.schema('app').table("ocr_results")
                     .select("id, company_id")
                     .like("original_text", f"%{q_digits}%")
                     .limit(1000)
@@ -1005,7 +998,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                     try:
                         coarse_rows = (
                             supabase
-                            .table("ocr_results")
+                            .postgrest.schema('app').table("ocr_results")
                             .select("id, company_id, mersis_no, trade_name, original_text")
                             .limit(5000)
                             .execute()
@@ -1035,7 +1028,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                     if fetch_ids:
                         comp_resp = (
                             supabase
-                            .table("companies")
+                            .postgrest.schema('app').table("companies")
                             .select("*")
                             .in_("id", fetch_ids)
                             .limit(min(1000, len(fetch_ids)))
@@ -1138,7 +1131,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
         if company_ids:
             ann_resp = (
                 supabase
-                .table("announcements")
+                .postgrest.schema('app').table("announcements")
                 .select("id, company_id, title, announcement_type, publication_date, issue_number, page_number, newspaper_name, pdf_url, ocr_status, created_at")
                 .in_("company_id", company_ids)
                 .order("publication_date", desc=True)
@@ -1155,7 +1148,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
         if company_ids:
             rels_cp = (
                 supabase
-                .table("company_person_relations")
+                .postgrest.schema('app').table("company_person_relations")
                 .select("company_id, person_id, relation_type, position, is_current, start_date, end_date")
                 .in_("company_id", company_ids)
                 .limit(2000)
@@ -1209,7 +1202,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
             continue
         try:
             same_addr = (
-                supabase.table("companies")
+                supabase.postgrest.schema('app').table("companies")
                 .select("*")
                 .eq("address", addr)
                 .neq("id", company.get("id"))
@@ -1234,7 +1227,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
             f"last_name_unaccent.ilike.%{q_norm}%"
         )
         persons_match = (
-            supabase.table("persons")
+            supabase.postgrest.schema('app').table("persons")
             .select("*")
             .or_(persons_filter)
             .limit(100)
@@ -1242,7 +1235,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
         ).data or []
     except Exception:
         coarse_p = (
-            supabase.table("persons")
+            supabase.postgrest.schema('app').table("persons")
             .select("*")
             .or_(f"full_name.ilike.%{q_raw}%,first_name.ilike.%{q_raw}%,last_name.ilike.%{q_raw}%")
             .limit(200)
@@ -1268,7 +1261,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
                 ])
             or_expr = ",".join(conds)
             coarse_pt = (
-                supabase.table("persons").select("*").or_(or_expr).limit(400).execute()
+                supabase.postgrest.schema('app').table("persons").select("*").or_(or_expr).limit(400).execute()
             ).data or []
             persons_match = [
                 p for p in coarse_pt
@@ -1284,7 +1277,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
         if q_digits and len(q_digits) >= 6:
             pnat_resp = (
                 supabase
-                .table("persons")
+                .postgrest.schema('app').table("persons")
                 .select("*")
                 .ilike("nationality_id", f"%{q_digits}%")
                 .limit(200)
@@ -1309,7 +1302,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
     related_seen: Set[str] = set()
     if seen_person_ids:
         rels = (
-            supabase.table("company_person_relations")
+            supabase.postgrest.schema('app').table("company_person_relations")
             .select("company_id, person_id, relation_type, position, is_current, start_date, end_date")
             .in_("person_id", list(seen_person_ids))
             .limit(1000)
@@ -1318,7 +1311,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
         rel_company_ids = sorted({r.get("company_id") for r in rels if r.get("company_id")})
         if rel_company_ids:
             comp2 = (
-                supabase.table("companies")
+                supabase.postgrest.schema('app').table("companies")
                 .select("*")
                 .in_("id", rel_company_ids)
                 .limit(1000)
@@ -1335,7 +1328,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
     ocr_matches: List[Dict[str, Any]] = []
     try:
         ocr_q = (
-            supabase.table("ocr_results")
+            supabase.postgrest.schema('app').table("ocr_results")
             .select("id, announcement_id, company_id, original_text, companies(*)")
             .limit(200)
         )
@@ -1357,7 +1350,7 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
         # Yıldız/punktuasyon maskeleri için ek Python filtresi (boş dönerse)
         if not ocr_matches and tokens_letters:
             coarse_ocr = (
-                supabase.table("ocr_results")
+                supabase.postgrest.schema('app').table("ocr_results")
                 .select("id, announcement_id, company_id, original_text, companies(*)")
                 .limit(500)
                 .execute()
@@ -1368,9 +1361,9 @@ def search_all_related(query: str, supabase: Client) -> SearchResult:
             ]
     except Exception:
         coarse_ocr = (
-            supabase.table("ocr_results")
+            supabase.postgrest.schema('app').table("ocr_results")
             .select("id, announcement_id, company_id, original_text, companies(*)")
-            .limit(300)
+            .limit(500)
             .execute()
         ).data or []
         if tokens_letters:
@@ -1470,7 +1463,7 @@ def cross_company_persons(
             multi_person_ids = multi_person_ids[:min(limit, 1000)]
             persons_resp = (
                 supabase
-                .table("persons")
+                .postgrest.schema('app').table("persons")
                 .select("id, full_name, first_name, last_name, email, nationality_id")
                 .in_("id", multi_person_ids)
                 .limit(min(len(multi_person_ids), 1000))
@@ -1493,7 +1486,7 @@ def cross_company_persons(
         try:
             ocr_q = (
                 supabase
-                .table("ocr_results")
+                .postgrest.schema('app').table("ocr_results")
                 .select("company_id, raw_text")
                 .like("raw_text_unaccent", "%***%")
                 .limit(5000)
@@ -1504,7 +1497,7 @@ def cross_company_persons(
             # unaccent kolonu yoksa fallback
             ocr_rows = (
                 supabase
-                .table("ocr_results")
+                .postgrest.schema('app').table("ocr_results")
                 .select("company_id, raw_text")
                 .like("raw_text", "%***%")
                 .limit(5000)
@@ -1588,7 +1581,7 @@ def search_all(
             history_filter = f"entry_type.ilike.{search_query},processed_text.ilike.{search_query}"
             history_data = (
                 supabase
-                .table("gazette_entries")
+                .postgrest.schema('app').table("gazette_entries")
                 .select("id, entry_type, entry_date, company_id, processed_text")
                 .or_(history_filter)
                 .limit(50)
@@ -1669,7 +1662,7 @@ def search_all_legacy(
             companies_filter = f"unvan.ilike.{search_query},sicil_no.ilike.{search_query},address.ilike.{search_query}"
             companies_data = (
                 supabase
-                .table("companies")
+                .postgrest.schema('app').table("companies")
                 .select("*")
                 .or_(companies_filter)
                 .limit(50)
@@ -1697,7 +1690,7 @@ def search_all_legacy(
             )
             persons_data = (
                 supabase
-                .table("persons")
+                .postgrest.schema('app').table("persons")
                 .select("*")
                 .or_(persons_filter)
                 .limit(50)
@@ -1714,7 +1707,7 @@ def search_all_legacy(
             history_filter = f"entry_type.ilike.{search_query},processed_text.ilike.{search_query}"
             history_data = (
                 supabase
-                .table("gazette_entries")
+                .postgrest.schema('app').table("gazette_entries")
                 .select("id, entry_type, entry_date, company_id, processed_text")
                 .or_(history_filter)
                 .limit(50)
@@ -1772,7 +1765,7 @@ def company_detail(
         # --- Company ---
         company_resp = (
             supabase
-            .table("companies")
+            .postgrest.schema('app').table("companies")
             .select("*")
             .eq("id", cid)
             .limit(1)
@@ -1833,7 +1826,7 @@ def company_detail(
         # --- Relations -> Person IDs and relation meta ---
         rel_resp = (
             supabase
-            .table("company_person_relations")
+            .postgrest.schema('app').table("company_person_relations")
             .select("person_id, relation_type, position, is_current, start_date, end_date")
             .eq("company_id", cid)
             .limit(200)
@@ -1847,7 +1840,7 @@ def company_detail(
             # Fetch persons in batch
             persons_resp = (
                 supabase
-                .table("persons")
+                .postgrest.schema('app').table("persons")
                 .select("id, full_name, first_name, last_name, email, nationality_id, birth_date, is_active, updated_at")
                 .in_("id", person_ids)
                 .limit(500)
@@ -1861,6 +1854,9 @@ def company_detail(
                     merged = {**persons_map[pid], **{k: v for k, v in r.items() if k != "person_id"}}
                     persons.append(merged)
 
+        # Safe default for OCR response used in multiple fallbacks
+        ocr_resp = type("_R", (), {"data": []})()
+
         # --- Announcements: enrich with OCR original_text ---
         try:
             if data := result.__dict__.get('announcements'):
@@ -1873,7 +1869,7 @@ def company_detail(
         if company.get('address'):
             same_address_resp = (
                 supabase
-                .table('companies')
+                .postgrest.schema('app').table('companies')
                 .select('*')
                 .eq('address', company['address'])
                 .neq('id', cid)  # Exclude current company
@@ -1894,7 +1890,7 @@ def company_detail(
                                 continue
                             ocr2 = (
                                 supabase
-                                .table('ocr_results')
+                                .postgrest.schema('app').table('ocr_results')
                                 .select('id, original_text')
                                 .eq('company_id', scid)
                                 .limit(20)
@@ -1922,7 +1918,7 @@ def company_detail(
                 # Get all other company relations for these persons
                 rel_others_resp = (
                     supabase
-                    .table("company_person_relations")
+                    .postgrest.schema('app').table("company_person_relations")
                     .select("company_id, person_id, relation_type, position, is_current, start_date, end_date")
                     .in_("person_id", person_ids)
                     .neq("company_id", cid)
@@ -1956,7 +1952,7 @@ def company_detail(
                 if related_company_ids:
                     comps_resp = (
                         supabase
-                        .table("companies")
+                        .postgrest.schema('app').table("companies")
                         .select("id, unvan, sicil_no, sicil_mudurluk, address, city, district")
                         .in_("id", related_company_ids)
                         .limit(500)
@@ -1983,7 +1979,7 @@ def company_detail(
             # '*' seçerek tabloda varsa original_text gibi ek alanları da alalım.
             ann_resp = (
                 supabase
-                .table("announcements")
+                .postgrest.schema('app').table("announcements")
                 .select("*")
                 .eq("company_id", cid)
                 .order("publication_date", desc=True)
@@ -2000,7 +1996,7 @@ def company_detail(
             if ann_ids:
                 ocr_by_ann = (
                     supabase
-                    .table("ocr_results")
+                    .postgrest.schema('app').table("ocr_results")
                     .select("announcement_id, original_text, hususlar, company_id, publication_date, issue_number, page_number, created_at")
                     .eq("company_id", cid)
                     .in_("announcement_id", ann_ids)
@@ -2083,74 +2079,62 @@ def company_detail(
                     try:
                         ocr_recent = (
                             supabase
-                            .table("ocr_results")
+                            .postgrest.schema('app').table("ocr_results")
                             .select("id, original_text, created_at, publication_date, issue_number, page_number")
                             .eq("company_id", cid)
                             .order("created_at", desc=True)
-                            .limit(50)
+                            .limit(1)
                             .execute()
                         ).data or []
-                        # Tüm eksiklere sırayla doldur, yetmezse ilk metni ve meta'yı yay
                         if ocr_recent:
-                            for i, a in enumerate(missing):
-                                src = ocr_recent[i] if i < len(ocr_recent) else ocr_recent[0]
-                                a["original_text"] = (src.get("original_text") or a.get("original_text") or "")
-                                # Meta alanlarini da, ilan uzerinde bos ise OCR'dan doldur
-                                try:
-                                    if a.get("publication_date") in (None, "", "-") and src.get("publication_date"):
-                                        a["publication_date"] = src.get("publication_date")
-                                    if a.get("issue_number") in (None, "", "-") and (src.get("issue_number") is not None):
-                                        a["issue_number"] = src.get("issue_number")
-                                    if a.get("page_number") in (None, "", "-") and (src.get("page_number") is not None):
-                                        a["page_number"] = src.get("page_number")
-                                    if a.get("newspaper_name") in (None, "", "-") and src.get("newspaper_name"):
-                                        a["newspaper_name"] = src.get("newspaper_name")
-                                except Exception:
-                                    pass
-                    except Exception:
-                        pass
-                    # Second pass: original_text mevcut olsa bile eksik meta alanlarini OCR'dan doldur
-                    try:
-                        needs_meta = [a for a in announcements if isinstance(a, dict) and (
-                            (a.get("publication_date") in (None, "", "-")) or
-                            (a.get("issue_number") in (None, "", "-")) or
-                            (a.get("page_number") in (None, "", "-")) or
-                            (a.get("newspaper_name") in (None, "", "-"))
-                        )]
-                        if needs_meta:
-                            try:
-                                _ocr_recent_meta = ocr_recent if 'ocr_recent' in locals() and ocr_recent else (
-                                    supabase
-                                    .table("ocr_results")
-                                    .select("id, publication_date, issue_number, page_number, newspaper_name")
-                                    .eq("company_id", cid)
-                                    .order("created_at", desc=True)
-                                    .limit(50)
-                                    .execute()
-                                ).data or []
-                            except Exception:
-                                _ocr_recent_meta = []
+                            last = ocr_recent[0]
+                            if not a.get("publication_date"):
+                                a["publication_date"] = last.get("publication_date") or last.get("created_at")
+                            if not a.get("issue_number"):
+                                a["issue_number"] = last.get("issue_number")
+                            if not a.get("page_number"):
+                                a["page_number"] = last.get("page_number")
+                    except Exception as _e_recent:
+                        logger.debug(f"[Company Detail] OCR meta recent fetch failed: {_e_recent}")
+                # Second pass: original_text mevcut olsa bile eksik meta alanlarini OCR'dan doldur
+                try:
+                    needs_meta = [a for a in announcements if isinstance(a, dict) and (
+                        (a.get("publication_date") in (None, "", "-")) or
+                        (a.get("issue_number") in (None, "", "-")) or
+                        (a.get("page_number") in (None, "", "-")) or
+                        (a.get("newspaper_name") in (None, "", "-"))
+                    )]
+                    if needs_meta:
+                        try:
+                            _ocr_recent_meta = ocr_recent if 'ocr_recent' in locals() and ocr_recent else (
+                                supabase
+                                .postgrest.schema('app').table("ocr_results")
+                                .select("id, publication_date, issue_number, page_number, newspaper_name")
+                                .eq("company_id", cid)
+                                .order("created_at", desc=True)
+                                .limit(1)
+                                .execute()
+                            ).data or []
                             if _ocr_recent_meta:
-                                for i, a in enumerate(needs_meta):
-                                    src = _ocr_recent_meta[i] if i < len(_ocr_recent_meta) else _ocr_recent_meta[0]
-                                    if a.get("publication_date") in (None, "", "-") and src.get("publication_date"):
-                                        a["publication_date"] = src.get("publication_date")
-                                    if a.get("issue_number") in (None, "", "-") and (src.get("issue_number") is not None):
-                                        a["issue_number"] = src.get("issue_number")
-                                    if a.get("page_number") in (None, "", "-") and (src.get("page_number") is not None):
-                                        a["page_number"] = src.get("page_number")
-                                    if a.get("newspaper_name") in (None, "", "-") and src.get("newspaper_name"):
-                                        a["newspaper_name"] = src.get("newspaper_name")
-                    except Exception:
-                        pass
+                                last2 = _ocr_recent_meta[0]
+                                if not a.get("publication_date"):
+                                    a["publication_date"] = last2.get("publication_date") or last2.get("created_at")
+                                if not a.get("issue_number"):
+                                    a["issue_number"] = last2.get("issue_number")
+                                if not a.get("page_number"):
+                                    a["page_number"] = last2.get("page_number")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
         except Exception as _e_enrich:
             logger.warning(f"[Company Detail] enrich announcements with original_text failed: {_e_enrich}")
 
-                # --- OCR Results: persons JSON, masked_ids ve yıldızlı örüntüler ---
+        # --- OCR Results: persons JSON, masked_ids ve yıldızlı örüntüler ---
         try:
             ocr_resp = (
                 supabase
-                .table("ocr_results")
+                .postgrest.schema('app').table("ocr_results")
                 .select("id, original_text, persons, masked_ids, created_at, old_trade_name, trade_name, addresses")
                 .eq("company_id", cid)
                 .order("created_at", desc=True)
@@ -2330,7 +2314,7 @@ def company_detail(
 
             # candidate_pairs metrik logu kaldırıldı (tanımsız değişken hatası önlendi)
 
-            # İsim+maskeden isim sözlüğü oluştur (fallback'te kullanmak için)
+            # İsim+maskeden isim sözlüğü oluştur (fallback'te kullanmak üzere)
             name_by_mid: dict[str, str] = {}
             try:
                 for p in (persons or []):
@@ -2389,7 +2373,7 @@ def company_detail(
                 try:
                     occ = (
                         supabase
-                        .table("ocr_results")
+                        .postgrest.schema('app').table("ocr_results")
                         .select("id, company_id, masked_ids, persons, companies(*)")
                         .filter("masked_ids", "cs", json.dumps([mid]))
                         .limit(50)
@@ -2433,7 +2417,7 @@ def company_detail(
                         try:
                             rels = (
                                 supabase
-                                .table("company_person_relations")
+                                .postgrest.schema('app').table("company_person_relations")
                                 .select("person_id")
                                 .eq("company_id", rcid)
                                 .limit(500)
@@ -2443,7 +2427,7 @@ def company_detail(
                             if pids:
                                 prs = (
                                     supabase
-                                    .table("persons")
+                                    .postgrest.schema('app').table("persons")
                                     .select("id, full_name, first_name, last_name, nationality_id")
                                     .in_("id", pids)
                                     .limit(len(pids))
@@ -2463,7 +2447,7 @@ def company_detail(
                         try:
                             fb = (
                                 supabase
-                                .table("ocr_results")
+                                .postgrest.schema('app').table("ocr_results")
                                 .select("id, company_id, masked_ids, persons")
                                 .eq("company_id", rcid)
                                 .order("id", desc=True)
@@ -2504,7 +2488,7 @@ def company_detail(
                         try:
                             rels = (
                                 supabase
-                                .table("company_person_relations")
+                                .postgrest.schema('app').table("company_person_relations")
                                 .select("person_id")
                                 .eq("company_id", rcid)
                                 .limit(500)
@@ -2514,7 +2498,7 @@ def company_detail(
                             if pids:
                                 prs = (
                                     supabase
-                                    .table("persons")
+                                    .postgrest.schema('app').table("persons")
                                     .select("id, full_name, first_name, last_name, nationality_id")
                                     .in_("id", pids)
                                     .limit(len(pids))
@@ -2534,7 +2518,7 @@ def company_detail(
                         try:
                             fb = (
                                 supabase
-                                .table("ocr_results")
+                                .postgrest.schema('app').table("ocr_results")
                                 .select("id, company_id, persons")
                                 .eq("company_id", rcid)
                                 .order("id", desc=True)
@@ -2613,7 +2597,7 @@ def company_detail(
                 try:
                     occ2a = (
                         supabase
-                        .table("ocr_results")
+                        .postgrest.schema('app').table("ocr_results")
                         .select("id, company_id, persons, companies(*)")
                         .filter("persons", "cs", json.dumps([{"masked_ids": mid}]))
                         .limit(50)
@@ -2625,7 +2609,7 @@ def company_detail(
                 try:
                     occ2b = (
                         supabase
-                        .table("ocr_results")
+                        .postgrest.schema('app').table("ocr_results")
                         .select("id, company_id, persons, companies(*)")
                         .filter("persons", "cs", json.dumps([{"masked_ids": [mid]}]))
                         .limit(50)
@@ -2746,13 +2730,14 @@ def company_detail(
                     if mersis_vals_fb:
                         fb_rows = (
                             supabase
-                            .table('ocr_results')
+                            .postgrest.schema('app').table('ocr_results')
                             .select('old_trade_name, mersis_no, created_at')
                             .in_('mersis_no', mersis_vals_fb)
                             .order('created_at', desc=True)
                             .limit(200)
                             .execute()
-                        ).data or []
+                        )
+                        fb_rows = fb_rows.data or []
                         for r in fb_rows:
                             nm = (r.get('old_trade_name') or '').strip()
                             if nm and nm not in old_names:
@@ -2770,13 +2755,14 @@ def company_detail(
                     if mers_set:
                         fb_rows2 = (
                             supabase
-                            .table('ocr_results')
+                            .postgrest.schema('app').table('ocr_results')
                             .select('old_trade_name, mersis_no, created_at')
                             .in_('mersis_no', list(mers_set))
                             .order('created_at', desc=True)
                             .limit(200)
                             .execute()
-                        ).data or []
+                        )
+                        fb_rows2 = fb_rows2.data or []
                         for r in fb_rows2:
                             nm = (r.get('old_trade_name') or '').strip()
                             if nm and nm not in old_names:
@@ -2839,7 +2825,7 @@ def company_detail(
                     try:
                         hist_resp2 = (
                             supabase
-                            .table("gazette_entries")
+                            .postgrest.schema('app').table("gazette_entries")
                             .select("id, entry_type, entry_date, processed_text, company_id")
                             .eq("company_id", cid)
                             .order("entry_date", desc=True)
@@ -2878,7 +2864,7 @@ def company_detail(
         try:
             hist_resp = (
                 supabase
-                .table("gazette_entries")
+                .postgrest.schema('app').table("gazette_entries")
                 .select("id, entry_type, entry_date, processed_text, company_id")
                 .eq("company_id", cid)
                 .order("entry_date", desc=True)
@@ -2901,7 +2887,7 @@ def company_detail(
             try:
                 ocr_oa_resp = (
                     supabase
-                    .table('ocr_results')
+                    .postgrest.schema('app').table('ocr_results')
                     .select('old_addresses, created_at')
                     .eq('company_id', cid)
                     .order('created_at', desc=True)
@@ -2952,12 +2938,13 @@ def company_detail(
                 try:
                     cands = (
                         supabase
-                        .table('companies')
+                        .postgrest.schema('app').table('companies')
                         .select('id, unvan, address, sicil_no, mersis_number')
                         .eq('address', addr)
                         .limit(1)
                         .execute()
-                    ).data or []
+                    )
+                    cands = cands.data or []
                     if cands:
                         linked_company = cands[0]
                         linked_company_id = linked_company.get('id')
@@ -2968,12 +2955,13 @@ def company_detail(
                             pat = f"%{norm[:80]}%"
                             cands2 = (
                                 supabase
-                                .table('companies')
+                                .postgrest.schema('app').table('companies')
                                 .select('id, unvan, address, sicil_no, mersis_number')
                                 .ilike('address_unaccent', pat)
                                 .limit(1)
                                 .execute()
-                            ).data or []
+                            )
+                            cands2 = cands2.data or []
                             if cands2:
                                 linked_company = cands2[0]
                                 linked_company_id = linked_company.get('id')
@@ -2985,12 +2973,13 @@ def company_detail(
                                 pat2 = f"%{addr[:80]}%"
                                 cands3 = (
                                     supabase
-                                    .table('companies')
+                                    .postgrest.schema('app').table('companies')
                                     .select('id, unvan, address, sicil_no, mersis_number')
                                     .ilike('address', pat2)
                                     .limit(1)
                                     .execute()
-                                ).data or []
+                                )
+                                cands3 = cands3.data or []
                                 if cands3:
                                     linked_company = cands3[0]
                                     linked_company_id = linked_company.get('id')
@@ -3039,12 +3028,13 @@ def company_detail(
                                         try:
                                             comp_f = (
                                                 supabase
-                                                .table('companies')
+                                                .postgrest.schema('app').table('companies')
                                                 .select('id, unvan, address, sicil_no, mersis_number')
                                                 .eq('id', rcid)
                                                 .limit(1)
                                                 .execute()
-                                            ).data or []
+                                            )
+                                            comp_f = comp_f.data or []
                                             comp_obj = comp_f[0] if comp_f else None
                                         except Exception:
                                             comp_obj = None
@@ -3084,14 +3074,15 @@ def company_detail(
                 try:
                     mresp = (
                         supabase
-                        .table('companies')
+                        .postgrest.schema('app').table('companies')
                         .select('id, unvan, address, sicil_no, mersis_number, sicil_mudurluk, sicil_office_code')
                         .in_('mersis_number', mersis_vals)
                         .neq('id', cid)
                         .limit(500)
                         .execute()
                     )
-                    for row in (mresp.data or []):
+                    mresp = mresp.data or []
+                    for row in mresp:
                         rid = row.get('id')
                         if not rid or rid in existing_rr_ids:
                             continue
@@ -3113,14 +3104,15 @@ def company_detail(
                 try:
                     sresp = (
                         supabase
-                        .table('companies')
+                        .postgrest.schema('app').table('companies')
                         .select('id, unvan, address, sicil_no, mersis_number, sicil_mudurluk, sicil_office_code')
                         .eq('sicil_no', sicil_no.strip())
                         .neq('id', cid)
                         .limit(500)
                         .execute()
                     )
-                    for row in (sresp.data or []):
+                    sresp = sresp.data or []
+                    for row in sresp:
                         rid = row.get('id')
                         if not rid or rid in existing_rr_ids:
                             continue
@@ -3175,13 +3167,14 @@ def announcement_detail(
         try:
             ann_q = (
                 supabase
-                .table("announcements")
+                .postgrest.schema('app').table("announcements")
                 .select("*")
                 .eq("id", announcement_id)
                 .limit(1)
                 .execute()
             )
-            ann = (ann_q.data or [None])[0]
+            ann_q = ann_q.data or []
+            ann = ann_q[0] if ann_q else None
             if not ann:
                 raise HTTPException(status_code=404, detail="İlan bulunamadı")
         except HTTPException:
@@ -3202,7 +3195,7 @@ def announcement_detail(
 
             qb = (
                 supabase
-                .table("ocr_results")
+                .postgrest.schema('app').table("ocr_results")
                 .select("id, original_text, created_at, company_id, mersis_no")
                 .eq("announcement_id", announcement_id)
             )

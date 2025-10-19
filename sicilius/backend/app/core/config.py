@@ -47,6 +47,18 @@ class Settings(BaseSettings):
     # Supabase JWT secret for verifying access tokens locally (HS256). Optional fallback to auth.get_user if absent.
     supabase_jwt_secret: str | None = None
 
+    # Firebase (optional)
+    # Service account JSON dosya yolu (mutlaka local path, repo'ya girmemeli)
+    firebase_service_account_path: Optional[str] = None
+    # Firebase Project ID (örn. tsg-platform-13d58)
+    firebase_project_id: Optional[str] = None
+    # Storage bucket adı (örn. tsg-platform-13d58.appspot.com). İlk fazda opsiyonel/kapalı.
+    firebase_storage_bucket: Optional[str] = None
+    # Firebase Hosting site ID (örn. tsg-platform)
+    firebase_hosting_site: Optional[str] = None
+    # Storage kullanım bayrağı (ilk fazda False)
+    firebase_enable_storage: bool = False
+
     # Geocoding Services
     locationiq_token: str
 

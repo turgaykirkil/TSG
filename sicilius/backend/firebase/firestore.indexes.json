@@ -1,0 +1,24 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "company_person_relations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "company_id", "order": "ASCENDING" },
+        { "fieldPath": "person_id", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "company_person_relations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "person_id", "order": "ASCENDING" },
+        { "fieldPath": "company_id", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    { "collectionGroup": "companies", "fieldPath": "search_tokens_unvan", "indexes": [] },
+    { "collectionGroup": "companies", "fieldPath": "search_tokens_address", "indexes": [] }
+  ]
+}
