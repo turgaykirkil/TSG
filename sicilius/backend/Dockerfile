@@ -1,5 +1,5 @@
-# Use an official Python runtime as a parent image
-FROM python:3.10-slim
+# Use Playwright's Python image with Ubuntu Jammy (includes browser deps)
+FROM mcr.microsoft.com/playwright/python:v1.48.0-jammy
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -31,6 +31,12 @@ COPY requirements.txt /tmp/requirements.txt
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+# Ensure Playwright browsers exist and set shared browsers path
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN mkdir -p ${PLAYWRIGHT_BROWSERS_PATH} && \
+    chown -R appuser:appuser ${PLAYWRIGHT_BROWSERS_PATH} && \
+    python -m playwright install webkit
 
 # Copy project
 COPY . .

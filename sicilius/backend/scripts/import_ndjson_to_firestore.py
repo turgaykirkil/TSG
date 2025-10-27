@@ -17,6 +17,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--throttle", type=float, default=1.0)
     p.add_argument("--max-rows", type=int, default=0, help="Max rows to import in this run (0=all)")
     p.add_argument("--state", default=None, help="State file path for resume (default: <in>.state.json)")
+    p.add_argument("--drop-field", action="append", default=None, help="Field name to drop from documents (repeatable)")
     return p.parse_args()
 
 
@@ -81,14 +82,21 @@ def main() -> None:
             if not line:
                 continue
             data = json.loads(line)
+            if args.drop_field:
+                for fld in args.drop_field:
+                    if fld in data:
+                        del data[fld]
             doc_id_val = str(data.get(args.id_field)) if args.id_field in data else None
             if not doc_id_val or doc_id_val == "None":
                 continue
-            to_write.append((doc_id_val, data))
-            if len(to_write) >= batch_size:
-                _write_batch(db, args.collection, to_write)
-                migrated += len(to_write)
-                written_this_run += len(to_write)
+            if batch_size <= 1:
+                try:
+                    db.collection(args.collection).document(doc_id_val).set(data, merge=True)
+                except Exception:
+                    time.sleep(2.0)
+                    db.collection(args.collection).document(doc_id_val).set(data, merge=True)
+                migrated += 1
+                written_this_run += 1
                 lines_processed = current_line_no
                 st = {
                     "lines_processed": lines_processed,
@@ -96,10 +104,26 @@ def main() -> None:
                     "last_doc_id": doc_id_val,
                 }
                 _save_state(state_path, st)
-                to_write = []
                 time.sleep(throttle + random.uniform(0, throttle * 0.5))
                 if max_rows and written_this_run >= max_rows:
                     break
+            else:
+                to_write.append((doc_id_val, data))
+                if len(to_write) >= batch_size:
+                    _write_batch(db, args.collection, to_write)
+                    migrated += len(to_write)
+                    written_this_run += len(to_write)
+                    lines_processed = current_line_no
+                    st = {
+                        "lines_processed": lines_processed,
+                        "migrated_count": migrated,
+                        "last_doc_id": doc_id_val,
+                    }
+                    _save_state(state_path, st)
+                    to_write = []
+                    time.sleep(throttle + random.uniform(0, throttle * 0.5))
+                    if max_rows and written_this_run >= max_rows:
+                        break
         if to_write and (not max_rows or written_this_run < max_rows):
             # Trim if exceeding max_rows
             if max_rows and written_this_run + len(to_write) > max_rows:

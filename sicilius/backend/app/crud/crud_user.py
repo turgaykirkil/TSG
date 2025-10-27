@@ -2,7 +2,7 @@ import logging
 from typing import Any, Dict, Optional, Union
 
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,24 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
             return None
         
         logger.info(f"Kullanıcı bulundu: {email}. Şifre doğrulanıyor...")
-        if not verify_password(password, user.hashed_password):
+        ok = False
+        try:
+            ok = verify_password(password, user.hashed_password)
+        except Exception:
+            ok = False
+        if not ok:
+            # Fallback: DB tarafında crypt() ile doğrulama (bcrypt 'bf' hashleri için)
+            try:
+                res = db.execute(
+                    text(
+                        "SELECT (crypt(:pw, :hash) = :hash) AS ok"
+                    ),
+                    {"pw": password, "hash": user.hashed_password},
+                ).mappings().first()
+                ok = bool(res and res.get("ok"))
+            except Exception:
+                ok = False
+        if not ok:
             logger.warning(f"Giriş başarısız: '{email}' için şifre yanlış.")
             return None
         

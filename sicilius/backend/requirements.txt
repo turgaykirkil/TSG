@@ -27,10 +27,6 @@ httpx
 cairosvg
 
 # OCR & Data Processing
-torch==2.7.1
-torchvision==0.22.1
-timm
-transformers
 pypdf
 pandas
 pdf2image

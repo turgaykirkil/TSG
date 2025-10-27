@@ -1,201 +1,100 @@
 from PIL import Image
-from typing import List
-import torch
+from typing import List, Dict, Tuple
 from pdf2image import convert_from_bytes
-from surya.detection import DetectionPredictor
-from surya.recognition import RecognitionPredictor
-from surya.layout import LayoutPredictor
-from surya.settings import settings
-from supabase import Client
 from app.schemas.ocr_preview_response import OcrPreviewResponse, OcrPagePreview, OcrTextLine
 from io import BytesIO
 import base64
 import logging
 import os
 from pathlib import Path
+import pytesseract
+from pytesseract import Output
 
 logger = logging.getLogger(__name__)
 
-class OcrService:
-    _instance = None
-    _initialized = False
-
-    def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super(OcrService, cls).__new__(cls)
-        return cls._instance
-
-    def __init__(self, device: str = None):
-        if self._initialized and hasattr(self, 'device') and self.device == device:
-            return
-
-        try:
-            if device:
-                self.device = device
-            elif torch.backends.mps.is_available():
-                self.device = "mps"
-            elif torch.cuda.is_available():
-                self.device = "cuda"
-            else:
-                self.device = "cpu"
-
-            # Cihazı logla
-            logger.info(f"Surya OCR service will use device: {self.device}")
-
-            # Modelleri yükle
-            self.det_predictor = DetectionPredictor(device=self.device)
-            self.rec_predictor = RecognitionPredictor(device=self.device)
-            self.layout_predictor = LayoutPredictor(device=self.device)
-
-            self.det_predictor.model.to(self.device)
-            self.rec_predictor.model.to(self.device)
-
-            # FAZ 1: Modelleri inference moduna al
-            self.det_predictor.model.eval()
-            self.rec_predictor.model.eval()
-
-            self._initialized = True
-            logger.info("Surya OCR service initialized successfully.")
-        except Exception as e:
-            logger.error(f"Failed to initialize Surya OCR service: {e}")
-            self._initialized = False
-            raise
-
-    def _calculate_iou(self, box1, box2):
-        # box: (x1, y1, x2, y2)
-        x1_inter = max(box1[0], box2[0])
-        y1_inter = max(box1[1], box2[1])
-        x2_inter = min(box1[2], box2[2])
-        y2_inter = min(box1[3], box2[3])
-
-        inter_area = max(0, x2_inter - x1_inter) * max(0, y2_inter - y1_inter)
-        if inter_area == 0:
-            return 0
-
-        box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
-        box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
-
-        union_area = box1_area + box2_area - inter_area
-        return inter_area / union_area
-
-    def run_ocr(self, images: List[Image.Image]) -> list:
-        if not self._initialized:
-            logger.error("OCR service called before initialization.")
-            raise RuntimeError("OCR service is not initialized.")
-
-        logger.info(f"Running full OCR pipeline on {len(images)} image(s)...")
-        try:
-            # FAZ 1: Gradyan hesaplamalarını devre dışı bırakarak bellek ve hız optimizasyonu sağla
-            with torch.no_grad():
-                # We get text predictions first, which gives us a flat list of text lines.
-                text_predictions = self.rec_predictor(images, det_predictor=self.det_predictor)
-
-            if not any(p.text_lines for p in text_predictions):
-                logger.error("Recognition Predictor did not find any text lines.")
-                return []
-
-            processed_pages = []
-            for i, (page_text, image) in enumerate(zip(text_predictions, images)):
-                page_width, _ = image.size
-                column_threshold = page_width / 2
-                logger.info(f"--- Processing Page {i+1}: Found {len(page_text.text_lines)} text lines. Page width: {page_width}, Column threshold: {column_threshold} ---")
-
-                if not page_text.text_lines:
-                    logger.warning(f"No text lines found on page {i+1}. Skipping.")
-                    processed_pages.append(page_text)
-                    continue
-
-                # Separate lines into left and right columns
-                left_column = []
-                right_column = []
-                unclassified = []
-
-                for line in page_text.text_lines:
-                    line_center_x = (line.bbox[0] + line.bbox[2]) / 2
-                    # Simple heuristic: if a line's center is past the halfway mark, it's in the right column.
-                    if line_center_x > column_threshold:
-                        right_column.append(line)
-                    else:
-                        left_column.append(line)
-
-                # Sort each column by vertical position (top to bottom)
-                left_column.sort(key=lambda line: line.bbox[1])
-                right_column.sort(key=lambda line: line.bbox[1])
-
-                # Combine the columns in the correct reading order
-                final_ordered_lines = left_column + right_column
-
-                logger.info(f"Page {i+1}: Sorted {len(left_column)} lines in left col and {len(right_column)} in right col. Total: {len(final_ordered_lines)} lines.")
-                
-                # Update the page's text_lines with the newly sorted list
-                page_text.text_lines = final_ordered_lines
-                processed_pages.append(page_text)
-
-            logger.info(f"OCR and layout analysis complete. Processed {len(processed_pages)} pages.")
-            return processed_pages
-        except Exception as e:
-            logger.error(f"Critical error in run_ocr: {str(e)}", exc_info=True)
-            raise
+def _merge_bbox(b1: Tuple[int, int, int, int], b2: Tuple[int, int, int, int]) -> Tuple[int, int, int, int]:
+    x1 = min(b1[0], b2[0])
+    y1 = min(b1[1], b2[1])
+    x2 = max(b1[2], b2[2])
+    y2 = max(b1[3], b2[3])
+    return (x1, y1, x2, y2)
 
 
 
 def get_surya_ocr_preview(pdf_content: bytes, file_name: str) -> OcrPreviewResponse:
-    logger.info(f"Processing specific PDF preview for file: {file_name}")
+    """
+    Tesseract tabanlı hızlı OCR önizlemesi.
+    Surya/torch bağımlılığı olmadan çalışır ve her satır için yaklaşık bbox döndürür.
+    """
+    logger.info(f"Processing PDF preview via Tesseract for file: {file_name}")
     try:
-        # --- DEBUG OUTPUT SETUP ---
+        # DEBUG çıktı klasörü
         output_dir = Path("test_output")
         os.makedirs(output_dir, exist_ok=True)
         base_filename = Path(file_name).stem
-        # --- END DEBUG OUTPUT SETUP ---
 
         images = convert_from_bytes(pdf_content)
         logger.info(f"Converted PDF to {len(images)} images.")
 
-        ocr_service = OcrService()
-        ocr_predictions = ocr_service.run_ocr(images=images)
+        preview_pages: List[OcrPagePreview] = []
 
-        if not ocr_predictions:
-            logger.warning(f"OCR service returned no results for {file_name}")
-            # Return type should be OcrPreviewResponse, not schema object
-            return OcrPreviewResponse(pages=[])
-
-        preview_pages = []
-        for i, (page_result, pil_image) in enumerate(zip(ocr_predictions, images)):
+        for i, pil_image in enumerate(images):
             page_num = i + 1
-            # --- SAVE DEBUG IMAGE --- 
+            # Debug imajı kaydet
             img_debug_path = output_dir / f"{base_filename}_page_{page_num}.png"
             pil_image.save(img_debug_path, "PNG")
-            logger.info(f"Saved debug image to {img_debug_path}")
-            # --- END SAVE DEBUG IMAGE ---
 
+            # Base64 görüntü üret
             buffered = BytesIO()
             pil_image.save(buffered, format="PNG")
             img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-            text_lines = []
-            full_text_for_debug = []
-            if page_result and hasattr(page_result, 'text_lines') and page_result.text_lines:
-                for line in page_result.text_lines:
-                    bbox_tuple = tuple(map(int, line.bbox))
-                    text_lines.append(OcrTextLine(text=line.text, bbox=bbox_tuple))
-                    full_text_for_debug.append(line.text)
-            
-            # --- SAVE DEBUG TEXT --- 
+            # Tesseract ile satır çıkarımı (line seviyesinde bbox birleştirme)
+            data = pytesseract.image_to_data(pil_image, lang='tur', output_type=Output.DICT)
+            n = len(data.get('text', []))
+            groups: Dict[Tuple[int, int, int], Dict[str, object]] = {}
+            for idx in range(n):
+                txt = (data['text'][idx] or '').strip()
+                try:
+                    conf = float(data['conf'][idx]) if data['conf'][idx] not in (None, '', '-1') else -1.0
+                except Exception:
+                    conf = -1.0
+                if not txt or conf < 0:
+                    continue
+                key = (int(data.get('block_num', [0])[idx] or 0), int(data.get('par_num', [0])[idx] or 0), int(data.get('line_num', [0])[idx] or 0))
+                l = int(data.get('left', [0])[idx] or 0)
+                t = int(data.get('top', [0])[idx] or 0)
+                w = int(data.get('width', [0])[idx] or 0)
+                h = int(data.get('height', [0])[idx] or 0)
+                bbox = (l, t, l + w, t + h)
+                if key not in groups:
+                    groups[key] = {'text': txt, 'bbox': bbox}
+                else:
+                    groups[key]['text'] = (groups[key]['text'] + ' ' + txt).strip()
+                    groups[key]['bbox'] = _merge_bbox(groups[key]['bbox'], bbox)  # type: ignore
+
+            # satırları yukarıdan aşağıya sırala
+            lines: List[OcrTextLine] = []
+            for (_k, v) in groups.items():
+                bb = v['bbox']  # type: ignore
+                x1, y1, x2, y2 = int(bb[0]), int(bb[1]), int(bb[2]), int(bb[3])
+                lines.append(OcrTextLine(text=str(v['text']), bbox=(x1, y1, x2, y2)))
+            lines.sort(key=lambda ln: ln.bbox[1])
+
+            # debug metin
             text_debug_path = output_dir / f"{base_filename}_page_{page_num}.txt"
             with open(text_debug_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(full_text_for_debug))
-            logger.info(f"Saved debug text to {text_debug_path}")
-            # --- END SAVE DEBUG TEXT ---
+                for ln in lines:
+                    f.write(ln.text + "\n")
 
             preview_pages.append(OcrPagePreview(
                 page_number=page_num,
                 image_base64=f"data:image/png;base64,{img_str}",
-                lines=text_lines
+                lines=lines
             ))
-        
-        logger.info(f"Successfully created preview for {len(preview_pages)} pages.")
-        return OcrPreviewResponse(pages=preview_pages)
 
+        logger.info(f"Tesseract OCR preview generated for {len(preview_pages)} pages.")
+        return OcrPreviewResponse(pages=preview_pages)
     except Exception as e:
         logger.error(f"Failed to process PDF preview for {file_name}: {e}", exc_info=True)
         raise

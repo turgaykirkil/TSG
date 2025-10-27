@@ -1,0 +1,24 @@
+services:
+  pgdev:
+    image: postgis/postgis:14-3.4
+    container_name: sicilius-pgdev
+    environment:
+      - POSTGRES_USER=sicilius
+      - POSTGRES_PASSWORD=${DBPW}
+      - POSTGRES_DB=sicilius
+    ports:
+      - "55432:5432"
+    volumes:
+      - ./pgdev-data:/var/lib/postgresql/data
+    restart: unless-stopped
+  backend:
+    ports:
+      - "5001:5001"
+    environment:
+      - TSG_ENVIRONMENT=development
+      - TSG_DEBUG=True
+      - TSG_CORS_ORIGINS=["http://localhost:3000","http://backend:5001","http://localhost:5001"]
+      - TSG_AUTH_MODE=local
+      - TSG_DATABASE_URL=postgresql://sicilius:${DBPW}@pgdev:5432/sicilius
+    depends_on:
+      - pgdev

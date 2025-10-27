@@ -7,7 +7,7 @@ from typing import Any
 from datetime import datetime
 import secrets
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Response, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -117,6 +117,7 @@ def login_access_token(
 @router.post("/login")
 def login(
     response: Response,
+    request: Request,
     db: Session = Depends(deps.get_db),
     form_data: OAuth2PasswordRequestForm = Depends(),
 ) -> Any:
@@ -171,17 +172,30 @@ def login(
         except Exception:
             raise HTTPException(status_code=401, detail="Incorrect email or password")
 
-    response.set_cookie(
-        "auth_token",
-        value=access_token,
-        httponly=True,
-        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        expires=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        path="/",
-        samesite="lax",
-        secure=settings.SECURE_COOKIE,
-        domain=getattr(settings, "COOKIE_DOMAIN", None),
-    )
+    _origin = request.headers.get("origin") or ""
+    _samesite = "lax" if _origin.endswith("sicilius.com.tr") else "none"
+    if _samesite == "none":
+        # Use CHIPS Partitioned cookie for third-party context (localhost dev)
+        max_age = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        from email.utils import formatdate
+        expires_http = formatdate(usegmt=True)
+        domain_attr = f"; Domain={getattr(settings, 'COOKIE_DOMAIN', '')}" if getattr(settings, "COOKIE_DOMAIN", None) else ""
+        cookie_val = (
+            f"auth_token={access_token}; Path=/; Max-Age={max_age}; HttpOnly; Secure; SameSite=None; Partitioned" + domain_attr
+        )
+        response.headers.append("Set-Cookie", cookie_val)
+    else:
+        response.set_cookie(
+            "auth_token",
+            value=access_token,
+            httponly=True,
+            max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            expires=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            path="/",
+            samesite=_samesite,
+            secure=settings.SECURE_COOKIE,
+            domain=getattr(settings, "COOKIE_DOMAIN", None),
+        )
 
     return {"msg": "Login successful"}
 
@@ -191,6 +205,7 @@ def logout(response: Response):
     """
     Logout user by deleting the auth cookie.
     """
+    # Delete standard cookie
     response.delete_cookie(
         "auth_token",
         path="/",
@@ -198,6 +213,12 @@ def logout(response: Response):
         secure=settings.SECURE_COOKIE,
         domain=getattr(settings, "COOKIE_DOMAIN", None),
         httponly=True,
+    )
+    # Also delete possible Partitioned variant
+    domain_attr = f"; Domain={getattr(settings, 'COOKIE_DOMAIN', '')}" if getattr(settings, "COOKIE_DOMAIN", None) else ""
+    response.headers.append(
+        "Set-Cookie",
+        f"auth_token=deleted; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=None; Partitioned" + domain_attr,
     )
     return {"msg": "Successfully logged out"}
 
@@ -505,6 +526,7 @@ def invite_accept(body: InviteToken, db: Session = Depends(deps.get_db)):
 def invite_complete(
     response: Response,
     body: InviteComplete,
+    request: Request,
     db: Session = Depends(deps.get_db),
 ):
     invite = (
@@ -539,6 +561,8 @@ def invite_complete(
         access_token = security.create_access_token(
             user.id, expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         )
+        _origin = request.headers.get("origin") or ""
+        _samesite = "lax" if _origin.endswith("sicilius.com.tr") else "none"
         response.set_cookie(
             "auth_token",
             value=access_token,
@@ -546,7 +570,7 @@ def invite_complete(
             max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
             expires=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
             path="/",
-            samesite="lax",
+            samesite=_samesite,
             secure=settings.SECURE_COOKIE,
             domain=getattr(settings, "COOKIE_DOMAIN", None),
         )
@@ -699,6 +723,7 @@ class SignupProxyRequest(BaseModel):
 def signup_proxy(
     response: Response,
     body: SignupProxyRequest,
+    request: Request,
     db: Session = Depends(deps.get_db),
 ):
     sec = _get_security_settings(db)
@@ -737,17 +762,27 @@ def signup_proxy(
             access_token = security.create_access_token(
                 user.id, expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
             )
-            response.set_cookie(
-                "auth_token",
-                value=access_token,
-                httponly=True,
-                max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-                expires=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-                path="/",
-                samesite="lax",
-                secure=settings.SECURE_COOKIE,
-                domain=getattr(settings, "COOKIE_DOMAIN", None),
-            )
+            _origin = request.headers.get("origin") or ""
+            _samesite = "lax" if _origin.endswith("sicilius.com.tr") else "none"
+            if _samesite == "none":
+                max_age = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+                domain_attr = f"; Domain={getattr(settings, 'COOKIE_DOMAIN', '')}" if getattr(settings, "COOKIE_DOMAIN", None) else ""
+                cookie_val = (
+                    f"auth_token={access_token}; Path=/; Max-Age={max_age}; HttpOnly; Secure; SameSite=None; Partitioned" + domain_attr
+                )
+                response.headers.append("Set-Cookie", cookie_val)
+            else:
+                response.set_cookie(
+                    "auth_token",
+                    value=access_token,
+                    httponly=True,
+                    max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                    expires=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                    path="/",
+                    samesite=_samesite,
+                    secure=settings.SECURE_COOKIE,
+                    domain=getattr(settings, "COOKIE_DOMAIN", None),
+                )
         return {"msg": "User created"}
 
     admin_key = settings.supabase_service_role_key

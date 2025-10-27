@@ -26,7 +26,7 @@ const nextConfig = {
       {
         // Only proxy backend API (FastAPI) which is mounted under /api/v1
         source: '/api/v1/:path*',
-        destination: 'http://localhost:5001/api/v1/:path*',
+        destination: 'http://backend:5001/api/v1/:path*',
       },
     ];
   },
@@ -40,8 +40,8 @@ const nextConfig = {
       "style-src 'self' 'unsafe-inline';",
       "img-src 'self' data: blob:;",
       "font-src 'self' data:;",
-      // Backend ve dev sunucularına bağlantı izni
-      "connect-src 'self' http://localhost:5001 http://localhost:3000 http://localhost:3001 ws://localhost:3000 ws://localhost:3001;",
+      // Backend ve dev/prod sunucularına bağlantı izni
+      "connect-src 'self' https://api.sicilius.com.tr https://sicilius.com.tr;",
       "frame-ancestors 'none';",
       "base-uri 'self';",
       "form-action 'self';",
@@ -62,8 +62,6 @@ const nextConfig = {
           { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
           { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
           { key: 'Cross-Origin-Embedder-Policy', value: 'require-corp' },
-          // HSTS: prod ortamında etkilidir
-          { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
           // CSP en sonda
           { key: 'Content-Security-Policy', value: csp },
         ],
