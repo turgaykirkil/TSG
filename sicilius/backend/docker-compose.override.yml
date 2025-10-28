@@ -22,4 +22,3 @@ services:
       - TSG_DATABASE_URL=postgresql://sicilius:${DBPW}@pgdev:5432/sicilius
     depends_on:
       - pgdev
-      - minio
