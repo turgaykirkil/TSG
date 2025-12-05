@@ -100,7 +100,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         role = typeof rawRole === 'string' ? rawRole : (rawRole?.value || rawRole?.name);
         setSession({ user: me.data, status: 'authenticated' });
       } catch {
-        await checkAuth();
+        // Cookie temelli oturum başarısız ise token fallback dene
+        try {
+          const tokenResp = await api.post('/api/v1/auth/login/access-token', params, {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          });
+          const accessToken = (tokenResp as any)?.data?.access_token;
+          if (accessToken && typeof window !== 'undefined') {
+            localStorage.setItem('accessToken', accessToken);
+          }
+          const me2 = await api.get(API_ENDPOINTS.USERS.ME);
+          const rawRole2 = me2?.data?.role as any;
+          role = typeof rawRole2 === 'string' ? rawRole2 : (rawRole2?.value || rawRole2?.name);
+          setSession({ user: me2.data, status: 'authenticated' });
+        } catch (e) {
+          await checkAuth();
+          throw e;
+        }
       }
       const callbackUrl = searchParams.get('callbackUrl');
       const defaultTarget = role === 'admin' ? '/admin' : '/dashboard';

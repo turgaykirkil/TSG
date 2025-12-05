@@ -50,15 +50,17 @@ engine = create_engine(
 # Ensure ORM resolves unqualified names to 'app' first on Postgres
 if DATABASE_URL_STR.startswith("postgres") or ":5432/" in DATABASE_URL_STR or "supabase" in DATABASE_URL_STR:
     @event.listens_for(engine, "connect")
-    def _set_search_path(dbapi_conn, conn_record):
+    def _configure_pg_connection(dbapi_conn, conn_record):
         try:
             cur = dbapi_conn.cursor()
             try:
-                cur.execute("SET search_path TO app, public")
+                cur.execute("SET search_path TO public")
+                cur.execute("CREATE EXTENSION IF NOT EXISTS postgis")
+                cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
             finally:
                 cur.close()
         except Exception:
-            # Ignore if not a Postgres connection
+            # Ignore if not a Postgres connection or lacks privilege; startup will surface issues
             pass
 
 # Create a configured "Session" class

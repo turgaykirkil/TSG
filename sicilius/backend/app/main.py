@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.db.session import engine, Base
 from app import models  # Bütün modelleri Base'e kaydetmek için
 from app.api import upload_api
+from app.core.rate_limit import limiter, RateLimitExceeded, _rate_limit_exceeded_handler
 
 # --- Logging Configuration ---
 # LOG_LEVEL can be set to DEBUG/INFO/WARNING/ERROR. Default: WARNING
@@ -41,8 +42,6 @@ for noisy_logger in [
     "httpcore",
     "anyio",
     "asyncio",
-    "supabase",
-    "supabase_auth",
     "sqlalchemy.engine",
 ]:
     try:
@@ -97,6 +96,10 @@ app = FastAPI(
     on_startup=[startup_event],
     on_shutdown=[shutdown_event],
 )
+
+# Add rate limiter state
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Ensure scheme/host are derived from reverse proxy headers (X-Forwarded-Proto, etc.)
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
@@ -156,6 +159,10 @@ origins = [str(origin) for origin in settings.CORS_ORIGINS]
 # Add frontend origin as a fallback to ensure it's always allowed.
 if "http://localhost:3000" not in origins:
     origins.append("http://localhost:3000")
+# Also ensure production domains are allowed even if env parsing fails
+for _o in ("https://sicilius.com.tr", "https://www.sicilius.com.tr"):
+    if _o not in origins:
+        origins.append(_o)
 
 if origins:
     app.add_middleware(

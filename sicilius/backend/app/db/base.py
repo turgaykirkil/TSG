@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, DateTime, func
+from sqlalchemy import create_engine, Column, Integer, DateTime, func, MetaData
 from sqlalchemy.ext.declarative import declarative_base, declared_attr
 from sqlalchemy.orm import sessionmaker, scoped_session
 from contextlib import contextmanager
@@ -33,7 +33,7 @@ class CustomBase:
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
 
 # Ana Base'imizi, ortak sütunları içeren CustomBase'den türetiyoruz
-Base = declarative_base(cls=CustomBase)
+Base = declarative_base(cls=CustomBase, metadata=MetaData(schema="app"))
 
 def get_db():
     """Dependency for getting database session"""
@@ -61,7 +61,7 @@ def init_db():
     # Import all models here to ensure they are registered with SQLAlchemy
     from app.models import (
         User, Company, Gazette, GazetteEntry, Person, 
-        CompanyPersonRelation, FileUpload, JobHistory, Announcement
+        CompanyPersonRelation, FileUpload, JobHistory, Announcement, CompanyError
     )
     
     # Create all tables

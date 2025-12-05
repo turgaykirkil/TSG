@@ -18,12 +18,11 @@ from app.core.config import settings
 from app.core.security import get_password_hash
 from app.schemas import user as user_schema, token as token_schema, msg as msg_schema
 from pydantic import BaseModel, EmailStr, Field
-from supabase import create_client
-import httpx
 import re
 import hashlib
 from app.models.app_setting import AppSetting
 from app.services import email_service
+from app.core.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -59,131 +58,101 @@ def _validate_password_policy(new_password: str, policy: dict | None) -> None:
 def login_access_token(
     db: Session = Depends(deps.get_db), form_data: OAuth2PasswordRequestForm = Depends()
 ) -> Any:
-    """
-    Issue an access token for future requests.
-    - local mode: legacy DB user auth
-    - supabase mode: proxy to Supabase Auth and return Supabase access_token
-    """
-    if getattr(settings, "auth_mode", "local").lower() != "supabase":
-        user = crud.user.authenticate(
-            db, email=form_data.username, password=form_data.password
+    """Yerel kullanıcı doğrulaması yaparak erişim token'ı üretir."""
+    logger.info("[login/access-token] email=%s", form_data.username)
+    user = crud.user.authenticate(
+        db, email=form_data.username, password=form_data.password
+    )
+    if not user:
+        logger.warning("[login/access-token] user_not_found_or_bad_password email=%s", form_data.username)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect email or password",
         )
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Incorrect email or password",
-            )
-        elif not crud.user.is_active(user):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user"
-            )
-        # Ban enforcement
-        if getattr(user, "is_banned", False):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is banned")
-        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-        access_token = security.create_access_token(
-            user.id, expires_delta=access_token_expires
+    if not crud.user.is_active(user):
+        logger.warning("[login/access-token] inactive_user email=%s", form_data.username)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user"
         )
-        return {"access_token": access_token, "token_type": "bearer"}
+    if getattr(user, "is_banned", False):
+        logger.warning("[login/access-token] banned_user email=%s", form_data.username)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is banned")
 
-    # Supabase Auth mode
-    try:
-        client = create_client(settings.supabase_url, settings.supabase_key)
-        res = client.auth.sign_in_with_password({
-            "email": form_data.username,
-            "password": form_data.password,
-        })
-        if not res or not getattr(res, "session", None) or not res.session:
-            raise HTTPException(status_code=400, detail="Incorrect email or password")
-        access_token = getattr(res.session, "access_token", None)
-        if not access_token:
-            raise HTTPException(status_code=400, detail="Incorrect email or password")
-        # Ban enforcement against local user record (if exists)
-        try:
-            db_user = crud.user.get_by_email(db, email=form_data.username)
-            if db_user and getattr(db_user, "is_banned", False):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is banned")
-        except HTTPException:
-            raise
-        except Exception:
-            # If lookup fails, do not leak internal errors; allow sign-in to continue
-            pass
-        return {"access_token": access_token, "token_type": "bearer"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail="Incorrect email or password")
+    # Role-based token expiry: Admin 24h, normal user 10min
+    is_admin = crud.user.is_superuser(user)
+    token_minutes = settings.ADMIN_TOKEN_EXPIRE_MINUTES if is_admin else settings.ACCESS_TOKEN_EXPIRE_MINUTES
+    access_token_expires = timedelta(minutes=token_minutes)
+    access_token = security.create_access_token(
+        user.id, expires_delta=access_token_expires
+    )
+    logger.info("[login/access-token] success email=%s", form_data.username)
+    return {"access_token": access_token, "token_type": "bearer"}
 
 @router.post("/login")
-def login(
+@limiter.limit("10/minute")  # Max 10 login attempts per minute per IP
+async def login(
     response: Response,
     request: Request,
     db: Session = Depends(deps.get_db),
     form_data: OAuth2PasswordRequestForm = Depends(),
 ) -> Any:
-    """
-    Get access token and set it in an HTTPOnly cookie.
-    - local mode: issue our own JWT
-    - supabase mode: sign in via Supabase and set its access_token
-    """
-    if getattr(settings, "auth_mode", "local").lower() != "supabase":
-        user = crud.user.authenticate(
-            db, email=form_data.username, password=form_data.password
+    """Yerel kullanıcı girişini yapar ve HTTPOnly cookie içinde JWT döner."""
+    logger.info("[login] email=%s", form_data.username)
+    user = crud.user.authenticate(
+        db, email=form_data.username, password=form_data.password
+    )
+    if not user:
+        logger.warning("[login] user_not_found_or_bad_password email=%s", form_data.username)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect email or password",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        elif not crud.user.is_active(user):
-            raise HTTPException(status_code=400, detail="Inactive user")
-        # Ban enforcement
-        if getattr(user, "is_banned", False):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is banned")
+    if not crud.user.is_active(user):
+        logger.warning("[login] inactive_user email=%s", form_data.username)
+        raise HTTPException(status_code=400, detail="Inactive user")
+    if getattr(user, "is_banned", False):
+        logger.warning("[login] banned_user email=%s", form_data.username)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is banned")
 
-        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-        access_token = security.create_access_token(
-            user.id, expires_delta=access_token_expires
-        )
-    else:
-        try:
-            client = create_client(settings.supabase_url, settings.supabase_key)
-            res = client.auth.sign_in_with_password({
-                "email": form_data.username,
-                "password": form_data.password,
-            })
-            if not res or not getattr(res, "session", None) or not res.session:
-                raise HTTPException(status_code=401, detail="Incorrect email or password")
-            access_token = getattr(res.session, "access_token", None)
-            if not access_token:
-                raise HTTPException(status_code=401, detail="Incorrect email or password")
-            # Ban enforcement against local user record (if exists)
-            try:
-                db_user = crud.user.get_by_email(db, email=form_data.username)
-                if db_user and getattr(db_user, "is_banned", False):
-                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is banned")
-            except HTTPException:
-                raise
-            except Exception:
-                pass
-        except HTTPException:
-            raise
-        except Exception:
-            raise HTTPException(status_code=401, detail="Incorrect email or password")
+    # Role-based token expiry: Admin 24h, normal user 10min
+    is_admin = crud.user.is_superuser(user)
+    token_minutes = settings.ADMIN_TOKEN_EXPIRE_MINUTES if is_admin else settings.ACCESS_TOKEN_EXPIRE_MINUTES
+    access_token_expires = timedelta(minutes=token_minutes)
+    access_token = security.create_access_token(
+        user.id, expires_delta=access_token_expires
+    )
 
     _origin = request.headers.get("origin") or ""
-    _samesite = "lax" if _origin.endswith("sicilius.com.tr") else "none"
+    try:
+        from urllib.parse import urlparse
+
+        host = urlparse(_origin).hostname or ""
+    except Exception:
+        host = ""
+    if host.endswith("sicilius.com.tr") or host in {"localhost", "127.0.0.1"}:
+        _samesite = "lax"
+    else:
+        _samesite = "none"
+    logger.info("[login] origin=%s samesite=%s cookie_domain=%s secure=%s", _origin, _samesite, getattr(settings, "COOKIE_DOMAIN", None), settings.SECURE_COOKIE)
     if _samesite == "none":
-        # Use CHIPS Partitioned cookie for third-party context (localhost dev)
+        # Use CHIPS-style cookie for third-party context (localhost dev)
         max_age = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
-        from email.utils import formatdate
-        expires_http = formatdate(usegmt=True)
-        domain_attr = f"; Domain={getattr(settings, 'COOKIE_DOMAIN', '')}" if getattr(settings, "COOKIE_DOMAIN", None) else ""
-        cookie_val = (
-            f"auth_token={access_token}; Path=/; Max-Age={max_age}; HttpOnly; Secure; SameSite=None; Partitioned" + domain_attr
-        )
-        response.headers.append("Set-Cookie", cookie_val)
+        parts = [
+            f"auth_token={access_token}",
+            "Path=/",
+            f"Max-Age={max_age}",
+            "HttpOnly",
+            "SameSite=None",
+        ]
+        if settings.SECURE_COOKIE:
+            parts.append("Secure")
+            parts.append("Partitioned")
+        domain = getattr(settings, "COOKIE_DOMAIN", None)
+        if domain:
+            parts.append(f"Domain={domain}")
+        response.headers.append("Set-Cookie", "; ".join(parts))
+        logger.info("[login] set-cookie header appended secure=%s", settings.SECURE_COOKIE)
     else:
         response.set_cookie(
             "auth_token",
@@ -196,6 +165,7 @@ def login(
             secure=settings.SECURE_COOKIE,
             domain=getattr(settings, "COOKIE_DOMAIN", None),
         )
+        logger.info("[login] set-cookie via response.set_cookie samesite=%s", _samesite)
 
     return {"msg": "Login successful"}
 
@@ -262,44 +232,15 @@ def register_user(
     db: Session = Depends(deps.get_db), 
     user_in: user_schema.UserCreate
 ) -> Any:
-    """
-    Create new user.
-    - local mode: create row in our DB
-    - supabase mode: sign up via Supabase, then return a projection compatible with User schema
-    """
-    if getattr(settings, "auth_mode", "local").lower() != "supabase":
-        user = crud.user.get_by_email(db, email=user_in.email)
-        if user:
-            raise HTTPException(
-                status_code=400,
-                detail="The user with this username already exists in the system.",
-            )
-        user = crud.user.create(db, obj_in=user_in)
-        return user
-
-    # Supabase mode
-    client = create_client(settings.supabase_url, settings.supabase_key)
-    try:
-        res = client.auth.sign_up({
-            "email": str(user_in.email),
-            "password": user_in.password,
-        })
-        if not res or not getattr(res, "user", None):
-            raise HTTPException(status_code=400, detail="Could not sign up user")
-        # Build a lightweight response matching User schema
-        supa_user = res.user
-        from uuid import UUID
-        return user_schema.User(
-            id=UUID(str(supa_user.id)),
-            email=str(user_in.email),
-            full_name=user_in.full_name,
-            is_active=True,
-            role="user",
+    """Yeni kullanıcıyı yerel veritabanında oluşturur."""
+    user = crud.user.get_by_email(db, email=user_in.email)
+    if user:
+        raise HTTPException(
+            status_code=400,
+            detail="The user with this username already exists in the system.",
         )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail="Could not sign up user")
+    user = crud.user.create(db, obj_in=user_in)
+    return user
 
 @router.post("/change-password", response_model=msg_schema.Msg)
 def change_password(
@@ -308,11 +249,7 @@ def change_password(
     current_user: models.User = Depends(deps.get_current_user),
     body: user_schema.PasswordChange,
 ) -> Any:
-    """
-    Change current user's password.
-    - local mode: verify current password against local DB, then update hash
-    - supabase mode: verify by sign_in_with_password, then update via Admin API (service role)
-    """
+    """Kullanıcının mevcut parolasını doğrulayıp yenisiyle günceller."""
     # Basic policy: disallow same password
     if body.current_password == body.new_password:
         raise HTTPException(status_code=400, detail="New password must be different from current password")
@@ -320,55 +257,14 @@ def change_password(
     sec = _get_security_settings(db)
     _validate_password_policy(body.new_password, sec)
 
-    if getattr(settings, "auth_mode", "local").lower() != "supabase":
-        # Local mode: verify and update
-        if not crud.user.authenticate(db, email=current_user.email, password=body.current_password):
-            raise HTTPException(status_code=400, detail="Current password is incorrect")
-        crud.user.update(db, db_obj=current_user, obj_in={"password": body.new_password})
-        return {"msg": "Password changed successfully"}
-
-    # Supabase mode
-    client = create_client(settings.supabase_url, settings.supabase_key)
-    # 1) Verify current password at Supabase
-    try:
-        res = client.auth.sign_in_with_password({
-            "email": current_user.email,
-            "password": body.current_password,
-        })
-        if not res or not getattr(res, "session", None):
-            raise HTTPException(status_code=400, detail="Current password is incorrect")
-    except HTTPException:
-        raise
-    except Exception:
-        # Hide internals
+    if not crud.user.authenticate(db, email=current_user.email, password=body.current_password):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
-
-    # 2) Update password via Admin API (service role)
-    admin_key = settings.supabase_service_role_key
-    if not admin_key:
-        raise HTTPException(status_code=500, detail="Supabase service role key is not configured")
-
-    url = f"{settings.supabase_url}/auth/v1/admin/users/{current_user.id}"
-    headers = {
-        "apikey": admin_key,
-        "Authorization": f"Bearer {admin_key}",
-        "Content-Type": "application/json",
-    }
-    payload = {"password": body.new_password}
-    try:
-        with httpx.Client(timeout=15.0) as http:
-            resp = http.put(url, headers=headers, json=payload)
-            if resp.status_code // 100 != 2:
-                raise HTTPException(status_code=400, detail="Could not change password")
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=400, detail="Could not change password")
-
+    crud.user.update(db, db_obj=current_user, obj_in={"password": body.new_password})
     return {"msg": "Password changed successfully"}
 
 @router.post("/password-recovery/{email}", response_model=msg_schema.Msg)
-def recover_password(email: str, db: Session = Depends(deps.get_db)) -> Any:
+@limiter.limit("5/hour")  # Max 5 password recovery attempts per hour per IP
+async def recover_password(email: str, db: Session = Depends(deps.get_db),request: Request = None) -> Any:
     """
     Password Recovery
     """
@@ -427,8 +323,10 @@ class InviteComplete(BaseModel):
 
 
 @router.post("/invite", summary="Create a monthly invitation for a new user")
-def invite_user(
+@limiter.limit("5/hour")  # Max 5 invites per hour per IP
+async def invite_user(
     req: InviteRequest,
+    request: Request,
     db: Session = Depends(deps.get_db),
     current_user: models.User = Depends(deps.get_current_active_user),
 ):
@@ -466,21 +364,27 @@ def invite_user(
             raise HTTPException(status_code=403, detail="Banlanmış kullanıcıya davet gönderilemez")
         raise HTTPException(status_code=409, detail="Bu e-posta ile zaten bir hesap mevcut")
 
-    # Monthly invite limit per user (admins are exempt)
+    # Monthly invite limit per user (admins have higher/unlimited limit)
     month_key = datetime.utcnow().strftime("%Y-%m")
-    # Admin muafiyeti enum tabanlı kontrol ile sağlanır
-    if not crud.user.is_superuser(current_user):
-        used_count = (
-            db.query(models.UserInvite)
-            .filter(
-                models.UserInvite.inviter_user_id == current_user.id,
-                models.UserInvite.invited_month_key == month_key,
-            )
-            .count()
+    
+    used_count = (
+        db.query(models.UserInvite)
+        .filter(
+            models.UserInvite.inviter_user_id == current_user.id,
+            models.UserInvite.invited_month_key == month_key,
         )
-        monthly_limit = int(us.get("monthly_invite_limit_per_admin", 1) or 1)
-        if used_count >= monthly_limit:
-            raise HTTPException(status_code=400, detail=f"Aylık davet limitine ulaşıldı ({monthly_limit}).")
+        .count()
+    )
+    
+    if crud.user.is_superuser(current_user):
+        # Admin user - effectively unlimited
+        monthly_limit = int(us.get("monthly_invite_limit_per_admin", 999999) or 999999)
+    else:
+        # Regular user - limited to 1 per month by default
+        monthly_limit = int(us.get("monthly_invite_limit_per_user", 1) or 1)
+    
+    if used_count >= monthly_limit:
+        raise HTTPException(status_code=400, detail=f"Aylık davet limitine ulaşıldı ({monthly_limit}).")
 
     token = secrets.token_urlsafe(32)
     invite = models.UserInvite(

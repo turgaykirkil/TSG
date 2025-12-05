@@ -1,13 +1,7 @@
-from fastapi import HTTPException, Depends
-from supabase import create_client, Client
-from app.core.config import settings
+from fastapi import HTTPException
+
 from app.db.session import SessionLocal
 
-def get_supabase_client() -> Client:
-    if not settings.supabase_url or not settings.supabase_service_role_key:
-        raise HTTPException(status_code=500, detail="Supabase URL or Service Role Key not configured")
-
-    return create_client(settings.supabase_url, settings.supabase_service_role_key)
 
 def get_db():
     db = SessionLocal()
@@ -15,3 +9,8 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def get_supabase_client():
+    """Supabase entegrasyonu devre dışı bırakılmıştır."""
+    raise HTTPException(status_code=503, detail="Supabase integration disabled")

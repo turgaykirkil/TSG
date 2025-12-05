@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from supabase import Client
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Any, Optional, Set, Tuple, Iterable
 from pydantic import BaseModel, Field
 import os
 import requests
@@ -11,11 +10,23 @@ import unicodedata
 import logging
 import time
 import threading
+import uuid
 from collections import deque
-from app.core.dependencies import get_supabase_client
-from app.api.deps import enforce_daily_limit
+
+from sqlalchemy import or_, and_, func, text, cast, Text
+from sqlalchemy.orm import Session, joinedload
+
+from geoalchemy2.shape import to_shape
+
+from app.api.deps import enforce_daily_limit, get_db
 from app.core.config import settings
 from app.core.search_tokens import tr_normalize_py as _tr_normalize_py, tr_letters_digits as _tr_letters_digits
+from app.models.company import Company
+from app.models.person import Person
+from app.models.announcement import Announcement
+from app.models.ocr_result import OcrResult
+from app.models.gazette import GazetteEntry
+from app.models.relation import CompanyPersonRelation
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -255,6 +266,7 @@ class SearchResult(BaseModel):
     same_address_companies: List[Dict[str, Any]] = Field(default_factory=list)
     related_persons: List[Dict[str, Any]] = Field(default_factory=list)
     ocr_matches: List[Dict[str, Any]] = Field(default_factory=list)
+    history: List[Dict[str, Any]] = Field(default_factory=list)
     total_matches: int = 0
 
 # Config visibility
@@ -275,2886 +287,1771 @@ def tr_letters_digits(s: Optional[str]) -> str:
     """Normalize et ve harf/rakam dışını çıkar. Maskeli OCR metinleri için faydalı."""
     return _tr_letters_digits(s)
 
-def search_all_related(query: str, supabase: Client) -> SearchResult:
-    """
-    Kapsamlı ve Türkçe aksan duyarsız arama.
-    1) Şirketleri, kişileri ve OCR/duyuru/gazete metinlerini tarar.
-    2) İlişki geçişleri: kişi->şirket ve şirket->kişi, aynı adres vs.
-    3) Unaccent generated kolonları varsa onları kullanır; yoksa Python tarafında normalize ederek filtreler.
-    """
-    result = SearchResult()
-    total_companies_pre_count: Optional[int] = None  # dilimlemeden önce toplam şirket sayısı
-    q_raw = (query or "").strip()
-    q_norm = tr_normalize_py(q_raw)
-    tokens = [t for t in re.split(r"\s+", q_norm) if t]
-    tokens_letters = [tr_letters_digits(t) for t in tokens if tr_letters_digits(t)]
-    # Sayı odaklı aramalar için rakamları soy: MERSİS alt-dize aramasını hızlandırmak için
-    q_digits = re.sub(r"\D+", "", (query or ""))
 
-    # Hızlı yol: Saf sayısal ve yeterince uzun sorgu ise doğrudan OCR (mersis_no, original_text) ve kimlik numarası taraması
-    try:
-        # Tüm sorgu sadece rakamlardan oluşuyorsa ve uzunluğu >=6 ise hızlı yol devreye girsin.
-        pure_digits = bool(re.fullmatch(r"\d{6,}", q_raw))
-        if pure_digits:
-            # Skor tabloları ve kaynak bayrakları
-            score_map: Dict[str, int] = {}
-            def bump(cid: str, val: int):
-                prev = score_map.get(cid, 0)
-                if val > prev:
-                    score_map[cid] = val
+_ADDRESS_STOPWORDS = {
+    "mah",
+    "mahalle",
+    "mahallesi",
+    "cad",
+    "cadde",
+    "bul",
+    "bulvar",
+    "bulvari",
+    "sok",
+    "sokak",
+    "sk",
+    "no",
+    "ic",
+    "iç",
+    "kapi",
+    "kapı",
+    "daire",
+    "blok",
+    "kat",
+    "apt",
+    "ap",
+    "site",
+    "sit",
+    "merkez",
+    "il",
+    "ilce",
+    "ilçesi",
+}
 
-            # 0) Companies: mersis_number ve sicil_no içinde alt-dize
-            comp_hits_ids: Set[str] = set()
-            try:
-                c_mersis = (
-                    supabase.postgrest.schema('app').table("companies").select("id, unvan, mersis_number")
-                    .like("mersis_number", f"%{q_digits}%").limit(500).execute()
-                ).data or []
-                for r in c_mersis:
-                    cid = r.get("id")
-                    if cid:
-                        comp_hits_ids.add(cid)
-                        bump(cid, 90)  # companies.mersis_number eşleşmesi: güçlü
-            except Exception:
-                pass
-            try:
-                c_sicil = (
-                    supabase.postgrest.schema('app').table("companies").select("id, unvan, sicil_no")
-                    .like("sicil_no", f"%{q_digits}%").limit(500).execute()
-                ).data or []
-                for r in c_sicil:
-                    cid = r.get("id")
-                    if cid:
-                        comp_hits_ids.add(cid)
-                        bump(cid, max(score_map.get(cid, 0), 70))  # sicil_no: orta-güçlü
-            except Exception:
-                pass
 
-            # 1) OCR'da mersis_no ve original_text
-            ocr_company_ids: Set[str] = set()
-            ocr_mersis_map: Dict[str, str] = {}
-            ocr_trade_map: Dict[str, str] = {}
-            try:
-                ocr_rows = (
-                    supabase
-                    .postgrest.schema('app').table("ocr_results")
-                    .select("id, company_id, mersis_no, trade_name")
-                    .or_(f"mersis_no.like.%{q_digits}%,original_text.like.%{q_digits}%")
-                    .limit(2000)
-                    .execute()
-                ).data or []
-            except Exception:
-                ocr_rows = []
+_PERSON_NAME_SKIP_KEYWORDS = {
+    "kimlik",
+    "mersis",
+    "sicil",
+    "uyruk",
+    "adres",
+    "madde",
+    "karar",
+    "şirket",
+    "sirket",
+    "limited",
+    "anonim",
+    "ticaret",
+    "no",
+    "say",
+    "t.c",
+    "t c",
+}
 
-            if not ocr_rows:
-                # Python tarafı fallback — Supabase'in varsayılan 1000 satır limitini aşmak için sayfalama
-                try:
-                    batch = 1000
-                    max_pages = 20  # en fazla 20k satır tarar
-                    page = 0
-                    while page < max_pages:
-                        start = page * batch
-                        end = start + batch - 1
-                        q = (
-                            supabase
-                            .postgrest.schema('app').table("ocr_results")
-                            .select("id, company_id, mersis_no, trade_name, original_text")
-                            .order("id", desc=True)
-                            .range(start, end)
-                            .execute()
-                        )
-                        rows = q.data or []
-                        if not rows:
-                            break
-                        for r in rows:
-                            cid = r.get("company_id")
-                            if not cid:
-                                continue
-                            text = r.get("original_text") or ""
-                            mers = r.get("mersis_no") or ""
-                            if (q_digits in text) or (q_digits in mers):
-                                ocr_company_ids.add(cid)
-                                if r.get("mersis_no") and not ocr_mersis_map.get(cid):
-                                    ocr_mersis_map[cid] = r["mersis_no"]
-                                    bump(cid, max(score_map.get(cid, 0), 80))
-                                if q_digits in text:
-                                    bump(cid, max(score_map.get(cid, 0), 60))
-                                if r.get("trade_name") and not ocr_trade_map.get(cid):
-                                    ocr_trade_map[cid] = r["trade_name"]
-                        if len(rows) < batch:
-                            break
-                        page += 1
-                except Exception:
-                    pass
-            else:
-                for r in ocr_rows:
-                    cid = r.get("company_id")
-                    if cid:
-                        ocr_company_ids.add(cid)
-                        if r.get("mersis_no") and not ocr_mersis_map.get(cid):
-                            ocr_mersis_map[cid] = r["mersis_no"]
-                            bump(cid, max(score_map.get(cid, 0), 80))  # OCR.mersis_no
-                        # original_text içinde sayısal alt-dize eşleşmesini doğrudan tespit edemiyoruz;
-                        # ancak bu sorgu zaten OR ile geldiği için en az orta skor veriyoruz.
-                        bump(cid, max(score_map.get(cid, 0), 60))  # OCR.original_text
-                        if r.get("trade_name") and not ocr_trade_map.get(cid):
-                            ocr_trade_map[cid] = r.get("trade_name")
 
-            # Şirketleri getir: tüm kaynaklardan toplanan adaylar üzerinden (skor map anahtarlarının birliği)
-            companies_fast: List[Dict[str, Any]] = []
+_PERSON_NAME_FORBIDDEN_TOKENS = {
+    "TURKIYE",
+    "TÜRKİYE",
+    "CUMHURIYETI",
+    "CUMHURİYETİ",
+    "UYRUK",
+    "UYRUKLU",
+    "KIMLIK",
+    "KİMLİK",
+    "MERSIS",
+    "MERSİS",
+    "NO",
+    "SAYI",
+    "SAYISI",
+    "ADRES",
+    "ADRESINDE",
+    "ADRESİNDE",
+    "IKAMET",
+    "İKAMET",
+    "EDEN",
+    "EDEN,",
+    "MUDUR",
+    "MÜDÜR",
+    "SEÇILMISTIR",
+    "SEÇİLMİŞTİR",
+    "YETKI",
+    "YETKİ",
+    "SEKLI",
+    "ŞEKLİ",
+    "MÜNFERIDEN",
+    "MÜNFERİDEN",
+    "TEMSILE",
+    "TEMSİLE",
+    "YÜRÜTÜLÜR",
+    "YÜRÜTÜLÜR.",
+    "ŞİRKETİN",
+    "SIRKETIN",
+    "LIMITED",
+    "LİMİTED",
+    "ANONIM",
+    "ANONİM",
+    "ŞIRKETİ",
+    "ŞİRKETİ",
+    "SIRKETI",
+    "ŞİRKET",
+    "SIRKET",
+    "VE",
+    "ILE",
+    "İLE",
+    "MADDE",
+    "KARAR",
+}
 
-            # Kişiler: kimlik numarası alt-dize
-            persons_fast: List[Dict[str, Any]] = []
-            try:
-                persons_fast = (
-                    supabase.postgrest.schema('app').table("persons").select("*").like("nationality_id", f"%{q_digits}%").limit(500).execute()
-                ).data or []
-            except Exception:
-                pass
 
-            # 2.5) Kişiler -> ilişkili şirketlere düşük-orta skor ver
-            try:
-                if persons_fast:
-                    pids = [p.get("id") for p in persons_fast if p.get("id")]
-                    if pids:
-                        rels = (
-                            supabase
-                            .postgrest.schema('app').table("company_person_relations")
-                            .select("company_id, person_id")
-                            .in_("person_id", pids)
-                            .limit(5000)
-                            .execute()
-                        ).data or []
-                        for r in rels:
-                            cid = r.get("company_id")
-                            if cid:
-                                bump(cid, max(score_map.get(cid, 0), 50))
-            except Exception:
-                pass
+def _normalize_address_for_compare(address: Optional[str]) -> Optional[str]:
+    if not address:
+        return None
+    normalized = _normalize_text_for_compare(address)
+    return normalized or None
 
-            # 2.6) 11 haneli kimlik için OCR masked_ids üzerinden aday şirketleri bul (maskeleri türet)
-            try:
-                if len(q_digits) == 11:
-                    def gen_masks(tckn: str) -> List[str]:
-                        out = []
-                        n = len(tckn)
-                        for pre in range(1, 5):
-                            for suf in range(1, 4):
-                                if pre + suf < n:
-                                    stars = n - (pre + suf)
-                                    out.append(tckn[:pre] + ("*" * stars) + tckn[-suf:])
-                        # tipik maske öne al
-                        pref = tckn[:3] + ("*" * 6) + tckn[-2:]
-                        if pref not in out:
-                            out.insert(0, pref)
-                        return out[:8]  # ilk 8 varyant ile sınırla
-                    masks = gen_masks(q_digits)
-                    ocr_mask_ids: Set[str] = set()
-                    for msk in masks:
-                        try:
-                            r1 = (
-                                supabase
-                                .postgrest.schema('app').table("ocr_results")
-                                .select("company_id, masked_ids")
-                                .filter("masked_ids", "cs", json.dumps([msk]))
-                                .limit(500)
-                                .execute()
-                            ).data or []
-                            for r in r1:
-                                cid = r.get("company_id")
-                                if cid:
-                                    ocr_mask_ids.add(cid)
-                            r2 = (
-                                supabase
-                                .postgrest.schema('app').table("ocr_results")
-                                .select("company_id, persons")
-                                .filter("persons", "cs", json.dumps([{"masked_ids": msk}]))
-                                .limit(500)
-                                .execute()
-                            ).data or []
-                            for r in r2:
-                                cid = r.get("company_id")
-                                if cid:
-                                    ocr_mask_ids.add(cid)
-                        except Exception:
-                            continue
-                    for cid in ocr_mask_ids:
-                        bump(cid, max(score_map.get(cid, 0), 70))  # OCR.masked_ids: güçlü-orta
-            except Exception:
-                pass
 
-            # Sonucu topla ve dön
-            # 2.7) Aday şirketleri birleştir ve getir
-            try:
-                candidate_ids: Set[str] = set(score_map.keys())
-                # Eğer yalnız OCR company_id'leri varsa ve skor yazılmadıysa yine de ekle
-                candidate_ids.update(ocr_company_ids)
-                if candidate_ids:
-                    comp_resp2 = (
-                        supabase
-                        .postgrest.schema('app').table("companies")
-                        .select("*")
-                        .in_("id", list(candidate_ids))
-                        .limit(min(2000, len(candidate_ids)))
-                        .execute()
-                    )
-                    fetched2 = comp_resp2.data or []
-                else:
-                    fetched2 = []
-            except Exception:
-                fetched2 = []
+def _normalize_whitespace_lower(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    collapsed = " ".join(str(value).strip().split())
+    if not collapsed:
+        return None
+    return collapsed.lower()
 
-            fetched2_map = {c.get("id"): c for c in fetched2 if isinstance(c, dict) and c.get("id")}
-            for cid in (candidate_ids if 'candidate_ids' in locals() else set()):
-                if cid in fetched2_map:
-                    companies_fast.append(dict(fetched2_map[cid]))
-                else:
-                    # Minimal obje (nadiren companies'de yoksa)
-                    companies_fast.append({
-                        "id": cid,
-                        "unvan": ocr_trade_map.get(cid),
-                        "unvan_ocr": ocr_trade_map.get(cid),
-                        "mersis_number_ocr": ocr_mersis_map.get(cid),
-                    })
 
-            # 3) match_strength alanını set et ve sırala
-            for obj in companies_fast:
-                cid = obj.get("id")
-                if cid:
-                    obj["match_strength"] = score_map.get(cid, obj.get("match_strength", 0))
-            companies_fast.sort(key=lambda x: x.get("match_strength", 0), reverse=True)
-            total_companies_pre = len(companies_fast)
-            companies_fast = companies_fast[:MAX_COMPANIES]
+def _is_plausible_address_line(value: Optional[str]) -> bool:
+    if not value:
+        return False
+    stripped = " ".join(str(value).split())
+    if len(stripped) < 8:
+        return False
+    has_digit = any(ch.isdigit() for ch in stripped)
+    normalized = tr_normalize_py(stripped)
+    if not normalized:
+        return False
+    tokens = normalized.split()
+    if has_digit and len(tokens) >= 3:
+        return True
+    if any(token in _ADDRESS_STOPWORDS for token in tokens):
+        return True
+    return False
 
-            result.companies = companies_fast
-            result.persons = persons_fast
-            result.ocr_matches = []
-            result.related_companies = []
-            result.same_address_companies = []
-            result.total_matches = total_companies_pre + len(persons_fast)
-            logger.info(f"[Search Fast Numeric] companies={len(companies_fast)} persons={len(persons_fast)} for q={q_digits}")
-            return result
-    except Exception:
-        pass
 
-    # Hızlı yol: Maskeli arama (en az 3 yıldız içeriyorsa)
-    try:
-        has_mask = q_raw.count("*") >= 3
-        if has_mask:
-            # KURAL: asla '*' ibaresi üzerinden OCR araması yapılmaz.
-            # Sadece maskeden çıkan sayısal prefix/suffix ile kişilerde arama yapılır ve ilişkili şirketler bulunur.
-            ocr_company_ids: Set[str] = set()  # bu hızlı yolda OCR kullanılmıyor
-            ocr_trade_map: Dict[str, str] = {}
-            ocr_mersis_map: Dict[str, str] = {}
-
-            # 1) Persons: maskeden prefix/suffix çıkar ve nationality_id LIKE uygula
-            persons_ids: Set[str] = set()
-            try:
-                import re as _re
-                parts = _re.split(r"\*+", q_raw)
-                pre = (parts[0] if parts else "")
-                suf = (parts[-1] if parts else "")
-                pre_d = _re.sub(r"\D+", "", pre)
-                suf_d = _re.sub(r"\D+", "", suf)
-                pattern = None
-                if pre_d and suf_d:
-                    pattern = f"%{pre_d}%{suf_d}%"
-                elif pre_d:
-                    pattern = f"%{pre_d}%"
-                elif suf_d:
-                    pattern = f"%{suf_d}%"
-                if pattern:
-                    persons_rows = (
-                        supabase
-                        .postgrest.schema('app').table("persons")
-                        .select("id")
-                        .like("nationality_id", pattern)
-                        .limit(1000)
-                        .execute()
-                    ).data or []
-                    for p in persons_rows:
-                        if p.get("id"):
-                            persons_ids.add(p["id"])
-            except Exception:
-                pass
-
-            # 2) Persons -> relations -> company_ids
-            rel_company_ids: Set[str] = set()
-            try:
-                if persons_ids:
-                    rels = (
-                        supabase
-                        .postgrest.schema('app').table("company_person_relations")
-                        .select("company_id, person_id")
-                        .in_("person_id", list(persons_ids))
-                        .limit(5000)
-                        .execute()
-                    ).data or []
-                    for r in rels:
-                        cid = r.get("company_id")
-                        if cid:
-                            rel_company_ids.add(cid)
-            except Exception:
-                pass
-
-            # 2.1) OCR masked_ids: doğrudan input maskesi ile eşleşen şirketleri bul (original_text taraması yapmadan)
-            ocr_mask_company_ids: Set[str] = set()
-            try:
-                # masked_ids dizisi doğrudan bu maskeyi içeriyor mu?
-                m1 = (
-                    supabase
-                    .postgrest.schema('app').table("ocr_results")
-                    .select("company_id, masked_ids")
-                    .filter("masked_ids", "cs", json.dumps([q_raw]))
-                    .limit(2000)
-                    .execute()
-                ).data or []
-                for r in m1:
-                    cid = r.get("company_id")
-                    if cid:
-                        ocr_mask_company_ids.add(cid)
-                # persons JSON'i içinde masked_ids alanında bu maske geçiyor mu?
-                m2 = (
-                    supabase
-                    .postgrest.schema('app').table("ocr_results")
-                    .select("company_id, persons")
-                    .filter("persons", "cs", json.dumps([{"masked_ids": q_raw}]))
-                    .limit(2000)
-                    .execute()
-                ).data or []
-                for r in m2:
-                    cid = r.get("company_id")
-                    if cid:
-                        ocr_mask_company_ids.add(cid)
-            except Exception:
-                pass
-
-            # 3) Topla ve tekilleştir
-            all_cids = set()
-            all_cids.update(ocr_company_ids)
-            all_cids.update(rel_company_ids)
-            all_cids.update(ocr_mask_company_ids)
-
-            companies_fast: List[Dict[str, Any]] = []
-            if all_cids:
-                try:
-                    comp_resp = (
-                        supabase
-                        .postgrest.schema('app').table("companies")
-                        .select("*")
-                        .in_("id", list(all_cids))
-                        .limit(1000)
-                        .execute()
-                    )
-                    fetched = comp_resp.data or []
-                except Exception:
-                    fetched = []
-                fetched_map = {c.get("id"): c for c in fetched if isinstance(c, dict) and c.get("id")}
-                for cid in all_cids:
-                    if cid in fetched_map:
-                        obj = dict(fetched_map[cid])
-                        # OCR masked_ids ile eşleştiyse daha yüksek skor ver; aksi halde kişi maskesi skoru
-                        obj["match_strength"] = 70 if cid in ocr_mask_company_ids else 40
-                        companies_fast.append(obj)
-                    else:
-                        companies_fast.append({
-                            "id": cid,
-                            "unvan": ocr_trade_map.get(cid),
-                            "unvan_ocr": ocr_trade_map.get(cid),
-                            "mersis_number_ocr": ocr_mersis_map.get(cid),
-                            "match_strength": 70 if cid in ocr_mask_company_ids else 40,
-                        })
-
-            # 4) Skora göre sırala (yüksekten düşüğe)
-            companies_fast.sort(key=lambda x: x.get("match_strength", 0), reverse=True)
-            total_companies_pre = len(companies_fast)
-            companies_fast = companies_fast[:MAX_COMPANIES]
-
-            result.companies = companies_fast
-            result.persons = []  # maskeli aramada ek kişi detayı döndürmüyoruz; istenirse genişletilir
-            result.ocr_matches = []
-            result.related_companies = []
-            result.same_address_companies = []
-            result.total_matches = total_companies_pre
-            logger.info(f"[Search Fast Mask] companies={len(companies_fast)} for q='{q_raw}'")
-            return result
-    except Exception:
-        pass
-
-    # Akıllı karma arama: hem rakam hem metin tokenları varsa, aynı kayıtta ikisinin de bulunmasını şart koş
-    try:
-        has_digits = bool(q_digits)
-        has_text_tokens = len(tokens) > 0
-        if has_digits and has_text_tokens:
-            # Supabase tarafında geniş OR ile adayları getir, Python tarafında AND filtresi uygula
-            try:
-                conds = [
-                    f"sicil_no.ilike.%{q_digits}%",
-                ]
-                # opsiyonel kolon olabilir
-                conds.append(f"mersis_number.ilike.%{q_digits}%")
-                for t in tokens:
-                    vars_t = list(_token_variants(t))[:3]
-                    for v in vars_t:
-                        pat = f"%{v}%"
-                        conds.extend([
-                            f"unvan_unaccent.ilike.{pat}",
-                            f"firma_unvani_unaccent.ilike.{pat}",
-                            f"address_unaccent.ilike.{pat}",
-                            f"adres_unaccent.ilike.{pat}",
-                        ])
-                or_expr = ",".join(conds)
-                coarse = (
-                    supabase
-                    .postgrest.schema('app').table("companies")
-                    .select("*")
-                    .or_(or_expr)
-                    .limit(500)
-                    .execute()
-                ).data or []
-            except Exception:
-                # Unaccent kolonları yoksa orijinal kolonlarla dene
-                try:
-                    conds = [f"sicil_no.ilike.%{q_digits}%", f"mersis_number.ilike.%{q_digits}%"]
-                    for t in tokens:
-                        vars_t = list(_token_variants(t))[:3]
-                        for v in vars_t:
-                            pat = f"%{v}%"
-                            conds.extend([
-                                f"unvan.ilike.{pat}",
-                                f"address.ilike.{pat}",
-                            ])
-                    or_expr = ",".join(conds)
-                    coarse = (
-                        supabase.postgrest.schema('app').table("companies").select("*").or_(or_expr).limit(500).execute()
-                    ).data or []
-                except Exception:
-                    coarse = []
-
-            def _norm_all(c: Dict[str, Any]) -> str:
-                return tr_normalize_py(
-                    " ".join([
-                        str(c.get("unvan", "")),
-                        str(c.get("address", "") or c.get("adres", "")),
-                        str(c.get("adres", "")),
-                        str(c.get("city", "")),
-                        str(c.get("district", "")),
-                        str(c.get("sicil_mudurluk", "")),
-                    ])
-                )
-
-            filtered: List[Dict[str, Any]] = []
-
-            def _find_all(hay: str, needle: str) -> List[int]:
-                out = []
-                if not hay or not needle:
-                    return out
-                start = 0
-                while True:
-                    idx = hay.find(needle, start)
-                    if idx == -1:
-                        break
-                    out.append(idx)
-                    start = idx + max(1, len(needle))
-                return out
-            for c in coarse:
-                try:
-                    num_ok = False
-                    if q_digits:
-                        s_no = str(c.get("sicil_no", ""))
-                        m_no = str(c.get("mersis_number", ""))
-                        num_ok = (q_digits in s_no) or (q_digits in m_no)
-                    s_all_norm = _norm_all(c) + " " + tr_normalize_py(str(c.get("sicil_no", ""))) + " " + tr_normalize_py(str(c.get("mersis_number", "")))
-                    # token eşleşmesi (sinonim varyantları dahil)
-                    text_ok = True
-                    for t in tokens:
-                        vars_t = _token_variants(t)
-                        if not any(v in s_all_norm for v in vars_t):
-                            text_ok = False
-                            break
-                    if num_ok and text_ok:
-                        # Yakınlık skorunu hesapla
-                        c = dict(c)
-                        base = int(c.get("match_strength", 0) or 0)
-                        score = max(base, 92)
-                        # Sayı pozisyonları
-                        digit_pos = _find_all(s_all_norm, tr_normalize_py(q_digits))
-                        if digit_pos:
-                            # Metin tokenları için en yakın mesafe
-                            min_gap = 1_000_000
-                            for t in tokens:
-                                tpos_all: list[int] = []
-                                for v in _token_variants(t):
-                                    tpos_all.extend(_find_all(s_all_norm, v))
-                                tpos = tpos_all
-                                if not tpos:
-                                    continue
-                                for dp in digit_pos:
-                                    for tp in tpos:
-                                        gap = abs(dp - tp)
-                                        if gap < min_gap:
-                                            min_gap = gap
-                            if min_gap <= SEARCH_PROXIMITY_STRONG:
-                                score = max(score, 99)
-                            elif min_gap <= SEARCH_PROXIMITY_MEDIUM:
-                                score = max(score, 96)
-                            elif min_gap <= SEARCH_PROXIMITY_WEAK:
-                                score = max(score, 94)
-                        # Alan bazlı bonus: sicil müdürlüğünde şehir geçiyorsa
-                        sm = tr_normalize_py(str(c.get("sicil_mudurluk", "")))
-                        if sm:
-                            for t in tokens:
-                                if any(v in sm for v in _token_variants(t)):
-                                    score = max(score, 98)
-                                    break
-                        c["match_strength"] = score
-                        filtered.append(c)
-                except Exception:
-                    continue
-
-            if filtered:
-                # Skora göre sırala ve erken dön
-                filtered.sort(key=lambda x: x.get("match_strength", 0), reverse=True)
-                result.companies = filtered[:MAX_COMPANIES]
-                result.persons = []
-                result.ocr_matches = []
-                result.related_companies = []
-                result.same_address_companies = []
-                result.total_matches = len(filtered)
-                logger.info(f"[Search Mixed] companies={len(filtered)} for q='{q_raw}'")
-                return result
-    except Exception:
-        pass
-
-    # 1) Şirketler: önce unaccent kolonları dene, hata olursa orijinal kolonlar ve Python filtresi
-    companies_data: List[Dict[str, Any]] = []
-    try:
-        filter_expr = (
-            f"unvan_unaccent.ilike.%{q_norm}%",
-            f"sicil_no_unaccent.ilike.%{q_norm}%",
-            f"address_unaccent.ilike.%{q_norm}%"
-        )
-        companies_data = (
-            supabase.postgrest.schema('app').table("companies")
-            .select("*")
-            .or_(filter_expr)
-            .limit(100)
-            .execute()
-        ).data or []
-    except Exception:
-        # Fallback: orijinal kolonlarla geniş arama, sonra Python normalize ile filtre
-        coarse = (
-            supabase.postgrest.schema('app').table("companies")
-            .select("*")
-            .or_(f"unvan.ilike.%{q_raw}%,sicil_no.ilike.%{q_raw}%,address.ilike.%{q_raw}%")
-            .limit(200)
-            .execute()
-        ).data or []
-        companies_data = [
-            c for c in coarse
-            if q_norm in tr_normalize_py(c.get("unvan", ""))
-            or q_norm in tr_normalize_py(c.get("firma_unvani", ""))
-            or q_norm in tr_normalize_py(c.get("sicil_no", ""))
-            or q_norm in tr_normalize_py(c.get("address", ""))
-            or q_norm in tr_normalize_py(c.get("adres", ""))
-        ]
-
-    # Çok kelimeli sorgu: ilk sorgu sonuç vermediyse, token bazlı geniş OR + Python AND filtresi
-    if not companies_data and len(tokens) > 1:
-        try:
-            conds = []
-            for t in tokens:
-                pat = f"%{t}%"
-                conds.extend([
-                    f"unvan_unaccent.ilike.{pat}",
-                    f"sicil_no_unaccent.ilike.{pat}",
-                    f"address_unaccent.ilike.{pat}",
-                ])
-            or_expr = ",".join(conds)
-            coarse_multi = (
-                supabase.postgrest.schema('app').table("companies").select("*").or_(or_expr).limit(300).execute()
-            ).data or []
-            companies_data = [
-                c for c in coarse_multi
-                if all(
-                    t in tr_normalize_py(" ".join([
-                        c.get("unvan", ""),
-                        c.get("sicil_no", ""),
-                        c.get("address", ""),
-                        c.get("adres", ""),
-                        c.get("city", ""),
-                        c.get("district", ""),
-                    ]))
-                    for t in tokens
-                )
-            ]
-        except Exception:
-            # Fallback: orijinal kolonlarla geniş arama yap ve Python tarafında AND ile filtrele
-            try:
-                conds = []
-                for t in tokens:
-                    pat = f"%{t}%"
-                    conds.extend([
-                        f"unvan.ilike.{pat}",
-                        f"sicil_no.ilike.{pat}",
-                        f"address.ilike.{pat}",
-                    ])
-                or_expr = ",".join(conds)
-                coarse_multi = (
-                    supabase.postgrest.schema('app').table("companies").select("*").or_(or_expr).limit(300).execute()
-                ).data or []
-                companies_data = [
-                    c for c in coarse_multi
-                    if all(
-                        t in tr_normalize_py(" ".join([
-                            c.get("unvan", ""),
-                            c.get("sicil_no", ""),
-                            c.get("address", ""),
-                            c.get("adres", ""),
-                            c.get("city", ""),
-                            c.get("district", ""),
-                        ]))
-                        for t in tokens
-                    )
-                ]
-            except Exception:
-                pass
-
-    # Ek: MERSİS alt-dize araması (örn. 7221127826)
-    try:
-        if q_digits and len(q_digits) >= 6:
-            # 1) companies.mersis_number (opsiyonel kolon olabilir)
-            try:
-                mersis_hits = (
-                    supabase
-                    .postgrest.schema('app').table("companies")
-                    .select("*")
-                    .like("mersis_number", f"%{q_digits}%")
-                    .limit(100)
-                    .execute()
-                ).data or []
-                companies_data.extend(mersis_hits)
-            except Exception:
-                # Kolon yoksa veya hata olursa devam et
-                pass
-
-            # 2) companies.sicil_no
-            try:
-                sicil_hits = (
-                    supabase
-                    .postgrest.schema('app').table("companies")
-                    .select("*")
-                    .like("sicil_no", f"%{q_digits}%")
-                    .limit(100)
-                    .execute()
-                ).data or []
-                companies_data.extend(sicil_hits)
-            except Exception:
-                pass
-
-            # 3) OCR üzerinden MERSİS/Original Text alt-dize araması -> company_id ile şirketleri ekle
-            try:
-                # 1) OCR'da mersis_no alanında alt-dize araması
-                ocr_mersis_rows = (
-                    supabase
-                    .postgrest.schema('app').table("ocr_results")
-                    .select("id, company_id, mersis_no, trade_name")
-                    .like("mersis_no", f"%{q_digits}%")
-                    .limit(1000)
-                    .execute()
-                ).data or []
-
-                # 2) OCR'da original_text içinde alt-dize araması
-                ocr_text_rows = (
-                    supabase
-                    .postgrest.schema('app').table("ocr_results")
-                    .select("id, company_id")
-                    .like("original_text", f"%{q_digits}%")
-                    .limit(1000)
-                    .execute()
-                ).data or []
-
-                logger.info(f"[Search] OCR numeric: mersis_hits={len(ocr_mersis_rows)} text_hits={len(ocr_text_rows)} for q_digits={q_digits}")
-
-                # company_id bazında tekilleştir ve OCR alanlarını hazırla
-                ocr_company_ids: Set[str] = set()
-                ocr_mersis_map: Dict[str, str] = {}
-                ocr_trade_map: Dict[str, str] = {}
-                for row in (ocr_mersis_rows + ocr_text_rows):
-                    cid = row.get("company_id")
-                    if cid:
-                        ocr_company_ids.add(cid)
-                        if not ocr_mersis_map.get(cid):
-                            val = row.get("mersis_no")
-                            if val:
-                                ocr_mersis_map[cid] = val
-                        if not ocr_trade_map.get(cid):
-                            tname = row.get("trade_name")
-                            if tname:
-                                ocr_trade_map[cid] = tname
-
-                # Fallback: LIKE/ILIKE hatası veya boş sonuç varsa Python tarafı substring filtrelemesi
-                if not ocr_company_ids:
-                    try:
-                        coarse_rows = (
-                            supabase
-                            .postgrest.schema('app').table("ocr_results")
-                            .select("id, company_id, mersis_no, trade_name, original_text")
-                            .limit(5000)
-                            .execute()
-                        ).data or []
-                        for r in coarse_rows:
-                            cid = r.get("company_id")
-                            if not cid:
-                                continue
-                            mers = (r.get("mersis_no") or "")
-                            txt = (r.get("original_text") or "")
-                            if (q_digits in mers) or (q_digits in txt):
-                                ocr_company_ids.add(cid)
-                                if not ocr_mersis_map.get(cid) and mers:
-                                    ocr_mersis_map[cid] = mers
-                                if not ocr_trade_map.get(cid) and r.get("trade_name"):
-                                    ocr_trade_map[cid] = r.get("trade_name")
-                        logger.info(f"[Search] OCR numeric fallback matched companies={len(ocr_company_ids)}")
-                    except Exception as _e_ocr_fb:
-                        logger.warning(f"[Search] OCR numeric fallback failed: {_e_ocr_fb}")
-
-                # Şirket tablosundan detayları çek; olmayanlar için minimal obje ekle
-                if ocr_company_ids:
-                    # Mevcut companies_data içindekileri çık; gereksiz çağrıyı azalt
-                    existing_ids = {c.get("id") for c in companies_data if isinstance(c, dict)}
-                    fetch_ids = sorted(list(ocr_company_ids - existing_ids))
-                    fetched_map: Dict[str, Dict[str, Any]] = {}
-                    if fetch_ids:
-                        comp_resp = (
-                            supabase
-                            .postgrest.schema('app').table("companies")
-                            .select("*")
-                            .in_("id", fetch_ids)
-                            .limit(min(1000, len(fetch_ids)))
-                            .execute()
-                        )
-                        for c in (comp_resp.data or []):
-                            if isinstance(c, dict) and c.get("id"):
-                                fetched_map[c["id"]] = c
-                        logger.info(f"[Search] OCR numeric: fetched {len(fetched_map)} companies by id")
-
-                    # companies_data listesine ekle
-                    for cid in ocr_company_ids:
-                        if cid in fetched_map:
-                            companies_data.append(fetched_map[cid])
-                        else:
-                            companies_data.append({
-                                "id": cid,
-                                # OCR'dan olası yardımcı alanlar
-                                "mersis_number_ocr": ocr_mersis_map.get(cid),
-                                "unvan_ocr": ocr_trade_map.get(cid),
-                                # UI'da daha iyi gösterim için unvan yoksa OCR'dan geleni kullan
-                                "unvan": ocr_trade_map.get(cid),
-                            })
-                    logger.info(f"[Search] OCR numeric: added {len(ocr_company_ids)} companies to results")
-            except Exception as _e_ocr_numeric:
-                # OCR aramasında hata olsa bile ana arama akışını bozma
-                logger.warning(f"[Search] OCR numeric search failed: {_e_ocr_numeric}")
-                
-    except Exception:
-        pass
-
-    # Dedup by id
-    seen_company_ids: Set[str] = set()
-    companies: List[Dict[str, Any]] = []
-    for c in companies_data:
-        cid = c.get("id")
-        if cid and cid not in seen_company_ids:
-            seen_company_ids.add(cid)
-            companies.append(c)
-
-    # Metin araması için eşleşme skoru: prefix > sıralı tokenlar > serbest tokenlar > adres
-    try:
-        # Bu blok, hızlı sayısal/maskeli yollardan geçilmediyse devrededir
-        if companies:
-            for c in companies:
-                try:
-                    base_score = int(c.get("match_strength", 0) or 0)
-                except Exception:
-                    base_score = 0
-                score = base_score
-                unv = (c.get("unvan") or "").strip()
-                s_unv = tr_normalize_py(unv)
-                # 1) Tam ifade prefix eşleşmesi
-                if q_norm and s_unv.startswith(q_norm):
-                    score = max(score, 95)
-                else:
-                    # 2) İlk token prefix eşleşmesi veya ifade başa çok yakın
-                    if tokens:
-                        if s_unv.startswith(tokens[0]):
-                            score = max(score, 88)
-                    if q_norm:
-                        idx = s_unv.find(q_norm)
-                        if idx != -1 and idx <= 5:
-                            score = max(score, 88)
-                    # 3) Tokenlar sırayla geçiyor mu?
-                    if tokens:
-                        pos = 0
-                        ok = True
-                        for t in tokens:
-                            p = s_unv.find(t, pos)
-                            if p == -1:
-                                ok = False
-                                break
-                            pos = p + len(t)
-                        if ok:
-                            score = max(score, 80)
-                    # 4) Tüm tokenlar bir yerlerde mevcut mu?
-                    if tokens and all(t in s_unv for t in tokens):
-                        score = max(score, 72)
-                    # 5) Adres fallback
-                    if score == base_score:
-                        addr = tr_normalize_py((c.get("address") or c.get("adres") or "").strip())
-                        if addr and tokens and all(t in addr for t in tokens):
-                            score = max(score, 50)
-                c["match_strength"] = score
-
-            # Skora göre sırala
-            companies.sort(key=lambda x: x.get("match_strength", 0), reverse=True)
-            total_companies_pre_count = len(companies)
-            companies = companies[:MAX_COMPANIES]
-    except Exception:
-        pass
-
-    result.companies = companies
-    # Yükü azaltmak için aşağıdaki sorgularda yalnızca en iyi şirketlerin id'lerini kullan
-    company_ids = [c.get("id") for c in companies if isinstance(c, dict) and c.get("id")]
-
-    # 1b) Bulunan şirketlere ait duyuruları getir
-    try:
-        if company_ids:
-            ann_resp = (
-                supabase
-                .postgrest.schema('app').table("announcements")
-                .select("id, company_id, title, announcement_type, publication_date, issue_number, page_number, newspaper_name, pdf_url, ocr_status, created_at")
-                .in_("company_id", company_ids)
-                .order("publication_date", desc=True)
-                .limit(300)
-                .execute()
-            )
-            result.announcements = ann_resp.data or []
-    except Exception:
-        result.announcements = []
-
-    # 1c) Bulunan şirketlerden ilişkili kişiler
-    related_persons: List[Dict[str, Any]] = []
-    try:
-        if company_ids:
-            rels_cp = (
-                supabase
-                .postgrest.schema('app').table("company_person_relations")
-                .select("company_id, person_id, relation_type, position, is_current, start_date, end_date")
-                .in_("company_id", company_ids)
-                .limit(2000)
-                .execute()
-            ).data or []
-
-            person_ids_for_companies = sorted({r.get("person_id") for r in rels_cp if r.get("person_id")})
-            persons_map_cp: Dict[str, Dict[str, Any]] = {}
-            if person_ids_for_companies:
-                persons_resp_cp = (
-                    supabase
-                    .table("persons")
-                    .select("id, full_name, first_name, last_name, email, nationality_id, birth_date, is_active, updated_at")
-                    .in_("id", person_ids_for_companies)
-                    .limit(2000)
-                    .execute()
-                )
-                persons_map_cp = {p["id"]: p for p in (persons_resp_cp.data or [])}
-
-            dedup_rel_keys: Set[str] = set()
-            for r in rels_cp:
-                pid = r.get("person_id")
-                cid = r.get("company_id")
-                if not pid or not cid:
-                    continue
-                key = f"{cid}:{pid}"
-                if key in dedup_rel_keys:
-                    continue
-                dedup_rel_keys.add(key)
-                base_person = persons_map_cp.get(pid, {"id": pid})
-                merged = {
-                    **base_person,
-                    "company_id": cid,
-                    "relation_type": r.get("relation_type"),
-                    "position": r.get("position"),
-                    "is_current": r.get("is_current"),
-                    "start_date": r.get("start_date"),
-                    "end_date": r.get("end_date"),
-                }
-                related_persons.append(merged)
-    except Exception:
-        related_persons = []
-    result.related_persons = related_persons
-
-    # 2) Aynı adresteki şirketler
-    same_address_companies: List[Dict[str, Any]] = []
-    same_seen: Set[str] = set()
-    for company in companies:
-        addr = company.get("address")
-        if not addr:
+def _resolve_canonical_address(primary: Optional[str], extras: Iterable[str]) -> Optional[Tuple[str, str, str]]:
+    candidates: List[Optional[str]] = [primary]
+    candidates.extend(extras)
+    for addr in candidates:
+        if not addr or not _is_plausible_address_line(addr):
             continue
-        try:
-            same_addr = (
-                supabase.postgrest.schema('app').table("companies")
-                .select("*")
-                .eq("address", addr)
-                .neq("id", company.get("id"))
-                .limit(50)
-                .execute()
-            ).data or []
-        except Exception:
-            same_addr = []
-        for sc in same_addr:
-            scid = sc.get("id")
-            if scid and scid not in same_seen and scid not in seen_company_ids:
-                same_seen.add(scid)
-                same_address_companies.append(sc)
-    result.same_address_companies = same_address_companies
+        norm_compare = _normalize_address_for_compare(addr)
+        norm_ws = _normalize_whitespace_lower(addr)
+        if not norm_ws:
+            continue
+        return addr, norm_ws, norm_compare
+    return None
 
-    # 3) Kişiler: isimle eşleşen kişiler (aksansız) + şirket ilişkileri
-    persons_match: List[Dict[str, Any]] = []
-    try:
-        persons_filter = (
-            f"full_name_unaccent.ilike.%{q_norm}%,"
-            f"first_name_unaccent.ilike.%{q_norm}%,"
-            f"last_name_unaccent.ilike.%{q_norm}%"
-        )
-        persons_match = (
-            supabase.postgrest.schema('app').table("persons")
-            .select("*")
-            .or_(persons_filter)
-            .limit(100)
-            .execute()
-        ).data or []
-    except Exception:
-        coarse_p = (
-            supabase.postgrest.schema('app').table("persons")
-            .select("*")
-            .or_(f"full_name.ilike.%{q_raw}%,first_name.ilike.%{q_raw}%,last_name.ilike.%{q_raw}%")
-            .limit(200)
-            .execute()
-        ).data or []
-        persons_match = [
-            p for p in coarse_p
-            if q_norm in tr_normalize_py(p.get("full_name", ""))
-            or q_norm in tr_normalize_py(p.get("first_name", ""))
-            or q_norm in tr_normalize_py(p.get("last_name", ""))
-        ]
 
-    # Çok kelimeli sorgu için ek yaklaşım: geniş OR + Python AND filtresi
-    if not persons_match and len(tokens) > 1:
+def _extract_structured_persons_payload(structured: Any) -> List[Dict[str, Any]]:
+    persons_payload: List[Dict[str, Any]] = []
+    def _plausible_person_name(name: str) -> bool:
         try:
-            conds = []
-            for t in tokens:
-                pat = f"%{t}%"
-                conds.extend([
-                    f"full_name_unaccent.ilike.{pat}",
-                    f"first_name_unaccent.ilike.{pat}",
-                    f"last_name_unaccent.ilike.{pat}",
-                ])
-            or_expr = ",".join(conds)
-            coarse_pt = (
-                supabase.postgrest.schema('app').table("persons").select("*").or_(or_expr).limit(400).execute()
-            ).data or []
-            persons_match = [
-                p for p in coarse_pt
-                if all(
-                    t in tr_normalize_py(" ".join([p.get("full_name", ""), p.get("first_name", ""), p.get("last_name", "")]))
-                    for t in tokens
-                )
+            n = (name or "").strip()
+            if len(n) < 2 or len(n) > 60:
+                return False
+            up = n.upper()
+            banned = [
+                "YÖNETİM", "YONETIM", "KURULU", "SEÇİL", "SECIL", "TEMSiLE", "TEMSİLE", "TEMSIL",
+                "YETKİ", "YETKI", "GÖREV", "GOREV", "DAĞILIM", "DAGILIM", "GENEL", "KURUL",
+                "MADDE", "SAYI", "SAYFA",
             ]
+            company_words = [
+                "SANAY", "SANAYİ", "SANAYI", "ŞİRKET", "SIRKET", "LİMİTED", "LIMITED",
+                "ANONİM", "ANONIM", "TİCARET", "TICARET", "A.Ş", "A.S", "LTD", "HOLDİNG", "HOLDING", "BANK",
+            ]
+            for w in banned:
+                if w in up:
+                    return False
+            for w in company_words:
+                if w in up:
+                    return False
+            return True
         except Exception:
-            pass
-    # Ek: Sayı odaklı aramalar için kimlik numarası (nationality_id) üzerinden hızlı arama
+            return False
     try:
-        if q_digits and len(q_digits) >= 6:
-            pnat_resp = (
-                supabase
-                .postgrest.schema('app').table("persons")
-                .select("*")
-                .ilike("nationality_id", f"%{q_digits}%")
-                .limit(200)
-                .execute()
-            )
-            persons_match.extend(pnat_resp.data or [])
+        data = structured
+        if isinstance(data, str):
+            data = json.loads(data)
+        raw_persons: Any = []
+        if isinstance(data, dict):
+            raw_persons = data.get("persons") or []
+            if isinstance(raw_persons, dict):
+                raw_persons = [raw_persons]
+            if isinstance(raw_persons, list):
+                for item in raw_persons:
+                    if not isinstance(item, dict):
+                        continue
+                    name = _structured_person_name(item)
+                    if not name:
+                        continue
+                    masked_candidates = _extract_structured_masked_ids(item)
+                    masked_arr = [m for m in masked_candidates if isinstance(m, str) and m.strip()]
+                    if not masked_arr:
+                        continue
+                    if not _plausible_person_name(name):
+                        continue
+                    persons_payload.append({
+                        "full_name": name,
+                        "mask_source": "structured",
+                        "masked_ids": masked_arr,
+                        "relation_type": None,
+                        "position": None,
+                        "is_current": True,
+                        "start_date": None,
+                        "end_date": None,
+                    })
+    except Exception:
+        return persons_payload
+    return persons_payload
+
+def _address_query_tokens(address: str, max_tokens: int = 6) -> List[str]:
+    if not address:
+        return []
+    normalized = _normalize_text_for_compare(address)
+    if not normalized:
+        return []
+    raw_tokens = re.findall(r"[0-9A-Za-zÇĞİÖŞÜçğıöşü]+", address)
+    selected: List[str] = []
+    seen: Set[str] = set()
+    for token in raw_tokens:
+        if token.isdigit():
+            continue
+        normalized = tr_normalize_py(token)
+        if not normalized or len(normalized) < 3:
+            continue
+        if normalized in _ADDRESS_STOPWORDS:
+            continue
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        selected.append(token)
+        if len(selected) >= max_tokens:
+            break
+    return selected
+
+
+def _structured_person_name(item: Dict[str, Any]) -> Optional[str]:
+    for key in ("full_name", "fullName", "name", "text"):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            name = _clean_person_name(value)
+            if name:
+                return name
+    first = item.get("first_name") or item.get("firstName")
+    middle = item.get("middle_name") or item.get("middleName")
+    last = item.get("last_name") or item.get("lastName") or item.get("surname")
+    parts = [part.strip() for part in [first, middle, last] if isinstance(part, str) and part.strip()]
+    if parts:
+        name = _clean_person_name(" ".join(parts))
+        if name:
+            return name
+    return None
+
+
+def _extract_structured_masked_ids(item: Dict[str, Any]) -> List[str]:
+    masked_candidates: List[str] = []
+    for key in (
+        "masked_ids",
+        "masked_id",
+        "maskedIdentity",
+        "masked_identity",
+        "masked_tc",
+        "maskedTc",
+        "masked_tckn",
+        "maskedIdentityNumbers",
+        "masked_identity_numbers",
+    ):
+        value = item.get(key)
+        if isinstance(value, list):
+            for entry in value:
+                entry_str = str(entry).strip()
+                if entry_str:
+                    masked_candidates.append(entry_str)
+        elif isinstance(value, str) and value.strip():
+            masked_candidates.append(value.strip())
+    seen: Set[str] = set()
+    unique: List[str] = []
+    for candidate in masked_candidates:
+        clean_candidate = candidate.replace(" ", "")
+        if clean_candidate and clean_candidate not in seen:
+            seen.add(clean_candidate)
+            unique.append(clean_candidate)
+    return unique
+
+
+def _extract_uppercase_name_candidate(line: str) -> Optional[str]:
+    if not line:
+        return None
+    tokens = [token.strip(" ,.;:()[]{}'\"“”‘’") for token in line.split()]
+    tokens = [token for token in tokens if token]
+    if not tokens:
+        return None
+
+    def _token_valid(token: str) -> bool:
+        letters = [ch for ch in token if ch.isalpha()]
+        if len(letters) < 2:
+            return False
+        upper_ratio = sum(1 for ch in letters if ch.isupper()) / len(letters)
+        if upper_ratio < 0.6:
+            return False
+        normalized = tr_normalize_py(token).upper()
+        if normalized in _PERSON_NAME_FORBIDDEN_TOKENS:
+            return False
+        return True
+
+    for length in (3, 2):
+        for idx in range(len(tokens) - length + 1):
+            segment = tokens[idx : idx + length]
+            if not all(_token_valid(token) for token in segment):
+                continue
+            candidate = " ".join(segment)
+            candidate_clean = _clean_person_name(candidate)
+            if not candidate_clean:
+                continue
+            parts = candidate_clean.split()
+            # Baş harfleri büyük/kalan küçük hale getir
+            normalized_parts = [part if part.istitle() else part.title() for part in parts]
+            return " ".join(normalized_parts)
+    return None
+
+
+def _is_likely_person_line(line: str) -> Optional[str]:
+    cleaned = _clean_person_name(line)
+    if not cleaned:
+        return None
+    lowered = cleaned.lower()
+    if "/" in cleaned:
+        return None
+    for keyword in _PERSON_NAME_SKIP_KEYWORDS:
+        if keyword in lowered:
+            return None
+    tokens = [token for token in cleaned.split() if token]
+    if len(tokens) < 2:
+        return None
+    alpha_tokens = sum(1 for token in tokens if token.replace(".", "").isalpha())
+    if alpha_tokens / len(tokens) < 0.8:
+        return None
+    return cleaned
+
+
+def _extract_person_name_candidate(line: str) -> Optional[str]:
+    direct = _is_likely_person_line(line)
+    if direct:
+        return direct
+    return _extract_uppercase_name_candidate(line)
+
+
+def _resolve_person_name_from_context(lines: List[str], idx: int) -> Optional[str]:
+    offsets = [-1, -2, -3, 0, 1, 2]
+    for offset in offsets:
+        pos = idx + offset
+        if pos < 0 or pos >= len(lines):
+            continue
+        candidate = _extract_person_name_candidate(lines[pos])
+        if candidate:
+            return candidate
+    return None
+
+
+def _iso_or_none(value: Optional[datetime]) -> Optional[str]:
+    return value.isoformat() if value else None
+
+
+def _extract_coordinates(geom: Any) -> Optional[Dict[str, float]]:
+    if geom is None:
+        return None
+    try:
+        shape = to_shape(geom)
+        return {"x": float(shape.x), "y": float(shape.y)}
+    except Exception:
+        return None
+
+
+def _company_to_dict(
+    company: Company,
+    *,
+    match_strength: Optional[int] = None,
+    ocr_addresses: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    address = company.address
+    if (not address) and ocr_addresses:
+        for addr in ocr_addresses:
+            normalized = _normalize_address_for_compare(addr)
+            if normalized:
+                address = addr
+                break
+
+    return {
+        "id": str(company.id),
+        "unvan": company.unvan,
+        "firma_unvani": company.unvan,  # Alias for frontend compatibility
+        "address": address,
+        "adres": address,  # Alias for frontend compatibility
+        "sicil_no": company.sicil_no,
+        "mersis_number": company.mersis_number,
+        "sicil_mudurluk": company.sicil_mudurluk,  # Add missing field
+        "city": company.city,
+        "district": company.district,
+        "koordinat": _extract_coordinates(company.koordinat),
+        "is_active": company.is_active,
+        "establishment_date": _iso_or_none(company.establishment_date),
+        "created_at": _iso_or_none(company.created_at),
+        "updated_at": _iso_or_none(company.updated_at),
+        "scraped_at": _iso_or_none(company.scraped_at),
+        "pdf_name": company.pdf_name,
+        "pdf_path": company.pdf_path,
+        "match_strength": match_strength,
+    }
+
+
+def _person_to_dict(person: Person) -> Dict[str, Any]:
+    return {
+        "id": str(person.id),
+        "full_name": person.full_name,
+        "first_name": person.first_name,
+        "middle_name": person.middle_name,
+        "last_name": person.last_name,
+        "nationality_id": person.nationality_id,
+        "passport_number": person.passport_number,
+        "email": person.email,
+        "phone": person.phone,
+        "birth_date": _iso_or_none(person.birth_date),
+        "birth_place": person.birth_place,
+        "is_active": person.is_active,
+    }
+
+
+def _relation_to_dict(relation: CompanyPersonRelation) -> Dict[str, Any]:
+    return {
+        "company_id": str(relation.company_id),
+        "person_id": str(relation.person_id),
+        "relation_type": relation.relation_type.value if relation.relation_type else None,
+        "position": relation.position,
+        "start_date": _iso_or_none(relation.start_date),
+        "end_date": _iso_or_none(relation.end_date),
+        "share_percentage": relation.share_percentage,
+        "share_amount": relation.share_amount,
+        "description": relation.description,
+        "is_current": relation.is_current,
+        "source": relation.source,
+        "source_reference": relation.source_reference,
+    }
+
+
+def _announcement_to_dict(announcement: Announcement) -> Dict[str, Any]:
+    hususlar = None
+    ocr_date = None
+    ocr_issue = None
+    ocr_page = None
+    
+    if announcement.ocr_result:
+        hususlar = announcement.ocr_result.hususlar
+        ocr_date = announcement.ocr_result.publication_date
+        ocr_issue = announcement.ocr_result.issue_number
+        ocr_page = announcement.ocr_result.page_number
+
+    return {
+        "id": str(announcement.id),
+        "company_id": str(announcement.company_id) if announcement.company_id else None,
+        "trade_registry_name": announcement.trade_registry_name,
+        "trade_registry_number": announcement.trade_registry_number,
+        "title": announcement.title,
+        "publication_date": _iso_or_none(announcement.publication_date or ocr_date),
+        "issue_number": announcement.issue_number or ocr_issue,
+        "page_number": announcement.page_number or ocr_page,
+        "announcement_type": announcement.announcement_type,
+        "newspaper_name": announcement.newspaper_name,
+        "pdf_url": announcement.pdf_url,
+        "hususlar": hususlar,
+    }
+
+
+def _ocr_result_to_dict(ocr: OcrResult) -> Dict[str, Any]:
+    return {
+        "id": ocr.id,
+        "announcement_id": str(ocr.announcement_id) if ocr.announcement_id else None,
+        "company_id": str(ocr.company_id) if ocr.company_id else None,
+        "original_text": ocr.original_text,
+        "structured_data": {
+            "publication_date": _iso_or_none(ocr.publication_date) if ocr.publication_date else None,
+            "issue_number": ocr.issue_number,
+            "page_number": ocr.page_number,
+            "pdf_url": ocr.pdf_url,
+            "pdf_page_count": ocr.pdf_page_count,
+            "sicil_office_header": ocr.sicil_office_header,
+            "sicil_dosya_no": ocr.sicil_dosya_no,
+            "mersis_no": ocr.mersis_no,
+            "trade_name": ocr.trade_name,
+            "old_trade_name": ocr.old_trade_name,
+            "addresses": ocr.addresses,
+            "old_addresses": ocr.old_addresses,
+            "persons": ocr.persons,
+            "masked_ids": ocr.masked_ids,
+            "hususlar": ocr.hususlar,
+            "belgeler": ocr.belgeler,
+            "type": ocr.type,
+            "item_index": ocr.item_index,
+            "start_offset": ocr.start_offset,
+            "end_offset": ocr.end_offset,
+            "is_derived": ocr.is_derived,
+            "derived_from_index": ocr.derived_from_index,
+            "ilan_sira_no": ocr.ilan_sira_no,
+        },
+        "status": ocr.status,
+        "created_at": _iso_or_none(ocr.created_at),
+        "updated_at": _iso_or_none(ocr.updated_at),
+    }
+
+
+def _gazette_entry_to_dict(entry: GazetteEntry) -> Dict[str, Any]:
+    return {
+        "id": str(entry.id),
+        "company_id": str(entry.company_id) if entry.company_id else None,
+        "entry_type": entry.entry_type,
+        "entry_date": _iso_or_none(entry.entry_date),
+        "processed_text": entry.processed_text,
+        "original_text": entry.original_text,
+    }
+
+
+MASKED_ID_RE = re.compile(r"\b\d{2,4}\*{2,}\d{2,4}\b")
+MERSIS_RE = re.compile(r"MERS[İI]S\s*No[:：]?\s*([0-9\*\s]+)", re.IGNORECASE)
+SICIL_RE = re.compile(r"Ticaret\s+Sicil(?:/Dosya)?\s*No[:：]?\s*([0-9\-\/]*)", re.IGNORECASE)
+ADDRESS_LINE_RE = re.compile(r"adres", re.IGNORECASE)
+
+
+def _clean_person_name(name: Optional[str]) -> Optional[str]:
+    if not name:
+        return None
+    cleaned = " ".join(str(name).strip().split())
+    return cleaned or None
+
+
+def _normalize_text_for_compare(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    try:
+        stripped = re.sub(r"[^0-9a-zA-ZçğıöşüÇĞİÖŞÜ]+", " ", str(value))
+        return tr_normalize_py(stripped).strip() or None
+    except Exception:
+        return None
+
+
+def _address_key_tokens(address: str, max_tokens: int = 4) -> List[str]:
+    tokens = [token for token in re.split(r"\s+", address) if token]
+    return tokens[:max_tokens]
+
+
+def _extract_persons_from_structured(structured: Any) -> List[Dict[str, Optional[str]]]:
+    persons: List[Dict[str, Optional[str]]] = []
+    try:
+        data = structured
+        if isinstance(data, str):
+            data = json.loads(data)
+        if isinstance(data, list):
+            candidates = data
+        elif isinstance(data, dict):
+            candidates = data.get("persons") or []
+            if isinstance(candidates, dict):
+                candidates = [candidates]
+        else:
+            candidates = []
+        if not isinstance(candidates, list):
+            return persons
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            masked = item.get("masked_ids")
+            masked_ids: List[str] = []
+            if isinstance(masked, list):
+                masked_ids = [str(m).strip() for m in masked if str(m).strip()]
+            elif isinstance(masked, str) and masked.strip():
+                masked_ids = [masked.strip()]
+            name = _clean_person_name(item.get("full_name") or item.get("text"))
+            if not masked_ids:
+                continue
+            persons.append({"name": name, "masked_ids": masked_ids})
     except Exception:
         pass
+    return persons
 
-    # Dedup persons by id
-    seen_person_ids: Set[str] = set()
-    persons: List[Dict[str, Any]] = []
-    for p in persons_match:
-        pid = p.get("id")
-        if pid and pid not in seen_person_ids:
-            seen_person_ids.add(pid)
-            persons.append(p)
-    result.persons = persons
 
-    # 4) Kişilerden ilişkili şirketleri bul
-    related_companies: List[Dict[str, Any]] = []
-    related_seen: Set[str] = set()
-    if seen_person_ids:
-        rels = (
-            supabase.postgrest.schema('app').table("company_person_relations")
-            .select("company_id, person_id, relation_type, position, is_current, start_date, end_date")
-            .in_("person_id", list(seen_person_ids))
-            .limit(1000)
-            .execute()
-        ).data or []
-        rel_company_ids = sorted({r.get("company_id") for r in rels if r.get("company_id")})
-        if rel_company_ids:
-            comp2 = (
-                supabase.postgrest.schema('app').table("companies")
-                .select("*")
-                .in_("id", rel_company_ids)
-                .limit(1000)
-                .execute()
-            ).data or []
-            for c in comp2:
-                cid = c.get("id")
-                if cid and cid not in related_seen and cid not in seen_company_ids:
-                    related_seen.add(cid)
-                    related_companies.append(c)
-    result.related_companies = related_companies
-
-    # 5) OCR ve duyurular (aksansız): mümkünse *_unaccent kolonları, değilse Python filtresi
-    ocr_matches: List[Dict[str, Any]] = []
+def _extract_addresses_from_structured(structured: Any) -> List[str]:
+    addresses: List[str] = []
     try:
-        ocr_q = (
-            supabase.postgrest.schema('app').table("ocr_results")
-            .select("id, announcement_id, company_id, original_text, companies(*)")
-            .limit(200)
-        )
-        # Sayısal sorgularda PostgREST ilike ile 500 hatası alabildiği için LIKE kullan
-        all_digits = bool(q_digits) and (q_digits == tr_letters_digits(q_raw))
-        if tokens:
-            for t in tokens:
-                if all_digits and t.isdigit():
-                    ocr_q = ocr_q.like("original_text", f"%{t}%")
-                else:
-                    ocr_q = ocr_q.ilike("original_text", f"%{t}%")
+        data = structured
+        if isinstance(data, str):
+            data = json.loads(data)
+        candidates: Any
+        if isinstance(data, dict):
+            candidates = data.get("addresses")
         else:
-            if all_digits:
-                ocr_q = ocr_q.like("original_text", f"%{q_norm}%")
-            else:
-                ocr_q = ocr_q.ilike("original_text", f"%{q_norm}%")
-        ocr_matches = (ocr_q.execute()).data or []
-
-        # Yıldız/punktuasyon maskeleri için ek Python filtresi (boş dönerse)
-        if not ocr_matches and tokens_letters:
-            coarse_ocr = (
-                supabase.postgrest.schema('app').table("ocr_results")
-                .select("id, announcement_id, company_id, original_text, companies(*)")
-                .limit(500)
-                .execute()
-            ).data or []
-            ocr_matches = [
-                o for o in coarse_ocr
-                if all(tl in tr_letters_digits(o.get("original_text", "")) for tl in tokens_letters)
-            ]
+            candidates = None
+        if isinstance(candidates, list):
+            for addr in candidates:
+                if isinstance(addr, str) and addr.strip():
+                    addresses.append(addr.strip())
+        elif isinstance(candidates, str) and candidates.strip():
+            addresses.append(candidates.strip())
     except Exception:
-        coarse_ocr = (
-            supabase.postgrest.schema('app').table("ocr_results")
-            .select("id, announcement_id, company_id, original_text, companies(*)")
-            .limit(500)
-            .execute()
-        ).data or []
-        if tokens_letters:
-            ocr_matches = [
-                o for o in coarse_ocr
-                if all(tl in tr_letters_digits(o.get("original_text", "")) for tl in tokens_letters)
-            ]
-        else:
-            ocr_matches = [o for o in coarse_ocr if q_norm in tr_normalize_py(o.get("original_text", ""))]
+        pass
+    return addresses
 
-    # OCR'dan gelen şirketleri ana listeye ekle (dedup)
-    for o in ocr_matches:
-        comp_obj = o.get("companies")
-        cid = comp_obj.get("id") if isinstance(comp_obj, dict) else o.get("company_id")
-        if cid and cid not in seen_company_ids and cid not in related_seen and cid not in same_seen:
-            # şirket objesi yoksa minimal bir obje oluştur
-            to_add = comp_obj if isinstance(comp_obj, dict) and comp_obj else {"id": cid}
-            result.companies.append(to_add)
-            seen_company_ids.add(cid)
 
-    result.ocr_matches = ocr_matches
-    # OCR eklemelerinden sonra da üst sınırı koru
-    if len(result.companies) > MAX_COMPANIES:
-        result.companies = result.companies[:MAX_COMPANIES]
+def _extract_sicil_office_from_structured(structured: Any) -> Optional[str]:
+    try:
+        data = structured
+        if isinstance(data, str):
+            data = json.loads(data)
+        if isinstance(data, dict):
+            header = data.get("sicil_office_header") or data.get("sicilOfficeHeader")
+            if isinstance(header, str) and header.strip():
+                return header.strip()
+    except Exception:
+        return None
+    return None
 
-    # 6) Toplam eşleşme sayısı
-    pre_companies = total_companies_pre_count if total_companies_pre_count is not None else len(result.companies)
-    result.total_matches = (
-        pre_companies
-        + len(result.related_companies)
-        + len(result.same_address_companies)
-        + len(result.persons)
-        + len(result.ocr_matches)
-    )
 
-    logger.info(
-        f"[Search] totals companies={len(result.companies)} related={len(result.related_companies)} same_addr={len(result.same_address_companies)} persons={len(result.persons)} ocr_matches={len(result.ocr_matches)} total={result.total_matches} for query='{query}'"
-    )
+def _extract_ocr_entities(rows: List[OcrResult]) -> Dict[str, Any]:
+    persons: List[Dict[str, Any]] = []
+    masked_id_to_names: Dict[str, Set[str]] = {}
+    masked_ids: Set[str] = set()
+    addresses: List[str] = []
+    mersis_numbers: Set[str] = set()
+    sicil_numbers: Set[str] = set()
+    seen_person_keys: Set[Tuple[str, Optional[str]]] = set()
 
+    for row in rows:
+        # Extract persons from flattened persons column
+        structured_persons = []
+        try:
+            raw_persons = row.persons or []
+            if isinstance(raw_persons, str):
+                raw_persons = json.loads(raw_persons)
+            if isinstance(raw_persons, dict):
+                raw_persons = [raw_persons]
+            if isinstance(raw_persons, list):
+                structured_persons = [item for item in raw_persons if isinstance(item, dict)]
+        except Exception:
+            structured_persons = []
+
+        for item in structured_persons:
+            name = _structured_person_name(item)
+            masked_candidates = _extract_structured_masked_ids(item)
+            for masked_id in masked_candidates:
+                masked_id = masked_id.strip()
+                if not masked_id:
+                    continue
+                masked_ids.add(masked_id)
+                if name:
+                    masked_id_to_names.setdefault(masked_id, set()).add(name)
+                key = (masked_id, name)
+                if key in seen_person_keys:
+                    continue
+                seen_person_keys.add(key)
+                persons.append({
+                    "name": name,
+                    "full_name": name,  # Frontend expects full_name
+                    "masked_id": masked_id,
+                    "masked_ids": [masked_id],  # Frontend expects masked_ids as array
+                    "source": "structured",
+                })
+
+        # Use flattened addresses column directly
+        if row.addresses:
+            addresses.extend(row.addresses)
+
+        raw_text = row.original_text or ""
+        if raw_text:
+            lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+            for idx, line in enumerate(lines):
+                # Sadece adres/MERSİS/Sicil çıkarımını koru; kişi üretme
+                if ADDRESS_LINE_RE.search(line):
+                    addr = line
+                    if ":" in addr:
+                        addr = addr.split(":", 1)[1]
+                    addr = addr.replace("Adres", "").replace("adres", "").strip(" :-")
+                    continuation = ""
+                    if idx + 1 < len(lines):
+                        next_line = lines[idx + 1]
+                        if next_line and not MASKED_ID_RE.search(next_line):
+                            continuation = next_line
+                    address_candidate = " ".join(part for part in [addr, continuation.strip()] if part)
+                    if address_candidate and len(address_candidate) > 5:
+                        addresses.append(address_candidate.strip())
+
+                mersis_match = MERSIS_RE.search(line)
+                if mersis_match:
+                    candidate = mersis_match.group(1)
+                    if candidate:
+                        normalized = re.sub(r"\D+", "", candidate)
+                        if normalized:
+                            mersis_numbers.add(normalized)
+
+                sicil_match = SICIL_RE.search(line)
+                if sicil_match:
+                    candidate = sicil_match.group(1)
+                    if candidate:
+                        sicil_numbers.add(candidate.strip())
+
+    deduped_addresses: List[str] = []
+    seen_addr_norm: Set[str] = set()
+    for addr in addresses:
+        norm = _normalize_text_for_compare(addr)
+        if not norm or norm in seen_addr_norm:
+            continue
+        seen_addr_norm.add(norm)
+        deduped_addresses.append(addr.strip())
+
+    return {
+        "persons": persons,
+        "masked_ids": masked_ids,
+        "masked_id_to_names": masked_id_to_names,
+        "addresses": deduped_addresses,
+        "mersis_numbers": mersis_numbers,
+        "sicil_numbers": sicil_numbers,
+    }
+
+def search_all_related(query: str, db: Session) -> SearchResult:
+    """Supabase yerine SQLAlchemy ile birleşik arama uygular."""
+    result = SearchResult()
+    q_raw = (query or "").strip()
+    if not q_raw:
+        return result
+
+    # Initialize variables
+    q_norm = ""
+    q_digits = ""
+    search_tokens = []
+    
+    # Check if query is a UUID
+    is_uuid_match = False
+    try:
+        uuid_obj = uuid.UUID(q_raw)
+        company_by_id = db.query(Company).filter(Company.id == uuid_obj).first()
+        if company_by_id:
+            company_candidates = [company_by_id]
+            is_uuid_match = True
+    except ValueError:
+        pass
+
+    if not is_uuid_match:
+        q_norm = tr_normalize_py(q_raw)
+        raw_tokens = [t for t in re.split(r"\s+", q_raw) if t]
+        
+        # Generate token pairs (raw, normalized) for text search
+        # This ensures we search for both "İNŞAAT" and "INSAAT"
+        search_token_pairs = []
+        search_tokens = [] # For scoring logic later
+        for t in raw_tokens:
+            if not t.isdigit():
+                t_norm = tr_normalize_py(t)
+                search_token_pairs.append((t, t_norm))
+                search_tokens.append(t_norm)
+                
+        q_digits = re.sub(r"\D+", "", q_raw)
+
+        text_fields = [
+            Company.unvan,
+            Company.address,
+            Company.city,
+            Company.district,
+            Company.sicil_mudurluk,
+        ]
+
+        company_query = db.query(Company)
+        if q_digits:
+            digit_pattern = f"%{q_digits}%"
+            company_query = company_query.filter(
+                or_(
+                    Company.sicil_no.ilike(digit_pattern),
+                    Company.mersis_number.ilike(digit_pattern),
+                )
+            )
+
+        if search_token_pairs:
+            for raw_t, norm_t in search_token_pairs:
+                # For each token in the query, it must match at least one field
+                # We check both raw and normalized versions of the token
+                pats = {f"%{raw_t}%", f"%{norm_t}%"}
+                token_filters = []
+                for pat in pats:
+                    token_filters.extend([field.ilike(pat) for field in text_fields])
+                company_query = company_query.filter(or_(*token_filters))
+        elif q_norm:
+            base_pat = f"%{q_raw}%"
+            company_query = company_query.filter(or_(*[field.ilike(base_pat) for field in text_fields]))
+
+        company_candidates = company_query.limit(400).all()
+    
+    # --- OCR & Person Search ---
+    ocr_scores: Dict[uuid.UUID, int] = {}
+    
+    # If UUID match, give it max score
+    if is_uuid_match:
+        for comp in company_candidates:
+            ocr_scores[comp.id] = 100
+    else:
+        # 1. MERSIS in OCR
+        if q_digits:
+            digit_pat = f"%{q_digits}%"
+            ocr_mersis = db.query(OcrResult.company_id).filter(
+                OcrResult.mersis_no.ilike(digit_pat)
+            ).limit(50).all()
+            for (cid,) in ocr_mersis:
+                ocr_scores[cid] = 92
+
+        # 2. Persons in Database (New Logic)
+        if search_token_pairs:
+            # Find persons matching the tokens
+            # We require ALL tokens to match the person's name parts
+            # e.g. "HÜSEYIN AKSÜT" -> HÜSEYIN matches AND AKSÜT matches
+            
+            person_query = db.query(Person.id)
+            person_filters = []
+            
+            for raw_t, norm_t in search_token_pairs:
+                pats = {f"%{raw_t}%", f"%{norm_t}%"}
+                token_or_conditions = []
+                for pat in pats:
+                    token_or_conditions.extend([
+                        Person.first_name.ilike(pat),
+                        Person.last_name.ilike(pat),
+                        Person.full_name.ilike(pat),
+                        Person.masked_id.ilike(pat)
+                    ])
+                person_filters.append(or_(*token_or_conditions))
+                
+            found_person_ids = person_query.filter(and_(*person_filters)).limit(50).all()
+            found_person_ids = [p[0] for p in found_person_ids]
+            
+            if found_person_ids:
+                # Find companies related to these persons
+                relations = db.query(CompanyPersonRelation.company_id).filter(
+                    CompanyPersonRelation.person_id.in_(found_person_ids)
+                ).all()
+                
+                for (cid,) in relations:
+                    if cid:
+                        ocr_scores[cid] = max(ocr_scores.get(cid, 0), 95)
+
+        # 3. Persons in OCR JSON (Fallback)
+        if search_token_pairs:
+            ocr_person_query = db.query(OcrResult.company_id)
+            person_filters = []
+            for raw_t, norm_t in search_token_pairs:
+                # Check both raw and norm in JSON text
+                person_filters.append(
+                    or_(
+                        cast(OcrResult.persons, Text).ilike(f"%{raw_t}%"),
+                        cast(OcrResult.persons, Text).ilike(f"%{norm_t}%")
+                    )
+                )
+            ocr_person_matches = ocr_person_query.filter(and_(*person_filters)).limit(50).all()
+            for (cid,) in ocr_person_matches:
+                ocr_scores[cid] = max(ocr_scores.get(cid, 0), 85)
+
+    # Merge OCR results
+    if ocr_scores:
+        existing_ids = {c.id for c in company_candidates}
+        new_ids = [cid for cid in ocr_scores.keys() if cid not in existing_ids]
+        if new_ids:
+            extra_companies = db.query(Company).filter(Company.id.in_(new_ids)).all()
+            company_candidates.extend(extra_companies)
+
+    scored_companies: List[Tuple[int, Dict[str, Any], Company]] = []
+    for comp in company_candidates:
+        score = ocr_scores.get(comp.id, 40)
+        if q_digits:
+            if q_digits in (comp.sicil_no or ""):
+                score = max(score, 88)
+            if q_digits in (comp.mersis_number or ""):
+                score = max(score, 92)
+        norm_unvan = tr_normalize_py(comp.unvan or "")
+        if q_norm and norm_unvan.startswith(q_norm):
+            score = max(score, 95)
+        if search_tokens and all(token in norm_unvan for token in search_tokens):
+            score = max(score, 85)
+        if search_tokens:
+            norm_address = tr_normalize_py(comp.address or "")
+            if norm_address and all(token in norm_address for token in search_tokens):
+                score = max(score, 72)
+        scored_companies.append((score, _company_to_dict(comp, match_strength=score), comp))
+
+    scored_companies.sort(key=lambda item: item[0], reverse=True)
+    total_companies_pre_count = len(scored_companies)
+    top_companies = scored_companies[:MAX_COMPANIES]
+    result.companies = [item[1] for item in top_companies]
+    top_company_objs = [item[2] for item in top_companies]
+    existing_company_ids: Set[str] = {item[1]["id"] for item in top_companies}
+
+    company_ids_uuid = [comp.id for comp in top_company_objs]
+
+    if company_ids_uuid:
+        ann_rows = (
+            db.query(Announcement)
+            .filter(Announcement.company_id.in_(company_ids_uuid))
+            .options(joinedload(Announcement.ocr_result))
+            .order_by(Announcement.publication_date.desc().nullslast())
+            .limit(300)
+            .all()
+        )
+        result.announcements = [_announcement_to_dict(row) for row in ann_rows]
+
+        # İlgili kişiler
+        relation_rows = (
+            db.query(CompanyPersonRelation.person_id)
+            .filter(CompanyPersonRelation.company_id.in_(company_ids_uuid))
+            .limit(600)
+            .all()
+        )
+        person_ids = {row[0] for row in relation_rows if row and row[0] is not None}
+        if person_ids:
+            persons_rows = (
+                db.query(Person)
+                .filter(Person.id.in_(person_ids))
+                .limit(600)
+                .all()
+            )
+            result.persons = [_person_to_dict(person) for person in persons_rows]
+
+        # Geçmiş kayıtları
+        history_rows = (
+            db.query(GazetteEntry)
+            .filter(GazetteEntry.company_id.in_(company_ids_uuid))
+            .order_by(GazetteEntry.entry_date.desc().nullslast())
+            .limit(300)
+            .all()
+        )
+        result.history = [_gazette_entry_to_dict(entry) for entry in history_rows]
+
+    result.total_matches = total_companies_pre_count
     return result
 
-@router.get("/companies")
-def search_companies(
-    q: str = Query(..., min_length=2, description="Search term for companies"),
-    supabase: Client = Depends(get_supabase_client),
-):
-    """
-    Searches for companies in the database based on a query term.
-    The search is performed on company name, registration number, and address.
-    """
-    try:
-        # Use the new comprehensive search
-        result = search_all_related(q, supabase)
-        return {
-            "companies": result.companies,
-            "related_companies": result.related_companies,
-            "same_address_companies": result.same_address_companies,
-            "total_matches": result.total_matches
-        }
-    except Exception as e:
-        logger.error(f"Error searching companies: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/cross-company-persons", summary="Persons across multiple companies and starred OCR persons")
-def cross_company_persons(
-    min_companies: int = Query(2, ge=2, le=50, description="Minimum distinct companies per person/name"),
-    limit: int = Query(200, ge=1, le=1000, description="Max items to return for each category"),
-    supabase: Client = Depends(get_supabase_client),
-):
-    """
-    Döndürür:
-    - persons_multi_company: İlişkilere göre birden fazla şirkette yer alan kişiler
-    - starred_persons: OCR'da *** maskeleme içeren isim benzeri ibareler ve göründükleri farklı şirketler
-    """
-    try:
-        # --- 1) İlişkilere göre çok şirketli kişiler ---
-        rels_resp = (
-            supabase
-            .table("company_person_relations")
-            .select("person_id, company_id")
-            .limit(5000)
-            .execute()
-        )
-        rels = rels_resp.data or []
-        person_companies: Dict[str, Set[str]] = {}
-        for r in rels:
-            pid = r.get("person_id")
-            cid = r.get("company_id")
-            if not pid or not cid:
-                continue
-            person_companies.setdefault(pid, set()).add(cid)
-        multi_person_ids = [pid for pid, cset in person_companies.items() if len(cset) >= min_companies]
-
-        persons_multi_company = []
-        if multi_person_ids:
-            # Kısıtla
-            multi_person_ids = multi_person_ids[:min(limit, 1000)]
-            persons_resp = (
-                supabase
-                .postgrest.schema('app').table("persons")
-                .select("id, full_name, first_name, last_name, email, nationality_id")
-                .in_("id", multi_person_ids)
-                .limit(min(len(multi_person_ids), 1000))
-                .execute()
-            )
-            persons_map = {p["id"]: p for p in (persons_resp.data or [])}
-            for pid in multi_person_ids:
-                companies_for_person = sorted(list(person_companies.get(pid, set())))
-                persons_multi_company.append({
-                    **persons_map.get(pid, {"id": pid}),
-                    "company_ids": companies_for_person,
-                    "company_count": len(companies_for_person),
-                })
-            # company_count'a göre sırala
-            persons_multi_company.sort(key=lambda x: x.get("company_count", 0), reverse=True)
-            persons_multi_company = persons_multi_company[:limit]
-
-        # --- 2) OCR'da yıldızlı isimler ---
-        starred_map: Dict[str, Set[str]] = {}
-        try:
-            ocr_q = (
-                supabase
-                .postgrest.schema('app').table("ocr_results")
-                .select("company_id, raw_text")
-                .like("raw_text_unaccent", "%***%")
-                .limit(5000)
-            )
-            ocr_resp = ocr_q.execute()
-            ocr_rows = ocr_resp.data or []
-        except Exception:
-            # unaccent kolonu yoksa fallback
-            ocr_rows = (
-                supabase
-                .postgrest.schema('app').table("ocr_results")
-                .select("company_id, raw_text")
-                .like("raw_text", "%***%")
-                .limit(5000)
-                .execute()
-            ).data or []
-
-        import re as _re
-        for row in ocr_rows:
-            cid = row.get("company_id")
-            if not cid:
-                continue
-            text = row.get("raw_text", "") or ""
-            # Basit bir pattern: BÜYÜK HARF + yıldızlar
-            matches = _re.findall(r"([A-ZĞÜŞİÖÇ]+\*+)", text)
-            for m in matches:
-                clean = _re.sub(r"\*+", " ", m).strip()
-                if clean and len(clean) > 2:
-                    key = clean
-                    starred_map.setdefault(key, set()).add(cid)
-
-        starred_persons = [
-            {"name": name, "company_ids": sorted(list(cids)), "company_count": len(cids)}
-            for name, cids in starred_map.items()
-            if len(cids) >= min_companies
-        ]
-        starred_persons.sort(key=lambda x: x.get("company_count", 0), reverse=True)
-        starred_persons = starred_persons[:limit]
-
-        return {
-            "persons_multi_company": persons_multi_company,
-            "starred_persons": starred_persons,
-            "min_companies": min_companies,
-            "limit": limit,
-        }
-    except Exception as e:
-        logger.error(f"[Cross Company Persons] Error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="An error occurred while fetching cross-company persons.")
-
-@router.get("/all", response_model=Dict[str, Any])
+@router.get("/all", summary="Unified search" )
 def search_all(
-    request: Request,
-    q: str = Query(..., min_length=2, description="Search across companies, persons, OCR and history (SPA payload)"),
-    cursor: Optional[int] = Query(None, ge=0, description="Sayfalama için opak imleç (cursor)."),
-    offset: Optional[int] = Query(0, ge=0, description="Şirketler için başlangıç ofseti (sayfalama)"),
-    limit: Optional[int] = Query(None, ge=1, le=200, description="Maksimum şirket sayısı (<= MAX_COMPANIES)."),
-    supabase: Client = Depends(get_supabase_client),
+    q: str = Query(..., description="Arama terimi"),
+    cursor: int = Query(0, ge=0),
+    limit: int = Query(MAX_COMPANIES, ge=1, le=200),
+    request: Request = None,
+    db: Session = Depends(get_db),
+    _: None = Depends(enforce_daily_limit),
 ):
-    """
-    SPA dostu birleşik arama sonucu döner.
-    Dönüş yapısı frontend `useUnifiedSearch` beklentisiyle uyumludur:
-    {
-      companies: [...],
-      persons: [...],
-      history: [...],
-      // ekstra alanlar (isteğe bağlı):
-      related_companies, same_address_companies, related_persons, ocr_matches, total_matches
-    }
-    """
-    try:
-        # Başlangıç zamanı + oran sınırı + önbellek anahtarı
-        start_ts = time.perf_counter()
-        try:
-            ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()) or (request.client.host if request.client else "unknown")
-        except Exception:
-            ip = "unknown"
-        _limiter.check(ip)
-        cache_key = f"all:{(q or '').strip().lower()}:{cursor if cursor is not None else (offset or 0)}:{limit or ''}"
-        cached = _cache_all.get(cache_key)
-        if cached is not None:
-            return cached
-
-        # Geniş arama (şirket, kişi, OCR, ilişkiler)
-        result = search_all_related(q, supabase)
-
-        # History (gazette_entries) — legacy mantığa benzer basit metin araması
-        # Not: Supabase tarafında unaccent kolonları yoksa normal ilike kullanılır.
-        history_data: List[Dict[str, Any]] = []
-        try:
-            search_term = q.strip()
-            search_query = f"%{search_term.replace(' ', '%')}%"
-            history_filter = f"entry_type.ilike.{search_query},processed_text.ilike.{search_query}"
-            history_data = (
-                supabase
-                .postgrest.schema('app').table("gazette_entries")
-                .select("id, entry_type, entry_date, company_id, processed_text")
-                .or_(history_filter)
-                .limit(50)
-                .execute()
-            ).data or []
-        except Exception as he:
-            logger.warning(f"[Unified Search] Gazette entries query failed: {he}")
-            history_data = []
-
-        # Final safety cap at response time as well
-        eff_limit = _clamp(limit if limit is not None else MAX_COMPANIES, 1, MAX_COMPANIES)
-        start = int(cursor if cursor is not None else (offset or 0))
-        end = start + eff_limit
-        total_companies_pre = len(result.companies) if isinstance(result.companies, list) else 0
-        capped_companies = result.companies[start:end]
-        payload = {
-            "companies": capped_companies,
-            "persons": result.persons,
-            "history": history_data,
-            # Ekstra zengin alanlar (SPA şu an zorunlu tutmuyor ama advance kullanım için sağlıyoruz)
-            "related_companies": result.related_companies,
-            "same_address_companies": result.same_address_companies,
-            "related_persons": result.related_persons,
-            "ocr_matches": result.ocr_matches,
-            "total_matches": result.total_matches,
-            "limit": eff_limit,
-            # Sayfalama sadece companies için; o yüzden next_* hesaplarını şirket toplamına göre yap
-            "next_offset": (end if (isinstance(total_companies_pre, int) and total_companies_pre > end) else None),
-            "next_cursor": (end if (isinstance(total_companies_pre, int) and total_companies_pre > end) else None),
+    query = (q or "").strip()
+    if not query:
+        return {
+            "companies": [],
+            "persons": [],
+            "history": [],
+            "total_matches": 0,
+            "limit": limit,
+            "next_offset": None,
+            "next_cursor": None,
         }
-        dur_ms = int((time.perf_counter() - start_ts) * 1000)
-        logger.info(
-            f"[Unified Search /all] q='{q}' companies={len(capped_companies)} persons={len(result.persons)} history={len(history_data)} duration_ms={dur_ms} limit={eff_limit}"
-        )
-        _cache_all.set(cache_key, payload)
-        return payload
-    except Exception as e:
-        logger.error(f"Error in unified search: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/all-legacy", summary="Unified search: companies, persons, history")
-def search_all_legacy(
-    request: Request,
-    q: str = Query(..., min_length=2, description="Search term for companies, persons and history"),
-    cursor: Optional[int] = Query(None, ge=0, description="Sayfalama için opak imleç (cursor)."),
-    offset: Optional[int] = Query(0, ge=0, description="Şirketler için başlangıç ofseti (sayfalama)"),
-    limit: Optional[int] = Query(None, ge=1, le=200, description="Maksimum şirket sayısı (<= MAX_COMPANIES)."),
-    supabase: Client = Depends(get_supabase_client),
-):
-    """
-    Perform a unified search across multiple entities and return a combined payload:
-    {
-      "companies": [...],
-      "persons": [...],
-      "history": [...]
+    cache_key = f"all:{query}:{cursor}:{limit}"
+    cached = _cache_all.get(cache_key)
+    if cached is not None:
+        return cached
+
+    result = search_all_related(query, db)
+
+    # Sayfalama: sadece şirketlerde cursor kullanılıyor
+    companies_slice = result.companies[cursor: cursor + limit]
+    next_cursor = cursor + limit if (cursor + limit) < len(result.companies) else None
+
+    payload = {
+        "companies": companies_slice,
+        "persons": result.persons,
+        "history": result.history,
+        "total_matches": result.total_matches or len(result.companies),
+        "limit": limit,
+        "next_offset": next_cursor,
+        "next_cursor": next_cursor,
     }
-    """
-    try:
-        # Başlangıç zamanı + oran sınırı + önbellek anahtarı
-        start_ts = time.perf_counter()
-        try:
-            ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()) or (request.client.host if request.client else "unknown")
-        except Exception:
-            ip = "unknown"
-        _limiter.check(ip)
-        cache_key = f"all-legacy:{(q or '').strip().lower()}:{cursor if cursor is not None else (offset or 0)}:{limit or ''}"
-        cached = _cache_all_legacy.get(cache_key)
-        if cached is not None:
-            return cached
 
-        search_term = q.strip()
-        search_query = f"%{search_term.replace(' ', '%')}%"
-        logger.info(f"[Unified Search] Executing search for: {search_query}")
-
-        # --- Companies ---
-        companies_data = []
-        try:
-            companies_filter = f"unvan.ilike.{search_query},sicil_no.ilike.{search_query},address.ilike.{search_query}"
-            companies_data = (
-                supabase
-                .postgrest.schema('app').table("companies")
-                .select("*")
-                .or_(companies_filter)
-                .limit(50)
-                .execute()
-            ).data or []
-            total_companies_pre_legacy = len(companies_data)
-            # Legacy uçta skorlanmış sıralama yok; yine de yükü azaltmak için ilk N ile sınırla
-            eff_limit = _clamp(limit if limit is not None else MAX_COMPANIES, 1, MAX_COMPANIES)
-            start = int(cursor if cursor is not None else (offset or 0))
-            end = start + eff_limit
-            companies_data = companies_data[start:end]
-        except Exception as ce:
-            logger.warning(f"[Unified Search] Companies query failed: {ce}")
-
-        # --- Persons ---
-        # Try to match by full name, nationality_id, email
-        persons_data = []
-        try:
-            persons_filter = (
-                f"full_name.ilike.{search_query},"
-                f"first_name.ilike.{search_query},"
-                f"last_name.ilike.{search_query},"
-                f"nationality_id.ilike.{search_query},"
-                f"email.ilike.{search_query}"
-            )
-            persons_data = (
-                supabase
-                .postgrest.schema('app').table("persons")
-                .select("*")
-                .or_(persons_filter)
-                .limit(50)
-                .execute()
-            ).data or []
-        except Exception as pe:
-            logger.warning(f"[Unified Search] Persons query failed: {pe}")
-
-        # --- History (Gazette Entries) ---
-        # Select minimal fields, including related company title if available.
-        # If foreign select aliasing is unsupported, backend will still return entry fields.
-        history_data = []
-        try:
-            history_filter = f"entry_type.ilike.{search_query},processed_text.ilike.{search_query}"
-            history_data = (
-                supabase
-                .postgrest.schema('app').table("gazette_entries")
-                .select("id, entry_type, entry_date, company_id, processed_text")
-                .or_(history_filter)
-                .limit(50)
-                .execute()
-            ).data or []
-        except Exception as he:
-            logger.warning(f"[Unified Search] Gazette entries query failed: {he}")
-
-        payload = {
-            "companies": companies_data,
-            "persons": persons_data,
-            "history": history_data,
-            # Bilgilendirme amaçlı toplam (legacy): sadece uzunlukların toplamı
-            "total_matches": total_companies_pre_legacy + len(persons_data) + len(history_data) if 'total_companies_pre_legacy' in locals() else len(companies_data) + len(persons_data) + len(history_data),
-            "limit": eff_limit if 'eff_limit' in locals() else MAX_COMPANIES,
-            "next_offset": (end if ('total_companies_pre_legacy' in locals() and isinstance(total_companies_pre_legacy, int) and total_companies_pre_legacy > end) else None),
-            "next_cursor": (end if ('total_companies_pre_legacy' in locals() and isinstance(total_companies_pre_legacy, int) and total_companies_pre_legacy > end) else None),
-        }
-        _cache_all_legacy.set(cache_key, payload)
-        dur_ms = int((time.perf_counter() - start_ts) * 1000)
-        logger.info(
-            f"[Unified Search /all-legacy] q='{q}' companies: {len(companies_data)}, persons: {len(persons_data)}, history: {len(history_data)}, duration_ms={dur_ms}, limit={payload.get('limit')}"
-        )
-        return payload
-
-    except Exception as e:
-        logger.error(f"[Unified Search] Error for query '{q}': {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="An error occurred while performing unified search.")
+    _cache_all.set(cache_key, payload)
+    return payload
 
 
 @router.get("/company-detail", summary="Company detail with related persons and announcements")
 def company_detail(
     company_id: str = Query(..., description="UUID of the company"),
-    supabase: Client = Depends(get_supabase_client),
+    db: Session = Depends(get_db),
     _: None = Depends(enforce_daily_limit),
 ):
-    """
-    Fetch a single company and its related data from Supabase.
-    Returns a minimal payload to drive the dashboard modal.
-
-    {
-      "company": {...},
-      "persons": [{... person ..., relation fields ...}],
-      "announcements": [{...}],
-      "history": [{...}],  # optional gazette entries
-      "related_companies": [...],
-      "same_address_companies": [...]
-    }
-    """
     try:
-        cid = company_id.strip()
+        cid = (company_id or "").strip()
         if not cid:
             raise HTTPException(status_code=422, detail="company_id is required")
+        try:
+            company_uuid = uuid.UUID(cid)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="company_id must be a valid UUID")
 
-        # --- Company ---
-        company_resp = (
-            supabase
-            .postgrest.schema('app').table("companies")
-            .select("*")
-            .eq("id", cid)
-            .limit(1)
-            .execute()
-        )
-        company = (company_resp.data or [None])[0]
-        if not company:
+        company_obj = db.query(Company).filter(Company.id == company_uuid).first()
+        if not company_obj:
             raise HTTPException(status_code=404, detail="Company not found")
-        # Attach koordinat {lat, lon} if present as GeoJSON; otherwise try LocationIQ geocoding (if configured)
-        def _ensure_company_coords(c: dict):
-            try:
-                geo = c.get("koordinat")
-                if isinstance(geo, dict):
-                    coords = geo.get("coordinates")
-                    if isinstance(coords, (list, tuple)) and len(coords) >= 2:
-                        lon, lat = coords[0], coords[1]
-                        if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
-                            c["koordinat"] = {"lat": float(lat), "lon": float(lon)}
-                            return
-            except Exception:
-                pass
 
-            # Fallback to LocationIQ (optional)
-            try:
-                api_key = (
-                    os.getenv("LOCATIONIQ_API_KEY")
-                    or os.getenv("TSG_LOCATIONIQ_TOKEN")
-                    or os.getenv("LOCATIONIQ_TOKEN")
-                )
-                if not api_key:
-                    return
-                base_url = os.getenv("LOCATIONIQ_BASE_URL", "https://us1.locationiq.com/v1")
-                q_parts = [str(c.get("address") or c.get("adres") or "").strip()]
-                # enrich with city/district if available
-                for k in ("district", "city", "sicil_mudurluk"):
-                    v = c.get(k)
-                    if isinstance(v, str) and v.strip():
-                        q_parts.append(v.strip())
-                q = ", ".join([p for p in q_parts if p])
-                if not q:
-                    return
-                params = {"key": api_key, "q": q, "format": "json", "limit": 1}
-                r = requests.get(f"{base_url}/search", params=params, timeout=6)
-                if r.ok:
-                    arr = r.json() if r.headers.get("content-type", "").startswith("application/json") else None
-                    if isinstance(arr, list) and arr:
-                        top = arr[0]
-                        lat = float(top.get("lat")) if top.get("lat") is not None else None
-                        lon = float(top.get("lon")) if top.get("lon") is not None else None
-                        if isinstance(lat, float) and isinstance(lon, float):
-                            c["koordinat"] = {"lat": lat, "lon": lon}
-            except Exception:
-                # do not fail company detail for geocoding errors
-                pass
+        company_payload = _company_to_dict(company_obj)
 
-        _ensure_company_coords(company)
-
-        # --- Relations -> Person IDs and relation meta ---
-        rel_resp = (
-            supabase
-            .postgrest.schema('app').table("company_person_relations")
-            .select("person_id, relation_type, position, is_current, start_date, end_date")
-            .eq("company_id", cid)
-            .limit(200)
-            .execute()
+        relations = (
+            db.query(CompanyPersonRelation)
+            .filter(CompanyPersonRelation.company_id == company_uuid)
+            .all()
         )
-        relations = rel_resp.data or []
-        person_ids = [r.get("person_id") for r in relations if r.get("person_id")]
-
-        persons = []
+        person_ids = [rel.person_id for rel in relations if rel.person_id]
+        persons_map: Dict[uuid.UUID, Person] = {}
         if person_ids:
-            # Fetch persons in batch
-            persons_resp = (
-                supabase
-                .postgrest.schema('app').table("persons")
-                .select("id, full_name, first_name, last_name, email, nationality_id, birth_date, is_active, updated_at")
-                .in_("id", person_ids)
-                .limit(500)
-                .execute()
-            )
-            persons_map = {p["id"]: p for p in (persons_resp.data or [])}
-            # Merge relation meta onto person objects
-            for r in relations:
-                pid = r.get("person_id")
-                if pid in persons_map:
-                    merged = {**persons_map[pid], **{k: v for k, v in r.items() if k != "person_id"}}
-                    persons.append(merged)
+            persons_map = {
+                person.id: person
+                for person in db.query(Person).filter(Person.id.in_(person_ids)).all()
+            }
 
-        # Safe default for OCR response used in multiple fallbacks
-        ocr_resp = type("_R", (), {"data": []})()
+        persons_payload: List[Dict[str, Any]] = []
 
-        # --- Announcements: enrich with OCR original_text ---
-        try:
-            if data := result.__dict__.get('announcements'):
-                pass  # placeholder; we haven't set announcements yet in this function
-        except Exception:
-            pass
+        announcement_rows = (
+            db.query(Announcement)
+            .filter(Announcement.company_id == company_uuid)
+            .options(joinedload(Announcement.ocr_result))
+            .order_by(Announcement.publication_date.desc().nullslast())
+            .limit(100)
+            .all()
+        )
+        announcements = [_announcement_to_dict(ann) for ann in announcement_rows]
 
-        # --- Companies at the same address (exclude current company) ---
-        same_address_companies = []
-        if company.get('address'):
-            same_address_resp = (
-                supabase
-                .postgrest.schema('app').table('companies')
-                .select('*')
-                .eq('address', company['address'])
-                .neq('id', cid)  # Exclude current company
-                .limit(50)
-                .execute()
-            )
-            same_address_companies = same_address_resp.data or []
-            # Aynı adresteki şirketlerde MERSIS yoksa OCR'dan aday türet
-            try:
-                if same_address_companies:
-                    pat_mersis = re.compile(r"(?:mers(?:i|ı)s\D{0,50}?)([0-9]{10,20})", re.IGNORECASE)
-                    for sc in same_address_companies[:20]:  # performans: ilk 20
-                        try:
-                            if not isinstance(sc, dict) or sc.get('mersis_number'):
-                                continue
-                            scid = sc.get('id')
-                            if not scid:
-                                continue
-                            ocr2 = (
-                                supabase
-                                .postgrest.schema('app').table('ocr_results')
-                                .select('id, original_text')
-                                .eq('company_id', scid)
-                                .limit(20)
-                                .execute()
-                            )
-                            candidates = []
-                            for row in (ocr2.data or []):
-                                txt = (row.get('original_text') or '')
-                                for m in pat_mersis.finditer(txt):
-                                    val = m.group(1)
-                                    if val and val not in candidates:
-                                        candidates.append(val)
-                            if candidates:
-                                sc['mersis_number_ocr'] = candidates[0]
-                        except Exception:
-                            continue
-            except Exception as _e_mersis_same:
-                logger.warning(f"[Company Detail] Same-address MERSIS extraction failed: {_e_mersis_same}")
+        # Find orphan OCR results (not linked to any announcement)
+        linked_ocr_ids = {ann.ocr_result.id for ann in announcement_rows if ann.ocr_result}
+        
+        orphan_ocr_query = db.query(OcrResult).filter(OcrResult.company_id == company_uuid)
+        if linked_ocr_ids:
+            orphan_ocr_query = orphan_ocr_query.filter(OcrResult.id.notin_(linked_ocr_ids))
+            
+        orphan_ocr_rows = (
+            orphan_ocr_query
+            .order_by(OcrResult.created_at.desc().nullslast())
+            .limit(50)
+            .all()
+        )
+        
+        for ocr in orphan_ocr_rows:
+            # Create virtual announcement from OCR result
+            # Use a deterministic UUID derived from ocr.id (integer)
+            # Format: "ocr:<integer_id>" converted to UUID v5 namespace
+            ocr_namespace = uuid.UUID('00000000-0000-0000-0000-000000000000')
+            virtual_id = uuid.uuid5(ocr_namespace, f"ocr:{ocr.id}")
+            virtual_ann = {
+                "id": str(virtual_id),
+                "company_id": str(company_uuid),
+                "trade_registry_name": None,
+                "trade_registry_number": None,
+                "title": ocr.hususlar or "Sicil Gazetesi İlanı (OCR)",
+                "publication_date": _iso_or_none(ocr.publication_date or ocr.created_at),
+                "issue_number": ocr.issue_number,
+                "page_number": ocr.page_number,
+                "announcement_type": "OCR_ONLY",
+                "newspaper_name": "Ticaret Sicil Gazetesi",
+                "pdf_url": None,
+                "hususlar": ocr.hususlar,
+                "_ocr_id": ocr.id,
+            }
+            announcements.append(virtual_ann)
+            
+        # Sort combined list by date
+        announcements.sort(key=lambda x: x.get("publication_date") or "", reverse=True)
 
-        # --- Related companies via shared persons ---
-        related_companies = []
-        existing_related_ids: Set[str] = set()
-        try:
-            if person_ids:
-                # Get all other company relations for these persons
-                rel_others_resp = (
-                    supabase
-                    .postgrest.schema('app').table("company_person_relations")
-                    .select("company_id, person_id, relation_type, position, is_current, start_date, end_date")
-                    .in_("person_id", person_ids)
-                    .neq("company_id", cid)
-                    .limit(1000)
-                    .execute()
+        announcement_ids = [ann.id for ann in announcement_rows if ann.id]
+        if announcement_ids:
+            ocr_query = db.query(OcrResult).filter(
+                or_(
+                    OcrResult.company_id == company_uuid,
+                    OcrResult.announcement_id.in_(announcement_ids),
                 )
-                rel_others = rel_others_resp.data or []
-
-                # Group by related company
-                related_company_ids = []
-                related_map = {}
-                for ro in rel_others:
-                    rcid = ro.get("company_id")
-                    pid = ro.get("person_id")
-                    if not rcid or not pid:
-                        continue
-                    if rcid not in related_map:
-                        related_map[rcid] = {"company": None, "shared_persons": []}
-                        related_company_ids.append(rcid)
-                    # enrich person info if available
-                    person_info = persons_map.get(pid, {"id": pid}) if 'persons_map' in locals() else {"id": pid}
-                    related_map[rcid]["shared_persons"].append({
-                        **{k: v for k, v in person_info.items() if k in ["id", "full_name", "first_name", "last_name"]},
-                        "relation_type": ro.get("relation_type"),
-                        "position": ro.get("position"),
-                        "is_current": ro.get("is_current"),
-                        "start_date": ro.get("start_date"),
-                        "end_date": ro.get("end_date"),
-                    })
-
-                if related_company_ids:
-                    comps_resp = (
-                        supabase
-                        .postgrest.schema('app').table("companies")
-                        .select("id, unvan, sicil_no, sicil_mudurluk, address, city, district")
-                        .in_("id", related_company_ids)
-                        .limit(500)
-                        .execute()
-                    )
-                    comps_map = {c["id"]: c for c in (comps_resp.data or [])}
-                    for rcid in related_company_ids:
-                        entry = related_map.get(rcid)
-                        if entry is None:
-                            continue
-                        entry["company"] = comps_map.get(rcid)
-                        # Flatten to a simpler structure for the API response
-                        company_obj = entry["company"] or {"id": rcid}
-                        related_companies.append({
-                            **company_obj,
-                            "shared_persons": entry["shared_persons"],
-                        })
-        except Exception as ex:
-            logger.warning(f"[Company Detail] Related companies resolution failed: {ex}")
-
-        # --- Announcements --- (STRICT: yalnızca bu şirkete ait ilanlar)
-        announcements = []
-        try:
-            # '*' seçerek tabloda varsa original_text gibi ek alanları da alalım.
-            ann_resp = (
-                supabase
-                .postgrest.schema('app').table("announcements")
-                .select("*")
-                .eq("company_id", cid)
-                .order("publication_date", desc=True)
-                .limit(100)
-                .execute()
             )
-            announcements = ann_resp.data or []
-        except Exception as _e:
-            logger.warning(f"[Company Detail] announcements by company_id failed: {_e}")
+        else:
+            ocr_query = db.query(OcrResult).filter(OcrResult.company_id == company_uuid)
 
-        # Enrichment: announcements -> original_text & hususlar (yalnızca hedef şirketin OCR kayıtlarından)
+        ocr_rows = (
+            ocr_query.order_by(OcrResult.created_at.desc().nullslast()).limit(100).all()
+        )
+        
+        # Filter out OCR results that are already linked to announcements
+        linked_ocr_ids = set()
+        for ann in announcement_rows:
+            if ann.ocr_result:
+                linked_ocr_ids.add(ann.ocr_result.id)
+                
+        ocr_matches = [_ocr_result_to_dict(row) for row in ocr_rows if row.id not in linked_ocr_ids]
+        ocr_entities = _extract_ocr_entities(ocr_rows)
+
+        if not company_payload.get("sicil_office_header"):
+            sicil_header = None
+            for row in ocr_rows:
+                header_candidate = row.sicil_office_header
+                if header_candidate:
+                    sicil_header = header_candidate
+                    break
+            if sicil_header:
+                company_payload["sicil_office_header"] = sicil_header
+
+        if not company_payload.get("last_update"):
+            latest_ts = None
+            for row in ocr_rows:
+                for candidate in (row.updated_at, row.created_at):
+                    if candidate and (latest_ts is None or candidate > latest_ts):
+                        latest_ts = candidate
+            if latest_ts:
+                company_payload["last_update"] = _iso_or_none(latest_ts)
+
+        if not company_payload.get("address") and ocr_entities["addresses"]:
+            company_payload["address"] = ocr_entities["addresses"][0]
+
+        same_address_companies: List[Dict[str, Any]] = []
+        
+        # Collect all candidate addresses from Company and OCR
+        candidate_addresses = set()
+        if company_obj.address:
+            candidate_addresses.add(company_obj.address)
+        if ocr_entities.get("addresses"):
+            candidate_addresses.update(ocr_entities["addresses"])
+            
+        # Normalize candidate addresses
+        target_norms = set()
+        for addr in candidate_addresses:
+            # Use Python normalization to get the target string
+            norm = _normalize_text_for_compare(addr)
+            if norm and len(norm) > 10:  # Skip too short addresses to avoid false positives
+                target_norms.add(norm)
+        
+        if target_norms:
+            found_company_ids = {company_uuid}
+            
+            for norm_addr in target_norms:
+                if len(same_address_companies) >= 50:
+                    break
+                
+                # 1. Search in Company table (Exact match on normalized address)
+                # Normalize in PostgreSQL: remove non-alphanumeric, lowercase, trim whitespace
+                company_matches = (
+                    db.query(Company)
+                    .filter(Company.id.notin_(found_company_ids))
+                    .filter(Company.address.isnot(None))
+                    .filter(
+                        func.lower(
+                            func.trim(
+                                func.regexp_replace(
+                                    Company.address,
+                                    r'[^0-9a-zA-ZçğıöşüÇĞİÖŞÜ]+',
+                                    ' ',
+                                    'g'
+                                )
+                            )
+                        ) == norm_addr
+                    )
+                    .limit(20)
+                    .all()
+                )
+                
+                for comp in company_matches:
+                    if comp.id not in found_company_ids:
+                        found_company_ids.add(comp.id)
+                        same_address_companies.append(_company_to_dict(comp))
+                
+                # 2. Search in OcrResult table (Contains match on normalized JSON)
+                # This finds companies where the address appears in the OCR results
+                if len(same_address_companies) < 50:
+                    ocr_matches = (
+                        db.query(OcrResult.company_id)
+                        .filter(OcrResult.company_id.notin_(found_company_ids))
+                        .filter(OcrResult.addresses.isnot(None))
+                        .filter(
+                            func.lower(
+                                func.trim(
+                                    func.regexp_replace(
+                                        func.cast(OcrResult.addresses, Text),
+                                        r'[^0-9a-zA-ZçğıöşüÇĞİÖŞÜ]+',
+                                        ' ',
+                                        'g'
+                                    )
+                                )
+                            ).like(f"%{norm_addr}%")
+                        )
+                        .distinct()
+                        .limit(20)
+                        .all()
+                    )
+                    
+                    ocr_company_ids = [row[0] for row in ocr_matches]
+                    if ocr_company_ids:
+                        ocr_companies = db.query(Company).filter(Company.id.in_(ocr_company_ids)).all()
+                        for comp in ocr_companies:
+                            if comp.id not in found_company_ids:
+                                found_company_ids.add(comp.id)
+                                same_address_companies.append(_company_to_dict(comp))
+
+        related_companies: List[Dict[str, Any]] = []
+        if person_ids:
+            other_relations = (
+                db.query(CompanyPersonRelation)
+                .filter(
+                    CompanyPersonRelation.person_id.in_(person_ids),
+                    CompanyPersonRelation.company_id != company_uuid,
+                )
+                .all()
+            )
+            company_ids = {rel.company_id for rel in other_relations if rel.company_id}
+            companies_lookup: Dict[uuid.UUID, Company] = {}
+            if company_ids:
+                companies_lookup = {
+                    comp.id: comp
+                    for comp in db.query(Company).filter(Company.id.in_(company_ids)).all()
+                }
+            combined: Dict[uuid.UUID, Dict[str, Any]] = {}
+            for rel in other_relations:
+                comp = companies_lookup.get(rel.company_id)
+                if not comp:
+                    continue
+                entry = combined.setdefault(
+                    rel.company_id,
+                    {
+                        **_company_to_dict(comp),
+                        "shared_persons": [],
+                    },
+                )
+                entry["shared_persons"].append(
+                    {
+                        "person_id": str(rel.person_id) if rel.person_id else None,
+                        "relation_type": rel.relation_type.value if rel.relation_type else None,
+                        "position": rel.position,
+                        "is_current": rel.is_current,
+                        "start_date": _iso_or_none(rel.start_date),
+                        "end_date": _iso_or_none(rel.end_date),
+                        "person": _person_to_dict(persons_map[rel.person_id]) if rel.person_id in persons_map else None,
+                    }
+                )
+            related_companies = list(combined.values())
+
+
+
+        if not company_payload.get("address") and ocr_entities["addresses"]:
+            company_payload["address"] = ocr_entities["addresses"][0]
+        if not company_payload.get("mersis_number") and ocr_entities["mersis_numbers"]:
+            company_payload["mersis_number"] = next(iter(ocr_entities["mersis_numbers"]))
+        if not company_payload.get("sicil_no") and ocr_entities["sicil_numbers"]:
+            company_payload["sicil_no"] = next(iter(ocr_entities["sicil_numbers"]))
+
+        history_entries = [
+            _gazette_entry_to_dict(entry)
+            for entry in (
+                db.query(GazetteEntry)
+                .filter(GazetteEntry.company_id == company_uuid)
+                .order_by(GazetteEntry.entry_date.desc().nullslast())
+                .limit(100)
+                .all()
+            )
+        ]
+
+        old_addresses: List[Dict[str, Any]] = []
         try:
-            ann_ids = [a.get("id") for a in announcements if isinstance(a, dict) and a.get("id")]
-            if ann_ids:
-                ocr_by_ann = (
-                    supabase
-                    .postgrest.schema('app').table("ocr_results")
-                    .select("announcement_id, original_text, hususlar, company_id, publication_date, issue_number, page_number, created_at")
-                    .eq("company_id", cid)
-                    .in_("announcement_id", ann_ids)
-                    .limit(min(2000, len(ann_ids) * 5))
-                    .execute()
-                ).data or []
-                # Son ilanın metnini tercih et (aynı announcement_id için birden fazla satır olabilir)
-                ocr_text_map: Dict[Any, str] = {}
-                ocr_husus_map: Dict[Any, str] = {}
-                ocr_meta_map: Dict[Any, Dict[str, Any]] = {}
-                for row in ocr_by_ann:
-                    aid = row.get("announcement_id")
-                    if aid:
-                        if not ocr_text_map.get(aid):
-                            ocr_text_map[aid] = row.get("original_text") or ""
-                        if not ocr_husus_map.get(aid):
-                            hus = row.get("hususlar")
-                            hus_text = ""
-                            try:
-                                if isinstance(hus, str):
-                                    hus_text = hus.strip()
-                                elif isinstance(hus, list):
-                                    # Join list items into a single line
-                                    hus_text = ", ".join([str(x).strip() for x in hus if str(x).strip()])[:300]
-                                elif isinstance(hus, dict):
-                                    # Prefer common keys if present
-                                    pref = hus.get("text") or hus.get("value") or ""
-                                    if isinstance(pref, str):
-                                        hus_text = pref.strip()
+            raw_old_addresses = getattr(company_obj, "old_addresses", None)
+            if isinstance(raw_old_addresses, list):
+                for item in raw_old_addresses:
+                    if isinstance(item, dict):
+                        old_addresses.append(item)
+                    elif isinstance(item, str) and item.strip():
+                        old_addresses.append({"address": item.strip()})
+        except Exception as exc_old_addresses:
+            logger.warning(
+                f"[Company Detail] old_addresses parsing failed for company_id={company_id}: {exc_old_addresses}"
+            )
+
+        old_trade_names: List[str] = []
+        try:
+            raw_old_trade_names = getattr(company_obj, "old_trade_names", None)
+            if isinstance(raw_old_trade_names, list):
+                old_trade_names = [
+                    name.strip()
+                    for name in raw_old_trade_names
+                    if isinstance(name, str) and name.strip()
+                ]
+        except Exception as exc_trade_names:
+            logger.warning(
+                f"[Company Detail] old_trade_names parsing failed for company_id={company_id}: {exc_trade_names}"
+            )
+
+        registry_related_companies: List[Dict[str, Any]] = []
+        shared_person_companies: List[Dict[str, Any]] = []
+        
+        # Find companies sharing the same persons (by masked_id and name)
+        # HIGH confidence: name + masked_id match
+        # LOW confidence: only masked_id match
+        if ocr_entities["persons"]:
+            try:
+                # Extract current company's persons data
+                current_persons_map: Dict[str, str] = {}  # masked_id -> full_name
+                current_masked_ids: Set[str] = set()
+                
+                for person in ocr_entities["persons"]:
+                    masked_id = person.get("masked_id")
+                    full_name = person.get("full_name") or person.get("name")
+                    if masked_id:
+                        current_masked_ids.add(masked_id)
+                        if full_name:
+                            current_persons_map[masked_id] = full_name
+                
+                if current_masked_ids:
+                    # Use PostgreSQL to find companies with overlapping masked_ids
+                    shared_companies_data: Dict[uuid.UUID, Dict[str, Any]] = {}
+                    
+                    # Query OCR results that might have matching persons
+                    potential_matches = (
+                        db.query(OcrResult.company_id)
+                        .filter(
+                            OcrResult.company_id != company_uuid,
+                            OcrResult.persons.isnot(None)
+                        )
+                        .distinct()
+                        .limit(500)  # Reasonable limit for performance
+                        .all()
+                    )
+                    
+                    other_company_ids = [row[0] for row in potential_matches]
+                    
+                    if other_company_ids:
+                        # Fetch OCR data for these companies in batch
+                        other_ocr_batch = (
+                            db.query(OcrResult)
+                            .filter(OcrResult.company_id.in_(other_company_ids))
+                            .limit(1000)
+                            .all()
+                        )
+                        
+                        # Group by company_id
+                        company_ocr_map: Dict[uuid.UUID, List[OcrResult]] = {}
+                        for ocr in other_ocr_batch:
+                            if ocr.company_id:
+                                company_ocr_map.setdefault(ocr.company_id, []).append(ocr)
+                        
+                        # Check each company for person matches
+                        for other_company_id, ocr_list in company_ocr_map.items():
+                            other_entities = _extract_ocr_entities(ocr_list)
+                            other_persons = other_entities.get("persons", [])
+                            
+                            if not other_persons:
+                                continue
+                            
+                            # Find matching persons
+                            matched_persons_high = []  # name + masked_id match
+                            matched_persons_low = []   # only masked_id match
+                            
+                            for other_person in other_persons:
+                                other_masked_id = other_person.get("masked_id")
+                                other_full_name = other_person.get("full_name") or other_person.get("name")
+                                
+                                if other_masked_id and other_masked_id in current_masked_ids:
+                                    # masked_id matches!
+                                    current_name = current_persons_map.get(other_masked_id)
+                                    
+                                    if current_name and other_full_name:
+                                        # Normalize names for comparison
+                                        current_name_norm = _normalize_text_for_compare(current_name)
+                                        other_name_norm = _normalize_text_for_compare(other_full_name)
+                                        
+                                        if current_name_norm == other_name_norm:
+                                            # HIGH confidence: both name and masked_id match
+                                            matched_persons_high.append({
+                                                "full_name": other_full_name,
+                                                "masked_id": other_masked_id,
+                                                "relation_type": "OCR_ORTAK",
+                                            })
+                                        else:
+                                            # LOW confidence: only masked_id matches, names differ
+                                            matched_persons_low.append({
+                                                "full_name": other_full_name,
+                                                "masked_id": other_masked_id,
+                                                "relation_type": "OCR_MASKED_ONLY",
+                                            })
                                     else:
-                                        hus_text = str(hus)
-                                elif hus is not None:
-                                    hus_text = str(hus)
-                            except Exception:
-                                hus_text = ""
-                            ocr_husus_map[aid] = hus_text
-                        # meta alanları sakla (ilan üstünde boşsa kullanmak üzere)
-                        if not ocr_meta_map.get(aid):
-                            ocr_meta_map[aid] = {
-                                "publication_date": row.get("publication_date") or row.get("created_at"),
-                                "issue_number": row.get("issue_number"),
-                                "page_number": row.get("page_number"),
-                            }
-                for a in announcements:
-                    aid = a.get("id")
-                    if aid and aid in ocr_text_map:
-                        a["original_text"] = ocr_text_map[aid]
-                    if aid and aid in ocr_husus_map and ocr_husus_map[aid]:
-                        a["hususlar"] = ocr_husus_map[aid]
-                    # meta doldurma (sadece boşsa)
-                    if aid and aid in ocr_meta_map:
-                        meta = ocr_meta_map[aid]
-                        if a.get("publication_date") in (None, "", "-") and meta.get("publication_date"):
-                            a["publication_date"] = meta.get("publication_date")
-                        if a.get("issue_number") in (None, "", "-") and (meta.get("issue_number") is not None):
-                            a["issue_number"] = meta.get("issue_number")
-                        if a.get("page_number") in (None, "", "-") and (meta.get("page_number") is not None):
-                            a["page_number"] = meta.get("page_number")
-                        # newspaper_name ocr_results'ta bulunmuyor; atlama
-                # Tarih formatını normalize et (DD.MM.YYYY veya DD/MM/YYYY -> YYYY-MM-DD)
-                try:
-                    import re as _re
-                    from datetime import datetime as _dt
-                    for a in announcements:
-                        try:
-                            v = a.get("publication_date")
-                            if isinstance(v, str):
-                                m = _re.match(r"^(\d{1,2})[./](\d{1,2})[./](\d{4})$", v.strip())
-                                if m:
-                                    d = int(m.group(1)); mo = int(m.group(2)); y = int(m.group(3))
-                                    a["publication_date"] = _dt(y, mo, d).strftime("%Y-%m-%d")
-                        except Exception:
-                            continue
-                except Exception:
-                    pass
-
-                # Fallback: Hala metni olmayan ilanlar için şirketin en yeni OCR kayıtlarından sırayla doldur
-                missing = [a for a in announcements if isinstance(a, dict) and not a.get("original_text")]
-                if missing:
-                    try:
-                        ocr_recent = (
-                            supabase
-                            .postgrest.schema('app').table("ocr_results")
-                            .select("id, original_text, created_at, publication_date, issue_number, page_number")
-                            .eq("company_id", cid)
-                            .order("created_at", desc=True)
-                            .limit(1)
-                            .execute()
-                        ).data or []
-                        if ocr_recent:
-                            last = ocr_recent[0]
-                            if not a.get("publication_date"):
-                                a["publication_date"] = last.get("publication_date") or last.get("created_at")
-                            if not a.get("issue_number"):
-                                a["issue_number"] = last.get("issue_number")
-                            if not a.get("page_number"):
-                                a["page_number"] = last.get("page_number")
-                    except Exception as _e_recent:
-                        logger.debug(f"[Company Detail] OCR meta recent fetch failed: {_e_recent}")
-                # Second pass: original_text mevcut olsa bile eksik meta alanlarini OCR'dan doldur
-                try:
-                    needs_meta = [a for a in announcements if isinstance(a, dict) and (
-                        (a.get("publication_date") in (None, "", "-")) or
-                        (a.get("issue_number") in (None, "", "-")) or
-                        (a.get("page_number") in (None, "", "-")) or
-                        (a.get("newspaper_name") in (None, "", "-"))
-                    )]
-                    if needs_meta:
-                        try:
-                            _ocr_recent_meta = ocr_recent if 'ocr_recent' in locals() and ocr_recent else (
-                                supabase
-                                .postgrest.schema('app').table("ocr_results")
-                                .select("id, publication_date, issue_number, page_number, newspaper_name")
-                                .eq("company_id", cid)
-                                .order("created_at", desc=True)
-                                .limit(1)
-                                .execute()
-                            ).data or []
-                            if _ocr_recent_meta:
-                                last2 = _ocr_recent_meta[0]
-                                if not a.get("publication_date"):
-                                    a["publication_date"] = last2.get("publication_date") or last2.get("created_at")
-                                if not a.get("issue_number"):
-                                    a["issue_number"] = last2.get("issue_number")
-                                if not a.get("page_number"):
-                                    a["page_number"] = last2.get("page_number")
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-        except Exception as _e_enrich:
-            logger.warning(f"[Company Detail] enrich announcements with original_text failed: {_e_enrich}")
-
-        # --- OCR Results: persons JSON, masked_ids ve yıldızlı örüntüler ---
-        try:
-            ocr_resp = (
-                supabase
-                .postgrest.schema('app').table("ocr_results")
-                .select("id, original_text, persons, masked_ids, created_at, old_trade_name, trade_name, addresses")
-                .eq("company_id", cid)
-                .order("created_at", desc=True)
-                .limit(100)
-                .execute()
-            )
-            try:
-                logger.info(f"[Company Detail] OCR results fetched: count={len(ocr_resp.data or [])}")
-            except Exception:
-                pass
-
-            # using module-level imports for re/json
-            # Tekilleştirme için isim anahtarı üretici
-            def _key(n: str) -> str:
-                return tr_normalize_py(n or "").strip()
-
-            seen_names = set(_key(p.get('full_name') or f"{p.get('first_name','')} {p.get('last_name','')}") for p in persons if isinstance(p, dict))
-            masked_id_set = set()
-            attached_mids = set()
-
-            for ocr in (ocr_resp.data or []):
-                # 1) persons JSONB içeriği
-                plist = ocr.get('persons') or []
-                if isinstance(plist, list):
-                    for idx, p in enumerate(plist):
-                        if not isinstance(p, dict):
-                            continue
-                        full = (
-                            p.get('full_name')
-                            or (f"{p.get('first_name','')} {p.get('last_name','')}").strip()
-                            or p.get('text')
-                            or p.get('label')
+                                        # LOW confidence: masked_id matches but no name comparison possible
+                                        matched_persons_low.append({
+                                            "full_name": other_full_name or "Bilinmeyen",
+                                            "masked_id": other_masked_id,
+                                            "relation_type": "OCR_MASKED_ONLY",
+                                        })
+                            
+                            # If we found any matches, add this company
+                            if matched_persons_high or matched_persons_low:
+                                other_company = db.query(Company).filter(Company.id == other_company_id).first()
+                                if other_company:
+                                    company_dict = _company_to_dict(other_company)
+                                    company_dict["shared_persons"] = matched_persons_high + matched_persons_low
+                                    company_dict["match_strength"] = "high" if matched_persons_high else "low"
+                                    shared_person_companies.append(company_dict)
+                        
+                        # Sort by match strength (high first) and number of shared persons
+                        shared_person_companies.sort(
+                            key=lambda x: (
+                                0 if x.get("match_strength") == "high" else 1,
+                                -len(x.get("shared_persons", []))
+                            )
                         )
-                        if not full:
-                            continue
-                        # 'OCR' gibi gürültü etiketlerini temizle (bitişik/ayrı), boşlukları normalize et
-                        try:
-                            full = re.sub(r"(?i)ocr", "", full)
-                            full = re.sub(r"\s+", " ", full).strip()
-                        except Exception:
-                            pass
-                        k = _key(full)
-                        if k in seen_names:
-                            continue
-                        seen_names.add(k)
-                        # kişiye ait maskeler
-                        p_mids = p.get('masked_ids')
-                        if isinstance(p_mids, str):
-                            p_mids = [p_mids]
-                        # kişi maskesi yoksa OCR kaydının masked_ids'lerini kullan
-                        if not isinstance(p_mids, list) or len(p_mids) == 0:
-                            ocr_mids = ocr.get('masked_ids') or []
-                            if isinstance(ocr_mids, list) and ocr_mids:
-                                p_mids = [m for m in ocr_mids if isinstance(m, str) and '*' in m]
-                        if isinstance(p_mids, list):
-                            for mm in p_mids:
-                                if isinstance(mm, str):
-                                    masked_id_set.add(mm)
-                                    attached_mids.add(mm)
-
-                        persons.append({
-                            'id': f"ocr_{ocr.get('id')}_{idx}",
-                            'full_name': full,
-                            'relation_type': p.get('relation_type') or p.get('role') or p.get('position') or 'OCR',
-                            'position': p.get('position') or p.get('role') or None,
-                            'is_current': True,
-                            'source': 'OCR',
-                            'masked_ids': p_mids if isinstance(p_mids, list) else [],
-                        })
-                        try:
-                            logger.info(f"[Company Detail] OCR person added: name='{full}', mids={p_mids if isinstance(p_mids, list) else []}")
-                        except Exception:
-                            pass
-
-                # 2) masked_ids JSONB içeriği
-                mids = ocr.get('masked_ids') or []
-                if isinstance(mids, list):
-                    for midx, mid in enumerate(mids):
-                        if not isinstance(mid, (str,)):
-                            continue
-                        if '*' not in mid:
-                            continue
-                        masked_id_set.add(mid)
-                        # bu masked id zaten bir kişiye bağlandıysa tekrar kişi üretme
-                        if mid in attached_mids:
-                            continue
-                        # isim yoksa masked-only kişi olarak ekle (UI'da isim bulunamadı + kimlik)
-                        persons.append({
-                            'id': f"ocr_mask_{ocr.get('id')}_{midx}",
-                            'full_name': None,
-                            'is_starred': True,
-                            'relation_type': 'MASKELI_KIMLIK',
-                            'is_current': True,
-                            'source': 'OCR',
-                            'masked_ids': [mid],
-                        })
-                        try:
-                            logger.info(f"[Company Detail] OCR masked-only person added: mid='{mid}'")
-                        except Exception:
-                            pass
-
-                # 3) original_text içinden yıldızlı örüntü
-                text = ocr.get('original_text') or ''
-                if text:
-                    matches = re.findall(r'([A-ZĞÜŞİÖÇ]+\*+)', text)
-                    for m in matches:
-                        clean_name = re.sub(r'\*+', ' ', m).strip()
-                        if not clean_name or len(clean_name) <= 2:
-                            continue
-                        k = _key(clean_name)
-                        if k in seen_names:
-                            continue
-                        seen_names.add(k)
-                        persons.append({
-                            'id': f"ocr_star_{ocr.get('id')}",
-                            'full_name': clean_name,
-                            'is_starred': True,
-                            'relation_type': 'YILDIZLI_KISI',
-                            'is_current': True,
-                            'source': 'OCR',
-                        })
-
-            # MERSIS çıkarımı (mevcut şirkette yoksa OCR'dan türet)
-            try:
-                if not company.get('mersis_number'):
-                    mersis_candidates = []
-                    pat = re.compile(r"(?:mers(?:i|ı)s\D{0,50}?)([0-9]{10,20})", re.IGNORECASE)
-                    for ocr in (ocr_resp.data or []):
-                        txt = (ocr.get('original_text') or '')
-                        for m in pat.finditer(txt):
-                            val = m.group(1)
-                            if val and val not in mersis_candidates:
-                                mersis_candidates.append(val)
-                    if mersis_candidates:
-                        company['mersis_number_ocr'] = mersis_candidates[0]
-            except Exception as ex_mersis:
-                logger.warning(f"[Company Detail] MERSIS extraction failed: {ex_mersis}")
-
-            # Şirket unvanı boşsa OCR trade_name ile doldur (yalnızca response seviyesinde)
-            try:
-                unv = (company.get('unvan') or company.get('firma_unvani') or '').strip()
-                if not unv:
-                    for ocr in (ocr_resp.data or []):
-                        tn = (ocr.get('trade_name') or '').strip()
-                        if tn:
-                            company['unvan'] = tn
-                            company['firma_unvani'] = tn
-                            break
-            except Exception:
-                pass
-
-            # Adres boşsa OCR addresses içinden makul bir adayla doldur (yalnız response)
-            try:
-                addr_present = (company.get('address') or company.get('adres') or '').strip()
-                if not addr_present:
-                    cand_addr = None
-                    for ocr in (ocr_resp.data or []):
-                        addrs = ocr.get('addresses')
-                        if isinstance(addrs, list) and addrs:
-                            for it in addrs:
-                                if isinstance(it, str):
-                                    v = it.strip()
-                                    if v:
-                                        cand_addr = v
-                                        break
-                                elif isinstance(it, dict):
-                                    v = (it.get('address') or it.get('adres') or '').strip()
-                                    if v:
-                                        cand_addr = v
-                                        break
-                        if cand_addr:
-                            break
-                    if cand_addr:
-                        company['address'] = cand_addr
-            except Exception:
-                pass
-
-            # candidate_pairs metrik logu kaldırıldı (tanımsız değişken hatası önlendi)
-
-            # İsim+maskeden isim sözlüğü oluştur (fallback'te kullanmak üzere)
-            name_by_mid: dict[str, str] = {}
-            try:
-                for p in (persons or []):
-                    if not isinstance(p, dict):
-                        continue
-                    fn_ln = (f"{p.get('first_name') or ''} {p.get('last_name') or ''}").strip()
-                    nm = (p.get('full_name') or fn_ln or p.get('name') or p.get('text') or '').strip()
-                    if not nm or '*' in nm:
-                        continue
-                    mids = p.get('masked_ids') or []
-                    mm_list = mids if isinstance(mids, list) else ([mids] if isinstance(mids, str) else [])
-                    for mm in mm_list:
-                        if isinstance(mm, str) and '*' in mm and mm not in name_by_mid:
-                            name_by_mid[mm] = nm
-            except Exception:
-                pass
-
-            # Yardımcı: isim normalize (aksan, noktalama ve boşluk farklarına toleranslı)
-            def _norm_name(n: str) -> str:
-                try:
-                    def _letters_digits_tr(s: str) -> str:
-                        try:
-                            t = unicodedata.normalize('NFKD', (s or ''))
-                            t = t.encode('ASCII', 'ignore').decode('ASCII')
-                            t = t.lower()
-                            t = re.sub(r"[^a-z0-9\s]", " ", t)
-                            t = re.sub(r"\s+", " ", t).strip()
-                            return t
-                        except Exception:
-                            ss = (s or '').strip().lower()
-                            return re.sub(r"\s+", " ", ss)
-                    return _letters_digits_tr(n)
-                except Exception:
-                    ss = (n or '').strip().lower()
-                    return re.sub(r"\s+", " ", ss)
-
-            # Yardımcı: maske eşleştirmesi ('*' joker)
-            def _mask_match(a: Any, b: Any) -> bool:
-                try:
-                    sa, sb = str(a or ''), str(b or '')
-                    if not sa or not sb:
-                        return False
-                    if len(sa) != len(sb):
-                        return False
-                    for ca, cb in zip(sa, sb):
-                        if ca == '*' or cb == '*':
-                            continue
-                        if ca != cb:
-                            return False
-                    return True
-                except Exception:
-                    return False
-
-            # 3) Son olarak yalnızca masked_id ortaklığına göre (fallback)
-            for mid in list(masked_id_set)[:20]:  # performans için ilk 20 maske
-                try:
-                    occ = (
-                        supabase
-                        .postgrest.schema('app').table("ocr_results")
-                        .select("id, company_id, masked_ids, persons, companies(*)")
-                        .filter("masked_ids", "cs", json.dumps([mid]))
-                        .limit(50)
-                        .execute()
-                    )
-                except Exception as _e:
-                    logger.warning(f"[Company Detail] OCR contains query failed for {mid}: {_e}")
-                    continue
-                for row in (occ.data or []):
-                    rcid = row.get('company_id')
-                    if not rcid or rcid == cid:
-                        continue
-                    comp_obj = row.get('companies') if isinstance(row.get('companies'), dict) else None
-                    other_name = None
-                    try:
-                        ppl = row.get('persons') or []
-                        if isinstance(ppl, list):
-                            for pp in ppl:
-                                if not isinstance(pp, dict):
-                                    continue
-                                mids = pp.get('masked_ids')
-                                mm_list = mids if isinstance(mids, list) else ([mids] if isinstance(mids, str) else [])
-                                if any(isinstance(m, str) and _mask_match(m, mid) for m in mm_list):
-                                    fn_ln = (f"{pp.get('first_name') or ''} {pp.get('last_name') or ''}").strip()
-                                    cand = (pp.get('full_name') or fn_ln or pp.get('name') or '').strip()
-                                    if cand:
-                                        other_name = cand
-                                        break
-                        # Heuristik: kişi listesi tek bir kişi ve adı mevcutsa, o adı kullan (row-level masked_ids zaten bu mid'i içeriyor)
-                        if not other_name and isinstance(ppl, list) and len(ppl) == 1:
-                            onlyp = ppl[0]
-                            if isinstance(onlyp, dict):
-                                fn_ln = (f"{onlyp.get('first_name') or ''} {onlyp.get('last_name') or ''}").strip()
-                                cand = (onlyp.get('full_name') or fn_ln or onlyp.get('name') or '').strip()
-                                if cand and '*' not in cand:
-                                    other_name = cand
-                    except Exception:
-                        other_name = None
-                    # Registry fallback: company_person_relations + persons üzerinden kişi adı bul
-                    if not other_name:
-                        try:
-                            rels = (
-                                supabase
-                                .postgrest.schema('app').table("company_person_relations")
-                                .select("person_id")
-                                .eq("company_id", rcid)
-                                .limit(500)
-                                .execute()
-                            )
-                            pids = [r.get('person_id') for r in (rels.data or []) if isinstance(r, dict) and r.get('person_id')]
-                            if pids:
-                                prs = (
-                                    supabase
-                                    .postgrest.schema('app').table("persons")
-                                    .select("id, full_name, first_name, last_name, nationality_id")
-                                    .in_("id", pids)
-                                    .limit(len(pids))
-                                    .execute()
-                                )
-                                for p in (prs.data or []):
-                                    nat = p.get('nationality_id')
-                                    if isinstance(nat, str) and _mask_match(nat, mid):
-                                        fn_ln = (f"{p.get('first_name') or ''} {p.get('last_name') or ''}").strip()
-                                        other_name = (p.get('full_name') or fn_ln or '').strip()
-                                        if other_name:
-                                            break
-                        except Exception:
-                            pass
-                    # Fallback: aynı şirketin yakın OCR satırlarında bu masked_id ile isim var mı?
-                    if not other_name:
-                        try:
-                            fb = (
-                                supabase
-                                .postgrest.schema('app').table("ocr_results")
-                                .select("id, company_id, masked_ids, persons")
-                                .eq("company_id", rcid)
-                                .order("id", desc=True)
-                                .limit(200)
-                                .execute()
-                            )
-                            rows_fb = fb.data or []
-                            for rr in rows_fb:
-                                ppl2 = rr.get('persons') or []
-                                if isinstance(ppl2, list):
-                                    for pp2 in ppl2:
-                                        if not isinstance(pp2, dict):
-                                            continue
-                                        mids2 = pp2.get('masked_ids')
-                                        mm2 = mids2 if isinstance(mids2, list) else ([mids2] if isinstance(mids2, str) else [])
-                                        if any(isinstance(m, str) and _mask_match(m, mid) for m in mm2):
-                                            fn_ln2 = (f"{pp2.get('first_name') or ''} {pp2.get('last_name') or ''}").strip()
-                                            cand2 = (pp2.get('full_name') or fn_ln2 or pp2.get('name') or '').strip()
-                                            if cand2:
-                                                other_name = cand2
-                                                break
-                                # Heuristik fallback: row-level masked_ids bu mid'i içeriyor ve tek kişi varsa onu kullan
-                                if not other_name:
-                                    row_mids = rr.get('masked_ids') or []
-                                    row_mm = row_mids if isinstance(row_mids, list) else ([row_mids] if isinstance(row_mids, str) else [])
-                                    if any(isinstance(m, str) and _mask_match(m, mid) for m in row_mm):
-                                        if isinstance(ppl2, list) and len(ppl2) == 1 and isinstance(ppl2[0], dict):
-                                            fn_ln3 = (f"{ppl2[0].get('first_name') or ''} {ppl2[0].get('last_name') or ''}").strip()
-                                            cand3 = (ppl2[0].get('full_name') or fn_ln3 or ppl2[0].get('name') or '').strip()
-                                            if cand3 and '*' not in cand3:
-                                                other_name = cand3
-                                if other_name:
-                                    break
-                        except Exception:
-                            pass
-                    # Registry fallback: company_person_relations + persons üzerinden kişi adı bul
-                    if not other_name:
-                        try:
-                            rels = (
-                                supabase
-                                .postgrest.schema('app').table("company_person_relations")
-                                .select("person_id")
-                                .eq("company_id", rcid)
-                                .limit(500)
-                                .execute()
-                            )
-                            pids = [r.get('person_id') for r in (rels.data or []) if isinstance(r, dict) and r.get('person_id')]
-                            if pids:
-                                prs = (
-                                    supabase
-                                    .postgrest.schema('app').table("persons")
-                                    .select("id, full_name, first_name, last_name, nationality_id")
-                                    .in_("id", pids)
-                                    .limit(len(pids))
-                                    .execute()
-                                )
-                                for p in (prs.data or []):
-                                    nat = p.get('nationality_id')
-                                    if isinstance(nat, str) and _mask_match(nat, mid):
-                                        fn_ln = (f"{p.get('first_name') or ''} {p.get('last_name') or ''}").strip()
-                                        other_name = (p.get('full_name') or fn_ln or '').strip()
-                                        if other_name:
-                                            break
-                        except Exception:
-                            pass
-                    # Fallback: aynı şirketin yakın OCR satırlarında bu masked_id ile isim var mı?
-                    if not other_name:
-                        try:
-                            fb = (
-                                supabase
-                                .postgrest.schema('app').table("ocr_results")
-                                .select("id, company_id, persons")
-                                .eq("company_id", rcid)
-                                .order("id", desc=True)
-                                .limit(30)
-                                .execute()
-                            )
-                            rows_fb = fb.data or []
-                            for rr in rows_fb:
-                                ppl2 = rr.get('persons') or []
-                                if isinstance(ppl2, list):
-                                    for pp2 in ppl2:
-                                        if not isinstance(pp2, dict):
-                                            continue
-                                        mids2 = pp2.get('masked_ids')
-                                        mm2 = mids2 if isinstance(mids2, list) else ([mids2] if isinstance(mids2, str) else [])
-                                        if any(isinstance(m, str) and m == mid for m in mm2):
-                                            fn_ln = (f"{pp2.get('first_name') or ''} {pp2.get('last_name') or ''}").strip()
-                                            cand2 = (pp2.get('full_name') or fn_ln or pp2.get('name') or '').strip()
-                                            if cand2:
-                                                other_name = cand2
-                                                break
-                                if other_name:
-                                    break
-                        except Exception:
-                            pass
-                    # Display fallback: other_display (only for UI). If other_name missing, try OCR text.
-                    other_display = other_name
-                    if not other_display:
-                        try:
-                            ppl_disp = row.get('persons') or []
-                            if isinstance(ppl_disp, list):
-                                for ppd in ppl_disp:
-                                    if not isinstance(ppd, dict):
-                                        continue
-                                    midsd = ppd.get('masked_ids')
-                                    mm_list_d = midsd if isinstance(midsd, list) else ([midsd] if isinstance(midsd, str) else [])
-                                    if any(isinstance(m, str) and _mask_match(m, mid) for m in mm_list_d):
-                                        candt = (ppd.get('text') or '').strip()
-                                        if candt:
-                                            other_display = candt
-                                            break
-                        except Exception:
-                            pass
-                    base_name = name_by_mid.get(mid)
-                    # Eğer structured isim yok ama OCR text varsa ve baz isimle eşitse, other_name olarak kabul et (yüksek güven için)
-                    if not other_name and other_display and base_name and _norm_name(base_name) == _norm_name(other_display):
-                        other_name = other_display
-                    is_high = bool(base_name and other_name and _norm_name(base_name) == _norm_name(other_name))
-                    shared = [{
-                        'full_name': other_name if is_high else '',
-                        'full_name_base': (base_name or ''),
-                        'full_name_other': (other_display or ''),
-                        'masked_ids': [mid],
-                        'relation_type': ('MASK_NAME_MATCH' if is_high else 'MASK_ONLY'),
-                        'is_current': True,
-                    }]
-                    # Eğer aynı rcid için önceden düşük güven eklenmişse ve şimdi yüksek güven bulunduysa güncelle
-                    existing_idx = next((i for i, e in enumerate(related_companies) if isinstance(e, dict) and e.get('id') == rcid), -1)
-                    if existing_idx != -1:
-                        prev_strength = related_companies[existing_idx].get('match_strength')
-                        if is_high and prev_strength != 'high':
-                            related_companies[existing_idx]['shared_persons'] = shared
-                            related_companies[existing_idx]['match_strength'] = 'high'
-                        existing_related_ids.add(rcid)
-                    else:
-                        entry = {
-                            **(comp_obj or {'id': rcid}),
-                            'shared_persons': shared,
-                            'match_strength': ('high' if is_high else 'low'),
-                        }
-                        related_companies.append(entry)
-                        existing_related_ids.add(rcid)
-
-                # Ek: persons JSON içinde masked_ids içeren kayıtları da ara (string veya liste)
-                occ2_data = []
-                try:
-                    occ2a = (
-                        supabase
-                        .postgrest.schema('app').table("ocr_results")
-                        .select("id, company_id, persons, companies(*)")
-                        .filter("persons", "cs", json.dumps([{"masked_ids": mid}]))
-                        .limit(50)
-                        .execute()
-                    )
-                    occ2_data.extend(occ2a.data or [])
-                except Exception as _e2a:
-                    logger.warning(f"[Company Detail] OCR persons contains (string) failed for {mid}: {_e2a}")
-                try:
-                    occ2b = (
-                        supabase
-                        .postgrest.schema('app').table("ocr_results")
-                        .select("id, company_id, persons, companies(*)")
-                        .filter("persons", "cs", json.dumps([{"masked_ids": [mid]}]))
-                        .limit(50)
-                        .execute()
-                    )
-                    occ2_data.extend(occ2b.data or [])
-                except Exception as _e2b:
-                    logger.warning(f"[Company Detail] OCR persons contains (list) failed for {mid}: {_e2b}")
-
-                seen_rc_in_occ2 = set()
-                for row in occ2_data:
-                    rcid = row.get('company_id')
-                    if not rcid or rcid == cid or rcid in seen_rc_in_occ2:
-                        continue
-                    comp_obj = row.get('companies') if isinstance(row.get('companies'), dict) else None
-                    other_name = None
-                    try:
-                        ppl = row.get('persons') or []
-                        if isinstance(ppl, list):
-                            for pp in ppl:
-                                if not isinstance(pp, dict):
-                                    continue
-                                mids = pp.get('masked_ids')
-                                mm_list = mids if isinstance(mids, list) else ([mids] if isinstance(mids, str) else [])
-                                if any(isinstance(m, str) and m == mid for m in mm_list):
-                                    fn_ln = (f"{pp.get('first_name') or ''} {pp.get('last_name') or ''}").strip()
-                                    cand = (pp.get('full_name') or fn_ln or pp.get('name') or '').strip()
-                                    if cand:
-                                        other_name = cand
-                                        break
-                    except Exception:
-                        other_name = None
-                    # Display fallback: other_display (only for UI). If other_name missing, try OCR text.
-                    other_display = other_name
-                    if not other_display:
-                        try:
-                            ppl_disp = row.get('persons') or []
-                            if isinstance(ppl_disp, list):
-                                for ppd in ppl_disp:
-                                    if not isinstance(ppd, dict):
-                                        continue
-                                    midsd = ppd.get('masked_ids')
-                                    mm_list_d = midsd if isinstance(midsd, list) else ([midsd] if isinstance(midsd, str) else [])
-                                    if any(isinstance(m, str) and _mask_match(m, mid) for m in mm_list_d):
-                                        candt = (ppd.get('text') or '').strip()
-                                        if candt:
-                                            other_display = candt
-                                            break
-                        except Exception:
-                            pass
-                    base_name = name_by_mid.get(mid)
-                    is_high = bool(base_name and other_name and _norm_name(base_name) == _norm_name(other_name))
-                    shared = [{
-                        'full_name': other_name if is_high else '',
-                        'full_name_base': (base_name or ''),
-                        'full_name_other': (other_display or ''),
-                        'masked_ids': [mid],
-                        'relation_type': ('MASK_NAME_MATCH' if is_high else 'MASK_ONLY'),
-                        'is_current': True,
-                    }]
-                    # Mevcut kayıt varsa ve yüksek güven bulunduysa yükselt
-                    existing_idx = next((i for i, e in enumerate(related_companies) if isinstance(e, dict) and e.get('id') == rcid), -1)
-                    if existing_idx != -1:
-                        prev_strength = related_companies[existing_idx].get('match_strength')
-                        if is_high and prev_strength != 'high':
-                            related_companies[existing_idx]['shared_persons'] = shared
-                            related_companies[existing_idx]['match_strength'] = 'high'
-                    else:
-                        related_companies.append({
-                            **(comp_obj or {'id': rcid}),
-                            'shared_persons': shared,
-                            'match_strength': ('high' if is_high else 'low'),
-                        })
-                        existing_related_ids.add(rcid)
-                    seen_rc_in_occ2.add(rcid)
-        except Exception as e:
-            logger.warning(f"[Company Detail] OCR-based related companies failed: {e}")
-
-        # Derivations from OCR results
-        # 1) Eski unvanlar listesi
-        try:
-            ocr_rows = (ocr_resp.data or []) if 'ocr_resp' in locals() and hasattr(ocr_resp, 'data') else []
-            old_names: list[str] = []
-
-            # Prefer materialized view (fast path)
-            try:
-                mv = (
-                    supabase
-                    .table('company_old_trade_names_mv')
-                    .select('old_trade_names')
-                    .eq('company_id', cid)
-                    .limit(1)
-                    .execute()
+                        
+                        # Limit to top 50
+                        shared_person_companies = shared_person_companies[:50]
+            
+            except Exception as exc_shared:
+                logger.warning(
+                    f"[Company Detail] shared person lookup failed for company_id={company_id}: {exc_shared}"
                 )
-                mv_list = (mv.data[0] or {}).get('old_trade_names') if (mv and mv.data) else []
-                if isinstance(mv_list, list):
-                    for item in mv_list:
-                        if isinstance(item, str):
-                            v = item.strip()
-                            if v and v not in old_names:
-                                old_names.append(v)
-            except Exception:
-                pass
-            for r in ocr_rows:
-                name = (r.get('old_trade_name') or '').strip()
-                if name and name not in old_names:
-                    old_names.append(name)
-            # Fallback: company_id üzerinden bulunamadıysa, mersis_no ile direkt tara
-            if not old_names:
-                try:
-                    mersis_vals_fb: list[str] = []
-                    for k in ("mersis_number", "mersis_number_ocr"):
-                        v = company.get(k)
-                        if isinstance(v, str) and v.strip():
-                            vv = v.strip()
-                            if vv not in mersis_vals_fb:
-                                mersis_vals_fb.append(vv)
-                    if mersis_vals_fb:
-                        fb_rows = (
-                            supabase
-                            .postgrest.schema('app').table('ocr_results')
-                            .select('old_trade_name, mersis_no, created_at')
-                            .in_('mersis_no', mersis_vals_fb)
-                            .order('created_at', desc=True)
-                            .limit(200)
-                            .execute()
-                        )
-                        fb_rows = fb_rows.data or []
-                        for r in fb_rows:
-                            nm = (r.get('old_trade_name') or '').strip()
-                            if nm and nm not in old_names:
-                                old_names.append(nm)
-                except Exception:
-                    pass
-            # Second fallback: derive mersis_no directly from this company's OCR rows
-            if not old_names:
-                try:
-                    mers_set: Set[str] = set()
-                    for r in ocr_rows:
-                        mv = r.get('mersis_no')
-                        if isinstance(mv, str) and mv.strip():
-                            mers_set.add(mv.strip())
-                    if mers_set:
-                        fb_rows2 = (
-                            supabase
-                            .postgrest.schema('app').table('ocr_results')
-                            .select('old_trade_name, mersis_no, created_at')
-                            .in_('mersis_no', list(mers_set))
-                            .order('created_at', desc=True)
-                            .limit(200)
-                            .execute()
-                        )
-                        fb_rows2 = fb_rows2.data or []
-                        for r in fb_rows2:
-                            nm = (r.get('old_trade_name') or '').strip()
-                            if nm and nm not in old_names:
-                                old_names.append(nm)
-                except Exception:
-                    pass
-            # Final fallback: RPC function (SQL) — get_company_old_trade_names(uuid)
-            if not old_names:
-                try:
-                    rpc_resp = supabase.rpc('get_company_old_trade_names', { 'p_company_id': cid }).execute()
-                    arr = []
-                    try:
-                        arr = rpc_resp.data or []
-                    except Exception:
-                        arr = []
-                    if isinstance(arr, list):
-                        for item in arr:
-                            if isinstance(item, str):
-                                v = item.strip()
-                                if v and v not in old_names:
-                                    old_names.append(v)
-                except Exception:
-                    pass
-        except Exception:
-            old_names = []
-
-        # 2) Announcements boşsa, OCR snippet'larından pseudo-ilan üret
+                shared_person_companies = []
+        
         try:
-            if not announcements:
-                ann_from_ocr = []
-                for ocr in (ocr_resp.data or [])[:5]:
-                    txt = (ocr.get('original_text') or '').strip()
-                    if not txt:
-                        continue
-                    first_line = txt.splitlines()[0][:140]
-                    ann_from_ocr.append({
-                        'id': f"ocr-{ocr.get('id')}",
-                        'title': first_line or 'Metin Özeti',
-                        'announcement_type': None,
-                        'publication_date': None,
-                        'issue_number': None,
-                        'page_number': None,
-                        'newspaper_name': None,
-                        'pdf_url': None,
-                        'ocr_status': None,
-                        'created_at': None,
-                        'trade_registry_number': company.get('sicil_no'),
-                        'original_text': txt,
-                    })
-                if ann_from_ocr:
-                    announcements = ann_from_ocr
-        except Exception as e:
-            logger.warning(f"[Company Detail] OCR-based announcement fallback failed: {e}")
+            existing_registry_ids: Set[uuid.UUID] = set()
 
-        # Hala boşsa, gazette_entries'den pseudo-ilan üret
-        try:
-            if not announcements:
-                # gazette_entries henüz yoksa şimdi çek
-                if 'gazette_entries' not in locals() or not gazette_entries:
-                    try:
-                        hist_resp2 = (
-                            supabase
-                            .postgrest.schema('app').table("gazette_entries")
-                            .select("id, entry_type, entry_date, processed_text, company_id")
-                            .eq("company_id", cid)
-                            .order("entry_date", desc=True)
-                            .limit(100)
-                            .execute()
-                        )
-                        gazette_entries = hist_resp2.data or []
-                    except Exception as _e:
-                        logger.warning(f"[Company Detail] Gazette fetch inside fallback failed: {_e}")
-                        gazette_entries = []
-
-                ann_from_hist = []
-                for ge in (gazette_entries or [])[:5]:
-                    pt = (ge.get('processed_text') or '').strip()
-                    title = (pt.splitlines()[0] if pt else '')[:140] or 'Gazete Kayıtı'
-                    ann_from_hist.append({
-                        'id': f"ge-{ge.get('id')}",
-                        'title': title,
-                        'announcement_type': 'GAZETTE_ENTRY',
-                        'publication_date': ge.get('entry_date'),
-                        'issue_number': None,
-                        'page_number': None,
-                        'newspaper_name': 'Gazette',
-                        'pdf_url': None,
-                        'ocr_status': None,
-                        'created_at': None,
-                        'trade_registry_number': company.get('sicil_no'),
-                    })
-                if ann_from_hist:
-                    announcements = ann_from_hist
-        except Exception as e:
-            logger.warning(f"[Company Detail] Gazette-entry announcement fallback failed: {e}")
-
-        # --- History (gazette_entries) --- optional
-        gazette_entries = []
-        try:
-            hist_resp = (
-                supabase
-                .postgrest.schema('app').table("gazette_entries")
-                .select("id, entry_type, entry_date, processed_text, company_id")
-                .eq("company_id", cid)
-                .order("entry_date", desc=True)
-                .limit(100)
-                .execute()
-            )
-            gazette_entries = hist_resp.data or []
-        except Exception as e:
-            logger.warning(f"[Company Detail] Error fetching gazette entries: {e}")
-            gazette_entries = []
-
-        # --- Old addresses: prefer ocr_results.old_addresses, fallback to text heuristics ---
-        old_addresses = []
-        try:
-            curr_addr = (company.get('address') or company.get('adres') or '').strip()
-            seen_norm: Set[str] = set()
-            candidates: list[str] = []
-
-            # 0) From ocr_results.old_addresses JSONB (preferred)
-            try:
-                ocr_oa_resp = (
-                    supabase
-                    .postgrest.schema('app').table('ocr_results')
-                    .select('old_addresses, created_at')
-                    .eq('company_id', cid)
-                    .order('created_at', desc=True)
-                    .limit(50)
-                    .execute()
+            mersis_candidates: List[str] = []
+            for attr in ("mersis_number", "mersis_number_ocr"):
+                value = getattr(company_obj, attr, None)
+                if isinstance(value, str):
+                    normalized = value.strip()
+                    if normalized and normalized not in mersis_candidates:
+                        mersis_candidates.append(normalized)
+            if mersis_candidates:
+                mersis_matches = (
+                    db.query(Company)
+                    .filter(
+                        Company.mersis_number.in_(mersis_candidates),
+                        Company.id != company_uuid,
+                    )
+                    .limit(500)
+                    .all()
                 )
-                for row in (ocr_oa_resp.data or []):
-                    oa = row.get('old_addresses')
-                    if isinstance(oa, list):
-                        for item in oa:
-                            if isinstance(item, str):
-                                v = item.strip()
-                                if v:
-                                    candidates.append(v)
-                            elif isinstance(item, dict):
-                                v = (item.get('address') or item.get('adres') or '').strip()
-                                if v:
-                                    candidates.append(v)
-                            elif isinstance(item, list):
-                                for sub in item:
-                                    if isinstance(sub, str) and sub.strip():
-                                        candidates.append(sub.strip())
-                                    elif isinstance(sub, dict):
-                                        v = (sub.get('address') or sub.get('adres') or '').strip()
-                                        if v:
-                                            candidates.append(v)
-            except Exception as _e_ocr_oa:
-                logger.warning(f"[Company Detail] reading ocr_results.old_addresses failed: {_e_ocr_oa}")
+                for match in mersis_matches:
+                    if not match.id or match.id in existing_registry_ids:
+                        continue
+                    registry_related_companies.append(_company_to_dict(match))
+                    existing_registry_ids.add(match.id)
 
-            # Not: OCR old_addresses boş ise heuristik üretim yapılmaz (kullanıcı isteği)
-
-            # Deduplicate and exclude current address (normalized)
-            uniq: list[str] = []
-            curr_norm = tr_normalize_py(curr_addr)
-            for caddr in candidates:
-                n = tr_normalize_py(caddr)
-                if not n or n == curr_norm:
-                    continue
-                if n in seen_norm:
-                    continue
-                seen_norm.add(n)
-                uniq.append(caddr)
-
-            # Try to link to existing companies at same address
-            for addr in uniq[:20]:  # limit
-                linked_company = None
-                linked_company_id = None
+            def _office_first_token(value: Any) -> str:
                 try:
-                    cands = (
-                        supabase
-                        .postgrest.schema('app').table('companies')
-                        .select('id, unvan, address, sicil_no, mersis_number')
-                        .eq('address', addr)
-                        .limit(1)
-                        .execute()
-                    )
-                    cands = cands.data or []
-                    if cands:
-                        linked_company = cands[0]
-                        linked_company_id = linked_company.get('id')
-                    else:
-                        # Fallback 1: address_unaccent ilike normalized pattern
-                        try:
-                            norm = tr_normalize_py(addr)
-                            pat = f"%{norm[:80]}%"
-                            cands2 = (
-                                supabase
-                                .postgrest.schema('app').table('companies')
-                                .select('id, unvan, address, sicil_no, mersis_number')
-                                .ilike('address_unaccent', pat)
-                                .limit(1)
-                                .execute()
-                            )
-                            cands2 = cands2.data or []
-                            if cands2:
-                                linked_company = cands2[0]
-                                linked_company_id = linked_company.get('id')
-                        except Exception:
-                            pass
-                        # Fallback 2: address ilike raw snippet
-                        if not linked_company_id:
-                            try:
-                                pat2 = f"%{addr[:80]}%"
-                                cands3 = (
-                                    supabase
-                                    .postgrest.schema('app').table('companies')
-                                    .select('id, unvan, address, sicil_no, mersis_number')
-                                    .ilike('address', pat2)
-                                    .limit(1)
-                                    .execute()
-                                )
-                                cands3 = cands3.data or []
-                                if cands3:
-                                    linked_company = cands3[0]
-                                    linked_company_id = linked_company.get('id')
-                            except Exception:
-                                pass
-                        # Fallback 3: başka şirketlerin old_addresses (OCR) içinde ara
-                        if not linked_company_id:
-                            try:
-                                occ_data: list[dict] = []
-                                # array of strings
-                                occ1 = (
-                                    supabase
-                                    .table('ocr_results')
-                                    .select('company_id, companies(*)')
-                                    .filter('old_addresses', 'cs', json.dumps([addr]))
-                                    .limit(50)
-                                    .execute()
-                                )
-                                occ_data.extend(occ1.data or [])
-                                # array of objects with address/adres
-                                occ2 = (
-                                    supabase
-                                    .table('ocr_results')
-                                    .select('company_id, companies(*)')
-                                    .filter('old_addresses', 'cs', json.dumps([{ 'address': addr }]))
-                                    .limit(50)
-                                    .execute()
-                                )
-                                occ_data.extend(occ2.data or [])
-                                occ3 = (
-                                    supabase
-                                    .table('ocr_results')
-                                    .select('company_id, companies(*)')
-                                    .filter('old_addresses', 'cs', json.dumps([{ 'adres': addr }]))
-                                    .limit(50)
-                                    .execute()
-                                )
-                                occ_data.extend(occ3.data or [])
-                                # pick first different company
-                                for row in occ_data:
-                                    rcid = row.get('company_id')
-                                    if not rcid or rcid == cid:
-                                        continue
-                                    comp_obj = row.get('companies') if isinstance(row.get('companies'), dict) else None
-                                    if not comp_obj:
-                                        try:
-                                            comp_f = (
-                                                supabase
-                                                .postgrest.schema('app').table('companies')
-                                                .select('id, unvan, address, sicil_no, mersis_number')
-                                                .eq('id', rcid)
-                                                .limit(1)
-                                                .execute()
-                                            )
-                                            comp_f = comp_f.data or []
-                                            comp_obj = comp_f[0] if comp_f else None
-                                        except Exception:
-                                            comp_obj = None
-                                    if comp_obj:
-                                        linked_company = comp_obj
-                                        linked_company_id = comp_obj.get('id') or rcid
-                                        break
-                            except Exception:
-                                pass
+                    return str(value or "").strip().split()[0].upper()
                 except Exception:
-                    pass
-                old_addresses.append({
-                    'address': addr,
-                    'matched_company_id': linked_company_id,
-                    'matched_company': linked_company,
-                })
-        except Exception as e:
-            logger.warning(f"[Company Detail] old_addresses derivation failed: {e}")
+                    return ""
 
-        # --- Registry-related companies (MERSIS / Sicil) ---
-        registry_related_companies = []
-        try:
-            existing_rr_ids: Set[str] = set()
-
-            # MERSIS match
-            mersis_vals: list[str] = []
-            try:
-                for k in ("mersis_number", "mersis_number_ocr"):
-                    v = company.get(k)
-                    if isinstance(v, str) and v.strip():
-                        vv = v.strip()
-                        if vv not in mersis_vals:
-                            mersis_vals.append(vv)
-            except Exception:
-                pass
-            if mersis_vals:
-                try:
-                    mresp = (
-                        supabase
-                        .postgrest.schema('app').table('companies')
-                        .select('id, unvan, address, sicil_no, mersis_number, sicil_mudurluk, sicil_office_code')
-                        .in_('mersis_number', mersis_vals)
-                        .neq('id', cid)
-                        .limit(500)
-                        .execute()
-                    )
-                    mresp = mresp.data or []
-                    for row in mresp:
-                        rid = row.get('id')
-                        if not rid or rid in existing_rr_ids:
-                            continue
-                        registry_related_companies.append({**row, 'match_reason': 'MERSIS_MATCH'})
-                        existing_rr_ids.add(rid)
-                except Exception as _e_mersis:
-                    logger.warning(f"[Company Detail] registry mersis match failed: {_e_mersis}")
-
-            # Sicil match (same sicil_no and same office first token)
-            def _office_first_token(s: Any) -> str:
-                try:
-                    return str(s or '').strip().split()[0].upper()
-                except Exception:
-                    return ''
-
-            sicil_no = company.get('sicil_no')
-            office_norm = _office_first_token(company.get('sicil_mudurluk') or company.get('sicil_office_code'))
+            sicil_no = getattr(company_obj, "sicil_no", None)
+            office_norm = _office_first_token(
+                getattr(company_obj, "sicil_mudurluk", None)
+                or getattr(company_obj, "sicil_office_code", None)
+            )
             if isinstance(sicil_no, str) and sicil_no.strip():
-                try:
-                    sresp = (
-                        supabase
-                        .postgrest.schema('app').table('companies')
-                        .select('id, unvan, address, sicil_no, mersis_number, sicil_mudurluk, sicil_office_code')
-                        .eq('sicil_no', sicil_no.strip())
-                        .neq('id', cid)
-                        .limit(500)
-                        .execute()
+                sicil_matches = (
+                    db.query(Company)
+                    .filter(
+                        Company.sicil_no == sicil_no.strip(),
+                        Company.id != company_uuid,
                     )
-                    sresp = sresp.data or []
-                    for row in sresp:
-                        rid = row.get('id')
-                        if not rid or rid in existing_rr_ids:
-                            continue
-                        other_off = _office_first_token(row.get('sicil_mudurluk') or row.get('sicil_office_code'))
-                        if office_norm and other_off and other_off != office_norm:
-                            continue
-                        registry_related_companies.append({**row, 'match_reason': 'SICIL_MATCH'})
-                        existing_rr_ids.add(rid)
-                except Exception as _e_sicil:
-                    logger.warning(f"[Company Detail] registry sicil match failed: {_e_sicil}")
-        except Exception as _e_rr:
-            logger.warning(f"[Company Detail] registry related companies failed: {_e_rr}")
+                    .limit(500)
+                    .all()
+                )
+                for match in sicil_matches:
+                    if not match.id or match.id in existing_registry_ids:
+                        continue
+                    other_office = _office_first_token(
+                        getattr(match, "sicil_mudurluk", None)
+                        or getattr(match, "sicil_office_code", None)
+                    )
+                    if office_norm and other_office and office_norm != other_office:
+                        continue
+                    registry_related_companies.append(_company_to_dict(match))
+                    existing_registry_ids.add(match.id)
+        except Exception as exc_registry:
+            logger.warning(
+                f"[Company Detail] registry related lookup failed for company_id={company_id}: {exc_registry}"
+            )
 
-        # --- Final payload ---
+        if not persons_payload and ocr_rows:
+            persons_payload = ocr_entities["persons"]  # Use extracted entities with proper fields
+
+        if ocr_entities["addresses"]:
+            existing_same_ids = {
+                entry.get("id") for entry in same_address_companies if entry.get("id")
+            }
+            other_entities_cache: Dict[uuid.UUID, Dict[str, Any]] = {}
+
+            def _company_addresses_with_ocr(company_obj: Company) -> List[str]:
+                addresses: List[str] = []
+                if company_obj.address:
+                    addresses.append(company_obj.address)
+                entities = other_entities_cache.get(company_obj.id)
+                if entities is None:
+                    rows = (
+                        db.query(OcrResult)
+                        .filter(OcrResult.company_id == company_obj.id)
+                        .limit(20)
+                        .all()
+                    )
+                    entities = _extract_ocr_entities(rows)
+                    other_entities_cache[company_obj.id] = entities
+                addresses.extend(entities["addresses"])
+                return addresses
+
+            canonical = _resolve_canonical_address(company_obj.address, ocr_entities["addresses"])
+
+            if canonical:
+                canonical_original, canonical_norm_ws, canonical_norm_compare = canonical
+
+                direct_matches = (
+                    db.query(Company)
+                    .filter(Company.id != company_uuid)
+                    .filter(Company.address.isnot(None))
+                    .filter(
+                        func.lower(
+                            func.trim(func.regexp_replace(Company.address, r"\s+", " ", "g"))
+                        )
+                        == canonical_norm_ws
+                    )
+                    .limit(500)
+                    .all()
+                )
+
+                for other in direct_matches:
+                    other_id_str = str(other.id)
+                    if other_id_str in existing_same_ids:
+                        continue
+                    other_norm = _normalize_address_for_compare(other.address)
+                    if other_norm != canonical_norm_compare:
+                        continue
+                    other_addresses = _company_addresses_with_ocr(other)
+                    same_address_companies.append(
+                        _company_to_dict(other, ocr_addresses=other_addresses)
+                    )
+                    existing_same_ids.add(other_id_str)
+                    if len(same_address_companies) >= 50:
+                        break
+
+                if len(same_address_companies) < 50:
+                    ocr_candidate_ids = (
+                        db.query(OcrResult.company_id)
+                        .filter(OcrResult.company_id != company_uuid)
+                        .filter(OcrResult.company_id.isnot(None))
+                        .distinct()
+                        .limit(500)
+                        .all()
+                    )
+
+                    for (candidate_id,) in ocr_candidate_ids:
+                        if len(same_address_companies) >= 50:
+                            break
+                        if not isinstance(candidate_id, uuid.UUID):
+                            continue
+                        candidate_id_str = str(candidate_id)
+                        if candidate_id_str in existing_same_ids or candidate_id_str == str(company_uuid):
+                            continue
+                        candidate_company = db.query(Company).filter(Company.id == candidate_id).first()
+                        if not candidate_company:
+                            continue
+                        if candidate_company.address:
+                            candidate_norm = _normalize_address_for_compare(candidate_company.address)
+                            if candidate_norm == canonical_norm_compare:
+                                other_addresses = _company_addresses_with_ocr(candidate_company)
+                                same_address_companies.append(
+                                    _company_to_dict(candidate_company, ocr_addresses=other_addresses)
+                                )
+                                existing_same_ids.add(candidate_id_str)
+                                continue
+                        other_addresses = _company_addresses_with_ocr(candidate_company)
+                        other_norms = {
+                            _normalize_address_for_compare(addr)
+                            for addr in other_addresses
+                            if addr
+                        }
+                        other_norms.discard(None)
+                        if canonical_norm_compare in other_norms:
+                            same_address_companies.append(
+                                _company_to_dict(candidate_company, ocr_addresses=other_addresses)
+                            )
+                            existing_same_ids.add(candidate_id_str)
+
+        # masked_id üzerinden diğer şirketlerin OCR raw_text'inde arama yapan ilişki bloğu kaldırıldı (performans ve istek gereği)
+
+        # Geocoding devre dışı (modal performansı için)
+        if False and not company_payload.get("koordinat"):
+            normalized_address = company_payload.get("address") or company_obj.address
+            if normalized_address and settings.locationiq_token:
+                try:
+                    params = {
+                        "key": settings.locationiq_token,
+                        "q": normalized_address,
+                        "format": "json",
+                        "countrycodes": "tr",
+                        "limit": 1,
+                    }
+                    response = requests.get("https://us1.locationiq.com/v1/search.php", params=params, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
+                    if data:
+                        lat = float(data[0]["lat"])
+                        lon = float(data[0]["lon"])
+                        company_payload["koordinat"] = {"x": lon, "y": lat}
+                        db.execute(
+                            text(
+                                "UPDATE public.companies SET koordinat = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326) WHERE id = :cid"
+                            ),
+                            {"lon": lon, "lat": lat, "cid": str(company_uuid)},
+                        )
+                        db.commit()
+                except Exception as geo_exc:
+                    logger.warning(
+                        f"[Company Detail] LocationIQ lookup failed for company_id={company_id}: {geo_exc}"
+                    )
+
         return {
-            "company": company,
-            "persons": persons,
+            "company": company_payload,
+            "persons": persons_payload,
             "announcements": announcements,
-            "history": gazette_entries,
+            "history": history_entries,
             "related_companies": related_companies,
             "same_address_companies": same_address_companies,
             "registry_related_companies": registry_related_companies,
+            "shared_person_companies": shared_person_companies,  # New: companies sharing same persons
             "old_addresses": old_addresses,
-            "old_trade_names": old_names,
+            "old_trade_names": old_trade_names,
+            "ocr_results": ocr_matches,
         }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[Company Detail] Error for company_id '{company_id}': {e}", exc_info=True)
+        logger.error(f"[Company Detail] Error retrieving details for company_id={company_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An error occurred while fetching company detail.")
 
-@router.get("/announcement-detail", summary="Announcement detail with OCR text (scoped to company if provided)")
+
+@router.get("/announcement-detail", summary="Announcement detail with optional OCR text")
 def announcement_detail(
-    announcement_id: str = Query(..., description="UUID of the announcement"),
-    company_id: Optional[str] = Query(None, description="UUID of the company (to scope OCR text)"),
-    mersis_no: Optional[str] = Query(None, description="MERSIS number (alternative scope for OCR text)"),
-    supabase: Client = Depends(get_supabase_client),
+    announcement_id: str = Query(..., description="UUID of the announcement or OCR result"),
+    company_id: Optional[str] = Query(None, description="Optional company scope for OCR results"),
+    ocr_id: Optional[int] = Query(None, description="Direct OCR result integer ID for virtual announcements"),
+    db: Session = Depends(get_db),
     _: None = Depends(enforce_daily_limit),
 ):
     try:
-        # UUID guard: Supabase/Postgres'ta id UUID ise, hatali id icin erken don
+        # If ocr_id is provided, skip announcement lookup and go straight to OCR
+        if ocr_id is not None:
+            ocr_obj = db.query(OcrResult).filter(OcrResult.id == ocr_id).first()
+            if not ocr_obj:
+                raise HTTPException(status_code=404, detail="OCR result not found")
+            
+            # Construct virtual announcement from OCR result
+            virtual_announcement = {
+                "id": str(uuid.uuid5(uuid.UUID('00000000-0000-0000-0000-000000000000'), f"ocr:{ocr_obj.id}")),
+                "company_id": str(ocr_obj.company_id) if ocr_obj.company_id else None,
+                "ilan_no": None,
+                "sicil_no": getattr(ocr_obj, "sicil_dosya_no", None),
+                "gazette_number": getattr(ocr_obj, "issue_number", None),
+                "publication_date": ocr_obj.publication_date.isoformat() if ocr_obj.publication_date else None,
+                "title": getattr(ocr_obj, "hususlar", None) or "Sicil Gazetesi İlanı (OCR)",
+                "company_title": getattr(ocr_obj, "trade_name", None),
+                "company_name": getattr(ocr_obj, "trade_name", None),
+                "content": None,
+                "ocr_text": getattr(ocr_obj, "original_text", None),
+                "hususlar": getattr(ocr_obj, "hususlar", None),
+            }
+            
+            return {
+                "announcement": virtual_announcement,
+                "original_text": getattr(ocr_obj, "original_text", None),
+            }
+        
+        try:
+            announcement_uuid = uuid.UUID((announcement_id or "").strip())
+        except ValueError:
+            raise HTTPException(status_code=422, detail="announcement_id must be a valid UUID")
+
+        # First, try to find an Announcement record
+        announcement_obj = (
+            db.query(Announcement)
+            .filter(Announcement.id == announcement_uuid)
+            .first()
+        )
+        
+        # If we found an announcement, return it as usual
+        if announcement_obj:
+            announcement_payload = _announcement_to_dict(announcement_obj)
+
+            company_uuid: Optional[uuid.UUID] = None
+            if company_id:
+                try:
+                    company_uuid = uuid.UUID(company_id.strip())
+                except ValueError:
+                    raise HTTPException(status_code=422, detail="company_id must be a valid UUID")
+            elif announcement_obj.company_id:
+                company_uuid = announcement_obj.company_id
+
+            ocr_query = db.query(OcrResult).filter(OcrResult.announcement_id == announcement_uuid)
+            if company_uuid:
+                ocr_query = ocr_query.filter(OcrResult.company_id == company_uuid)
+
+            ocr_row = ocr_query.order_by(OcrResult.created_at.desc().nullslast()).first()
+            original_text = None
+            if ocr_row is not None:
+                original_text = getattr(ocr_row, "original_text", None)
+
+            return {
+                "announcement": announcement_payload,
+                "original_text": original_text,
+            }
+        
+        # If no announcement found, try to reverse-engineer the OCR ID from the UUID
+        # Check if this UUID was generated from an OCR ID using our deterministic method
+        ocr_obj = None
+        ocr_namespace = uuid.UUID('00000000-0000-0000-0000-000000000000')
+        
+        # Try to find a matching OCR result by checking all recent OCR results
+        # This is a fallback approach - we'll query OCR results and check if any generate this UUID
+        recent_ocrs = (
+            db.query(OcrResult)
+            .order_by(OcrResult.created_at.desc())
+            .limit(1000)
+            .all()
+        )
+        
+        for ocr in recent_ocrs:
+            virtual_id = uuid.uuid5(ocr_namespace, f"ocr:{ocr.id}")
+            if virtual_id == announcement_uuid:
+                ocr_obj = ocr
+                break
+        
+        if not ocr_obj:
+            raise HTTPException(status_code=404, detail="Announcement or OCR result not found")
+        
+        # Construct a "virtual announcement" from the OCR result
+        virtual_announcement = {
+            "id": str(announcement_uuid),
+            "company_id": str(ocr_obj.company_id) if ocr_obj.company_id else None,
+            "ilan_no": None,
+            "sicil_no": getattr(ocr_obj, "sicil_dosya_no", None),
+            "gazette_number": getattr(ocr_obj, "issue_number", None),
+            "publication_date": ocr_obj.publication_date.isoformat() if ocr_obj.publication_date else None,
+            "title": getattr(ocr_obj, "hususlar", None) or "Sicil Gazetesi İlanı (OCR)",
+            "company_title": getattr(ocr_obj, "trade_name", None),
+            "company_name": getattr(ocr_obj, "trade_name", None),
+            "content": None,
+            "ocr_text": getattr(ocr_obj, "original_text", None),
+            "hususlar": getattr(ocr_obj, "hususlar", None),
+        }
+        
+        return {
+            "announcement": virtual_announcement,
+            "original_text": getattr(ocr_obj, "original_text", None),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"[Announcement Detail] Error for announcement_id '{announcement_id}': {e}",
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail="An error occurred while fetching announcement detail.")
         try:
             import re as _re
             if not _re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", announcement_id, flags=_re.IGNORECASE):

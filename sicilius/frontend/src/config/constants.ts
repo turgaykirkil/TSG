@@ -37,6 +37,12 @@ export const API_ENDPOINTS = {
     BASE: '/api/v1/stats',
     COORDINATES: '/api/v1/stats/coordinates',
   },
+  USAGE: {
+    OVERVIEW: '/api/v1/usage/overview',
+    DB_TABLES: '/api/v1/stats/db-tables',
+    DAILY_ME: '/api/v1/usage/me',
+    RESET_ME: '/api/v1/usage/reset-me',
+  },
   PROCESSING: {
     PROCESS_COORDINATES: '/api/v1/process/process-coordinates',
     RESOLVE_CONFLICTS: '/api/v1/process/resolve-conflicts',

@@ -23,8 +23,15 @@ class AuthViewModel: ObservableObject {
     @Published var isLoading: Bool = false
 
     private var cancellables = Set<AnyCancellable>()
+    private let apiBaseURL: URL
 
     init() {
+        let defaultAPIBase = "http://127.0.0.1:5001"
+        let apiBaseString = (try? ConfigService.get(key: "API_BASE_URL")) ?? defaultAPIBase
+        guard let apiURL = URL(string: apiBaseString) else {
+            fatalError("Geçersiz API_BASE_URL: \(apiBaseString)")
+        }
+        self.apiBaseURL = apiURL
         // Uygulama başlarken Keychain'de token var mı diye kontrol et.
         checkSession()
     }
@@ -42,17 +49,19 @@ class AuthViewModel: ObservableObject {
         errorMessage = nil
 
         // 1. URL'yi oluştur
-        guard let url = URL(string: "http://127.0.0.1:5002/api/v1/auth/login/access-token") else {
-            errorMessage = "Geçersiz API URL'si"
-            isLoading = false
-            return
-        }
+        let loginURL = apiBaseURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("v1")
+            .appendingPathComponent("auth")
+            .appendingPathComponent("login")
+            .appendingPathComponent("access-token")
 
         // 2. İstek (Request) oluştur
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: loginURL)
         request.httpMethod = "POST"
         // 3. Header'ı backend'in beklediği gibi ayarla
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         // 4. Gövdeyi (Body) backend'in beklediği formatta ve alan adlarıyla oluştur
         var components = URLComponents()

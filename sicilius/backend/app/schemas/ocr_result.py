@@ -7,13 +7,13 @@ from uuid import UUID
 class OcrResultCreate(BaseModel):
     company_id: UUID
     announcement_id: Optional[UUID] = None
-    raw_text: Optional[str] = None
+    original_text: Optional[str] = None
     structured_data: Optional[Any] = None
     status: Optional[str] = None
 
 # Properties to receive on item update
 class OcrResultUpdate(BaseModel):
-    raw_text: Optional[str] = None
+    original_text: Optional[str] = None
     structured_data: Optional[Any] = None
     status: Optional[str] = None
 
@@ -22,7 +22,7 @@ class OcrResultInDBBase(BaseModel):
     id: int
     company_id: UUID
     announcement_id: Optional[UUID] = None
-    raw_text: Optional[str] = None
+    original_text: Optional[str] = None
     structured_data: Optional[Any] = None
     status: str
     created_at: datetime

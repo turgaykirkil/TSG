@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app import crud, models, schemas
 from app.api import deps
-from supabase import Client
+
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -32,37 +32,33 @@ def resolve_announcement(
     issue_number: int = Query(...),
     page_number: int = Query(...),
     pdf_url: Optional[str] = Query(None),
-    supabase: Client = Depends(deps.get_supabase_client),
+    db: Session = Depends(deps.get_db),
 ) -> Dict[str, Any]:
     """
-    Verilen (tarih, sayı, sayfa) ve opsiyonel pdf_url bilgisi ile Supabase üzerindeki
-    announcements tablosundan ilgili ilan kimliğini ve temel metadatasını döner.
+    Verilen (tarih, sayı, sayfa) ve opsiyonel pdf_url bilgisi ile veritabanından
+    ilgili ilan kimliğini ve temel metadatasını döner.
     """
     try:
-        params = {
-            "_publication_date": publication_date,
-            "_issue_number": issue_number,
-            "_page_number": page_number,
-            "_pdf_url": pdf_url,
-        }
-        ann_res = supabase.rpc("fn_find_announcement_id", params).execute()
-        ann_id = (ann_res.data if hasattr(ann_res, "data") else None) or None
-        if not ann_id:
+        from datetime import datetime
+        try:
+            pub_date = datetime.strptime(publication_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+        ann = crud.announcement.get_by_keys(
+            db,
+            publication_date=pub_date,
+            issue_number=issue_number,
+            page_number=page_number,
+            pdf_url=pdf_url
+        )
+        
+        if not ann:
             raise HTTPException(status_code=404, detail="Announcement not found for given keys")
 
-        row_res = (
-            supabase
-            .table("announcements")
-            .select("id, publication_date, issue_number, page_number, pdf_url")
-            .eq("id", ann_id)
-            .limit(1)
-            .execute()
-        )
-        rows = getattr(row_res, "data", None) or []
-        meta = rows[0] if rows else {"id": ann_id}
         return {
             "found": True,
-            "id": ann_id,
+            "id": str(ann.id),
         }
     except HTTPException:
         raise

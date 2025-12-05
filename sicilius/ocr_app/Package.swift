@@ -9,15 +9,11 @@ let package = Package(
     products: [
         .executable(name: "ocr_app", targets: ["ocr_app"])
     ],
-    dependencies: [
-        .package(url: "https://github.com/supabase/supabase-swift.git", from: "2.0.0")
-    ],
+    dependencies: [],
     targets: [
         .executableTarget(
             name: "ocr_app",
-            dependencies: [
-                .product(name: "Supabase", package: "supabase-swift")
-            ],
+            dependencies: [],
             resources: [
                 .process("Resources")
             ]

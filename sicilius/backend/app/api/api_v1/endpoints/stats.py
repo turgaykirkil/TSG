@@ -1,120 +1,73 @@
+import json
 import logging
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException
-from supabase import Client
-from app.core.firebase import get_firestore_client
 
-from app.core.dependencies import get_supabase_client, get_db
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func, text, select
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+
+from app.api import deps
+from app.core.config import settings
+from app.core.storage import list_objects
+from app.models import Announcement, Company, OcrResult
 
 router = APIRouter()
 
-# Configure logging
-
 logger = logging.getLogger(__name__)
 
-@router.get("/firebase", summary="Check Firebase/Firestore connectivity")
-def firebase_health():
-    """
-    Firebase Admin SDK üzerinden Firestore erişimini doğrular.
-    Başarılıysa proje adını döner.
-    """
-    try:
-        db = get_firestore_client()
-        return {"ok": True, "project": db.project}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Firebase connection failed: {e}")
 
-@router.get("/company-firestore/{company_id}", summary="Get a single company doc from Firestore")
-def get_company_firestore(company_id: str):
+def _count_storage_pdfs(prefix: str | None = None) -> dict:
     try:
-        db = get_firestore_client()
-        snap = db.collection("companies").document(company_id).get()
-        if not snap.exists:
-            raise HTTPException(status_code=404, detail="Company not found in Firestore")
-        data = snap.to_dict() or {}
-        data["id"] = snap.id
-        return data
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch company from Firestore: {e}")
+        objects = list_objects(settings.minio_bucket_gazette_pdfs, prefix=prefix)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("MinIO list_objects failed: %s", exc, exc_info=True)
+        return {"bucket": settings.minio_bucket_gazette_pdfs, "pdf_count": 0, "total_bytes": 0, "error": str(exc)}
+
+    total_files = 0
+    total_bytes = 0
+    for obj in objects:
+        if obj.get("is_dir"):
+            continue
+        name = (obj.get("object_name") or "").lower()
+        if name.endswith(".pdf"):
+            total_files += 1
+            total_bytes += int(obj.get("size") or 0)
+    return {"bucket": settings.minio_bucket_gazette_pdfs, "pdf_count": total_files, "total_bytes": total_bytes}
+
+
+def _safe_count_rows(db: Session, schema: str, table: str) -> int | None:
+    try:
+        result = db.execute(text(f'SELECT COUNT(*) FROM "{schema}"."{table}"')).scalar()
+        return int(result or 0)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Failed to count rows for %s.%s: %s", schema, table, exc)
+        return None
+
 
 @router.get("/storage-pdfs-count", summary="Get total count of PDF files in gazette-pdfs bucket")
-def get_storage_pdfs_count(supabase: Client = Depends(get_supabase_client)):
-    """
-    Supabase Storage içindeki 'gazette-pdfs' bucket'ında bulunan PDF dosyalarının toplam sayısını döndürür.
-    Büyük hacimler için sayımı limit/offset ile sayfalar halinde yapar. Sadece .pdf uzantılı dosyalar sayılır.
-    """
-    BUCKET = "gazette-pdfs"
-    limit = 1000
-    total = 0
-    # Klasörleri gezmek için BFS kuyruğu
-    queue = [""]  # root path
-    try:
-        while queue:
-            current = queue.pop(0)
-            offset = 0
-            while True:
-                # Not: list(path, options) — options: {limit, offset, search, sortBy}
-                listing = supabase.storage.from_(BUCKET).list(current, {"limit": limit, "offset": offset, "sortBy": {"column": "name", "order": "asc"}})
-                items = listing or []
-                # Bazı sürümlerde .list() {'data': [...], 'error': None} döndürebilir
-                if isinstance(items, dict) and "data" in items:
-                    items = items.get("data") or []
-                count = 0
-                for obj in items:
-                    name = ""
-                    try:
-                        name = (obj.get("name") or obj.get("Key") or "")
-                    except AttributeError:
-                        name = ""
-                    lower = name.lower()
-                    # metadata None ise klasör olarak kabul et
-                    is_folder = obj.get("metadata") in (None, {}) and not lower.endswith(".pdf")
-                    if is_folder and name:
-                        next_path = f"{current}/{name}" if current else name
-                        queue.append(next_path)
-                    elif lower.endswith(".pdf"):
-                        count += 1
-                total += count
-                logger.debug("storage list page BUCKET=%s path=%s offset=%s got=%s pdf_in_page=%s", BUCKET, current, offset, len(items), count)
-                if not items or len(items) < limit:
-                    break
-                offset += limit
-        return {"bucket": BUCKET, "pdf_count": total}
-    except Exception as e:
-        logger.error("Failed to list storage bucket: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to count PDFs in storage: {e}")
+def get_storage_pdfs_count():
+    data = _count_storage_pdfs()
+    return {"bucket": data["bucket"], "pdf_count": data.get("pdf_count", 0)}
+
 
 @router.get("/coordinates", summary="Get coordinate statistics")
-def get_coordinate_stats(supabase: Client = Depends(get_supabase_client)):
-    """
-    Retrieves statistics about company coordinates from the database by calling a dedicated RPC function.
-    This is highly efficient as all computation is done on the database side.
-    """
+def get_coordinate_stats(db: Session = Depends(deps.get_db)):
     try:
-        logger.info("Fetching coordinate stats via RPC call...")
-        response = supabase.postgrest.schema('app').rpc('get_coordinate_statistics', {}).execute()
-        
-        if not response.data:
-            logger.error("Failed to get data from RPC call 'get_coordinate_statistics'")
-            raise HTTPException(status_code=500, detail="Could not retrieve coordinate statistics.")
-
-        # The RPC function returns a single JSON object, not a list.
-        stats = response.data
-        logger.info(f"Successfully fetched coordinate stats: {stats}")
-        
-        return stats
-
-    except Exception as e:
-        logger.error(f"An unexpected error occurred while fetching coordinate stats: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+        result = db.execute(text("SELECT get_coordinate_statistics();")).scalar()
+        if result is None:
+            raise HTTPException(status_code=500, detail="Coordinate statistics function returned no data")
+        if isinstance(result, str):
+            result = json.loads(result)
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error("Error fetching coordinate stats: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Could not retrieve coordinate statistics: {exc}")
 
 
 @router.get("/db-tables", summary="List database tables for usage page")
-def list_db_tables(db: Session = Depends(get_db)):
+def list_db_tables(db: Session = Depends(deps.get_db)):
     try:
         sql = text(
             """
@@ -133,67 +86,49 @@ def list_db_tables(db: Session = Depends(get_db)):
             """
         )
         rows = db.execute(sql).mappings().all()
-        return {"tables": [dict(r) for r in rows]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list tables: {e}")
+        enriched = []
+        for r in rows:
+            schema = r.get("schema") or "public"
+            table = r.get("table")
+            row_count = _safe_count_rows(db, schema, table) if table else None
+            data = dict(r)
+            data["row_count"] = row_count
+            enriched.append(data)
+        return {"tables": enriched}
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error("Failed to list tables: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list tables: {exc}")
 
 
 @router.get("", summary="Get application-wide statistics", include_in_schema=False)
 @router.get("/", summary="Get application-wide statistics")
-def get_stats(supabase: Client = Depends(get_supabase_client)):
-    """
-    Retrieves key statistics from the database by calling a dedicated RPC function.
-    This is highly efficient as all computation is done on the database side.
-    """
+def get_stats(db: Session = Depends(deps.get_db)):
     try:
-        logger.info("Fetching general statistics via RPC call 'get_general_statistics'...")
-        response = supabase.postgrest.schema('app').rpc('get_general_statistics', {}).execute()
-        
-        if not response.data:
-            logger.error("Failed to get data from RPC call 'get_general_statistics'")
-            raise HTTPException(status_code=500, detail="Could not retrieve general statistics.")
+        now = datetime.utcnow()
+        last_24h = now - timedelta(hours=24)
 
-        # The RPC function returns a single JSON object in a list.
-        stats = response.data[0]
-        # Storage PDF sayısını da ekle (hata olsa bile ana istatistiği döndür)
-        try:
-            BUCKET = "gazette-pdfs"
-            limit = 1000
-            total = 0
-            queue = [""]
-            while queue:
-                current = queue.pop(0)
-                offset = 0
-                while True:
-                    listing = supabase.storage.from_(BUCKET).list(current, {"limit": limit, "offset": offset, "sortBy": {"column": "name", "order": "asc"}})
-                    items = listing or []
-                    if isinstance(items, dict) and "data" in items:
-                        items = items.get("data") or []
-                    count = 0
-                    for obj in items:
-                        name = ""
-                        try:
-                            name = (obj.get("name") or obj.get("Key") or "")
-                        except AttributeError:
-                            name = ""
-                        lower = name.lower()
-                        is_folder = obj.get("metadata") in (None, {}) and not lower.endswith(".pdf")
-                        if is_folder and name:
-                            next_path = f"{current}/{name}" if current else name
-                            queue.append(next_path)
-                        elif lower.endswith(".pdf"):
-                            count += 1
-                    total += count
-                    if not items or len(items) < limit:
-                        break
-                    offset += limit
-            stats["storage_pdf_count"] = total
-        except Exception:
-            # Sükut-u hayal olmasın diye yutuyoruz; stats yine de dönsün
-            stats.setdefault("storage_pdf_count", None)
-        logger.info(f"Successfully fetched general stats: {stats}")
-        return stats
+        total_companies = db.execute(select(func.count(Company.id))).scalar() or 0
+        scraped_companies = db.execute(
+            select(func.count(Company.id)).where(Company.scraped_at.isnot(None))
+        ).scalar() or 0
+        total_announcements = db.execute(select(func.count(Announcement.id))).scalar() or 0
+        new_companies_today = db.execute(
+            select(func.count(Company.id)).where(Company.created_at >= last_24h)
+        ).scalar() or 0
+        ocr_processed = db.execute(select(func.count(OcrResult.id))).scalar() or 0
 
-    except Exception as e:
-        logger.error(f"An unexpected error occurred while fetching general stats: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+        storage_stats = _count_storage_pdfs()
+
+        return {
+            "total_companies": int(total_companies),
+            "scraped_companies": int(scraped_companies),
+            "total_announcements": int(total_announcements),
+            "new_companies_today": int(new_companies_today),
+            "ocr_processed": int(ocr_processed),
+            "storage_pdf_count": int(storage_stats.get("pdf_count", 0)),
+            "storage_pdf_bytes": int(storage_stats.get("total_bytes", 0)),
+            "storage_error": storage_stats.get("error"),
+        }
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error("Error fetching general stats: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Could not retrieve statistics: {exc}")

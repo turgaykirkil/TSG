@@ -23,6 +23,9 @@ from app.api.api_v1.endpoints import (
     utils,
     usage,
     settings as settings_ep,
+    incoming_emails,
+    cloudflare_webhook,
+    company_errors,
 )
 
 api_router = APIRouter()
@@ -43,6 +46,7 @@ api_router.include_router(announcements.router, prefix="/announcements", tags=["
 api_router.include_router(companies.router, prefix="/companies", tags=["Companies"])
 api_router.include_router(gazettes.router, prefix="/gazettes", tags=["Gazettes"])
 api_router.include_router(persons.router, prefix="/persons", tags=["Persons"])
+api_router.include_router(company_errors.router, prefix="/errors", tags=["Company Errors"])
 
 # Functionality
 # OCR/Parsing endpointleri yalnızca API_ONLY=False iken ve ilgili bayraklar true ise dahil edilir
@@ -79,3 +83,7 @@ api_router.include_router(tools.router, prefix="/tools", tags=["Tools"])
 api_router.include_router(utils.router, prefix="/utils", tags=["Utilities"])
 api_router.include_router(usage.router, prefix="/usage", tags=["Usage"])
 api_router.include_router(settings_ep.router, prefix="/settings", tags=["Settings"])
+
+# Email System (Admin inbox + Cloudflare webhook)
+api_router.include_router(incoming_emails.router, tags=["Incoming Emails"])
+api_router.include_router(cloudflare_webhook.router, tags=["Webhooks"])

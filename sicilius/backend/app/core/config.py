@@ -40,12 +40,21 @@ class Settings(BaseSettings):
     # Database (SQLAlchemy connection)
     DATABASE_URL: PostgresDsn
 
-    # Supabase Client
-    supabase_url: str
-    supabase_key: str  # Public anon key
-    supabase_service_role_key: str  # Service role key for admin operations
+    # Supabase Client (optional in local auth mode)
+    supabase_url: Optional[str] = None
+    supabase_key: Optional[str] = None  # Public anon key
+    supabase_service_role_key: Optional[str] = None  # Service role key for admin operations
     # Supabase JWT secret for verifying access tokens locally (HS256). Optional fallback to auth.get_user if absent.
     supabase_jwt_secret: str | None = None
+
+    # MinIO / S3-compatible object storage
+    minio_endpoint: str = "minio:9000"
+    minio_access_key: str = "minioadmin"
+    minio_secret_key: str = "ChangeMe_12345"
+    minio_secure: bool = False
+    minio_region: Optional[str] = None
+    minio_bucket_gazette_pdfs: str = "gazette-pdfs"
+    minio_bucket_company_gazettes: str = "company-gazettes"
 
     # Firebase (optional)
     # Service account JSON dosya yolu (mutlaka local path, repo'ya girmemeli)
@@ -60,16 +69,20 @@ class Settings(BaseSettings):
     firebase_enable_storage: bool = False
 
     # Geocoding Services
-    locationiq_token: str
+    locationiq_token: Optional[str] = None
+    
+    # Cloudflare Email Routing Webhook
+    CLOUDFLARE_WEBHOOK_SECRET: Optional[str] = None  # Optional HMAC secret for webhook validation
 
 
 
     TEST_DATABASE_URL: str = "sqlite:///./test_tsg_platform.db"
     
     # Security
-    SECRET_KEY: str = "your-secret-key-change-in-production"
+    SECRET_KEY: str  # REQUIRED - Must be set via TSG_SECRET_KEY environment variable
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 10  # 10 minutes for regular users
+    ADMIN_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours for admin users
     SECURE_COOKIE: Optional[bool] = None
     # Optional cookie domain to share auth cookie across subdomains (e.g. .sicilius.com.tr)
     COOKIE_DOMAIN: Optional[str] = None
@@ -85,11 +98,14 @@ class Settings(BaseSettings):
     # File Uploads
     UPLOAD_FOLDER: str = "./data/uploads"
     MAX_CONTENT_LENGTH: int = 16 * 1024 * 1024  # 16MB
-    ALLOWED_EXTENSIONS: str
+    ALLOWED_EXTENSIONS: str = "pdf,png,jpg,jpeg,gif"
     
     # OCR
     TESSERACT_CMD: str = "/usr/bin/tesseract"
     TESSDATA_PREFIX: str = "/usr/share/tesseract-ocr/4.00/tessdata/"
+
+    # Scraping
+    HEADLESS: bool = False
 
     # Sicil login credentials (provide via environment)
     SICIL_EMAIL: str = ""

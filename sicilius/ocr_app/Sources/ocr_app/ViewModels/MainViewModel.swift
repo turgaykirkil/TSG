@@ -1,8 +1,8 @@
 import SwiftUI
 import AppKit
 import Combine
-import Supabase
 import Vision
+import Foundation
 
 // MARK: - NLP Data Models
 
@@ -10,7 +10,144 @@ struct NlpParseRequest: Codable {
     let text: String
 }
 
+// MARK: - Backend Helpers
+
 extension MainViewModel {
+    private func loadAccessToken() -> String? {
+        guard let data = KeychainService.load(service: keychainServiceIdentifier, account: keychainAccountIdentifier),
+              let token = String(data: data, encoding: .utf8),
+              !token.isEmpty else {
+            return nil
+        }
+        return token
+    }
+
+    private func makeError(_ message: String, code: Int = -1) -> NSError {
+        NSError(domain: "com.sicilius.ocr-app", code: code, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+
+    private func makeApiURL(_ pathComponents: [String], queryItems: [URLQueryItem]? = nil) -> URL? {
+        var url = apiBaseURL
+        for component in pathComponents {
+            url.appendPathComponent(component)
+        }
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        if let queryItems, !queryItems.isEmpty {
+            components?.queryItems = queryItems
+        }
+        return components?.url
+    }
+
+    private func makeAuthorizedRequest(
+        url: URL,
+        method: String = "GET",
+        body: Data? = nil,
+        contentType: String? = nil
+    ) throws -> URLRequest {
+        guard let token = loadAccessToken() else {
+            throw makeError("Yetkilendirme token'ı bulunamadı. Lütfen yeniden giriş yapın.")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let body {
+            request.httpBody = body
+            request.setValue(contentType ?? "application/json", forHTTPHeaderField: "Content-Type")
+        }
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 120
+        return request
+    }
+
+    private func listStorageObjects(limit: Int, prefix: String? = nil) async throws -> [StorageObjectResponse] {
+        var queryItems: [URLQueryItem] = [URLQueryItem(name: "limit", value: "\(limit)")]
+        if let prefix, !prefix.isEmpty {
+            queryItems.append(URLQueryItem(name: "prefix", value: prefix))
+        }
+        guard let url = makeApiURL(["api", "v1", "storage", "announcements"], queryItems: queryItems) else {
+            throw makeError("Geçersiz storage API URL")
+        }
+        let request = try makeAuthorizedRequest(url: url)
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw makeError("Geçersiz storage yanıtı")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw makeError("Storage listeleme başarısız. status=\(http.statusCode) body=\(body)", code: http.statusCode)
+        }
+        return try jsonDecoder.decode([StorageObjectResponse].self, from: data)
+    }
+
+    private func downloadPDF(at storagePath: String) async throws -> Data {
+        let segments = storagePath.split(separator: "/").map(String.init)
+        guard !segments.isEmpty else {
+            throw makeError("Geçersiz dosya yolu")
+        }
+        guard let metaURL = makeApiURL(["api", "v1", "storage", "announcements"] + segments + ["download"]) else {
+            throw makeError("Geçersiz download URL")
+        }
+        let request = try makeAuthorizedRequest(url: metaURL)
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw makeError("Geçersiz download yanıtı")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw makeError("İndirme URL'i alınamadı. status=\(http.statusCode) body=\(body)", code: http.statusCode)
+        }
+        let presigned = try jsonDecoder.decode(PresignedUrlResponse.self, from: data)
+        guard let presignedURL = URL(string: presigned.url) else {
+            throw makeError("Geçersiz presigned URL")
+        }
+        let (fileData, fileResponse) = try await urlSession.data(from: presignedURL)
+        if let httpFile = fileResponse as? HTTPURLResponse, !(200..<300).contains(httpFile.statusCode) {
+            throw makeError("PDF indirme başarısız. status=\(httpFile.statusCode)", code: httpFile.statusCode)
+        }
+        return fileData
+    }
+}
+
+extension MainViewModel {
+    private struct AnnouncementRow: Decodable {
+        let id: String
+        let publication_date: String?
+        let issue_number: Int?
+        let page_number: Int?
+        let pdf_url: String?
+    }
+
+    private struct StorageObjectResponse: Decodable {
+        let object_name: String
+        let size: Int
+        let last_modified: Date?
+
+        private enum CodingKeys: String, CodingKey { case object_name, size, last_modified }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            object_name = try container.decode(String.self, forKey: .object_name)
+            size = try container.decodeIfPresent(Int.self, forKey: .size) ?? 0
+            if let dateString = try container.decodeIfPresent(String.self, forKey: .last_modified) {
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                if let parsed = formatter.date(from: dateString) {
+                    last_modified = parsed
+                } else {
+                    last_modified = ISO8601DateFormatter().date(from: dateString)
+                }
+            } else {
+                last_modified = nil
+            }
+        }
+    }
+
+    private struct PresignedUrlResponse: Decodable {
+        let url: String
+        let expires_in: Int
+    }
+
     private func resolveAnnouncementForCurrentFile() async {
         let baseURL = self.nlpBaseURL
         guard let path = self.currentStoragePath, !path.isEmpty else { return }
@@ -62,38 +199,23 @@ extension MainViewModel {
         }
     }
 
-    private struct AnnouncementRow: Codable {
-        let id: String
-        let publication_date: String?
-        let issue_number: Int?
-        let page_number: Int?
-        let pdf_url: String?
-    }
-
     private func fetchAnnouncementRow() async throws -> AnnouncementRow {
-        let supabaseURL = try ConfigService.get(key: "SUPABASE_URL")
-        let supabaseKey = try ConfigService.get(key: "SUPABASE_KEY")
-        guard var comps = URLComponents(string: supabaseURL + "/rest/v1/announcements") else {
-            throw URLError(.badURL)
+        guard let url = makeApiURL(["api", "v1", "announcements"], queryItems: [URLQueryItem(name: "limit", value: "50")]) else {
+            throw makeError("Geçersiz announcements API URL")
         }
-        comps.queryItems = [
-            URLQueryItem(name: "select", value: "id,publication_date,issue_number,page_number,pdf_url"),
-            URLQueryItem(name: "order", value: "created_at.desc"),
-            URLQueryItem(name: "limit", value: "50")
-        ]
-        guard let url = comps.url else { throw URLError(.badURL) }
-        var req = URLRequest(url: url)
-        req.httpMethod = "GET"
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.setValue(supabaseKey, forHTTPHeaderField: "apikey")
-        req.setValue("Bearer \(supabaseKey)", forHTTPHeaderField: "Authorization")
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        let request = try makeAuthorizedRequest(url: url)
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw makeError("Geçersiz sunucu yanıtı")
+        }
+        guard (200..<300).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? ""
-            throw URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: "announcements REST hata: \((resp as? HTTPURLResponse)?.statusCode ?? -1) body=\(body)"])
+            throw makeError("Announcements isteği başarısız. status=\(http.statusCode) body=\(body)", code: http.statusCode)
         }
-        let rows = try JSONDecoder().decode([AnnouncementRow].self, from: data)
-        guard let pick = rows.randomElement() else { throw URLError(.cannotParseResponse) }
+        let rows = try jsonDecoder.decode([AnnouncementRow].self, from: data)
+        guard let pick = rows.randomElement() else {
+            throw makeError("Announcement listesi boş")
+        }
         return pick
     }
 
@@ -120,19 +242,19 @@ extension MainViewModel {
         guard let storagePath = deriveStoragePath(from: row.pdf_url) else {
             throw URLError(.fileDoesNotExist, userInfo: [NSLocalizedDescriptionKey: "pdf_url'den storage path çıkarılamadı."])
         }
-        let fileData = try await supabase.storage.from(pdfBucket).download(path: storagePath)
+        let fileData = try await downloadPDF(at: storagePath)
         return (storagePath, fileData)
     }
 
     private func downloadRandomFromStorage() async throws -> (fileName: String, data: Data) {
-        let files = try await supabase.storage.from(pdfBucket).list()
-        let pdfFiles = files.filter { !$0.name.hasSuffix("/") && $0.name.lowercased().hasSuffix(".pdf") }
+        let objects = try await listStorageObjects(limit: 500)
+        let pdfFiles = objects.filter { !$0.object_name.hasSuffix("/") && $0.object_name.lowercased().hasSuffix(".pdf") }
         guard let randomFile = pdfFiles.randomElement() else {
-            throw URLError(.fileDoesNotExist, userInfo: [NSLocalizedDescriptionKey: "Bucket'ta PDF bulunamadı."])
+            throw makeError("Storage içerisinde PDF bulunamadı.")
         }
-        let data = try await supabase.storage.from(pdfBucket).download(path: randomFile.name)
+        let data = try await downloadPDF(at: randomFile.object_name)
         // REST başarısızsa resolve meta olmadan devam; backend ingest dosya adına göre çözer
-        return (randomFile.name, data)
+        return (randomFile.object_name, data)
     }
 }
 
@@ -223,7 +345,6 @@ class MainViewModel: ObservableObject {
     @Published var ocrResult: String = "Henüz OCR işlemi yapılmadı."
     @Published var parsedEntities: NlpParseResponse? // Tekil kullanım için geriye dönük
     @Published var parsedAnnouncements: [NlpParsedAnnouncement]? // Çoklu ilân çıktısı
-    @Published var announcements: [Announcement] = []
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
     @Published var ocrOutputFolder: URL?
@@ -245,9 +366,13 @@ class MainViewModel: ObservableObject {
     @Published var isAutoRunning: Bool = false
     private var processingTask: Task<Void, Never>?
     private let ocrService: OCRService
-    private let supabase: SupabaseClient
+    private let apiBaseURL: URL
     private let nlpBaseURL: URL
+    private let urlSession: URLSession
+    private let jsonDecoder: JSONDecoder
     private let pdfBucket = "gazette-pdfs"
+    private let keychainServiceIdentifier = "com.sicilius.ocr-app"
+    private let keychainAccountIdentifier = "user_access_token"
     // Yerel GazetteParser kaldırıldı: Ayrıştırma tamamen backend tarafında yapılır.
     // Supabase Storage'dan indirilen aktif PDF'nin yolunu (bucket içi path) takip ederiz
     private var currentStoragePath: String?
@@ -259,28 +384,23 @@ class MainViewModel: ObservableObject {
     private var resolvedPdfUrl: String?
 
     init() {
-        // AuthViewModel'deki gibi, güvenli yapılandırmadan Supabase istemcisini oluşturuyoruz.
-        do {
-            let supabaseURLString = try ConfigService.get(key: "SUPABASE_URL")
-            let supabaseKey = try ConfigService.get(key: "SUPABASE_KEY")
-            
-            guard let supabaseURL = URL(string: supabaseURLString) else {
-                fatalError("Geçersiz Supabase URL'si. Config.plist dosyasını kontrol edin.")
-            }
-            
-            self.supabase = SupabaseClient(supabaseURL: supabaseURL, supabaseKey: supabaseKey)
-
-        } catch {
-            fatalError("Yapılandırma hatası: \(error.localizedDescription). Lütfen Config.plist dosyasını ve içeriğini kontrol edin.")
+        let apiBase: String = (try? ConfigService.get(key: "API_BASE_URL")) ?? "http://127.0.0.1:5002"
+        guard let apiURL = URL(string: apiBase) else {
+            fatalError("Geçersiz API_BASE_URL: \(apiBase)")
         }
+        self.apiBaseURL = apiURL
 
-        // NLP Base URL (Config.plist: NLP_BASE_URL). Yoksa localhost'a düş.
         let nlpBase: String = (try? ConfigService.get(key: "NLP_BASE_URL")) ?? "http://127.0.0.1:5002"
         guard let nlpURL = URL(string: nlpBase) else {
             fatalError("Geçersiz NLP_BASE_URL: \(nlpBase)")
         }
         self.nlpBaseURL = nlpURL
-        
+
+        self.urlSession = URLSession(configuration: .default)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        self.jsonDecoder = decoder
+
         do {
             self.ocrService = try OCRService()
         } catch {
@@ -481,6 +601,14 @@ class MainViewModel: ObservableObject {
         // Gerekli sabitleri ana aktörden kopyala
         let baseURL = self.nlpBaseURL
         let requestBody = NlpParseRequest(text: text)
+        guard let token = loadAccessToken() else {
+            await MainActor.run {
+                self.errorMessage = "Yetkilendirme token'ı bulunamadı. Lütfen yeniden giriş yapın."
+            }
+            return
+        }
+        let session = self.urlSession
+        let encoder = JSONEncoder()
         // 1) Öncelik: resolve endpoint’inden gelen id
         let announcementId: String? = self.resolvedAnnouncementId
         // 2) Meta: announcement_id yoksa meta ile side-write yapılabilmesi için query param göndereceğiz
@@ -496,6 +624,7 @@ class MainViewModel: ObservableObject {
         }()
         // Fallback devre dışı: resolve başarısızsa announcementId boş kalır; backend ingest dosya adına göre çözer.
         // Ağ ve decode işlemlerini arka planda çalıştır
+        let bearerToken = token
         let result = await Task.detached(priority: .userInitiated) { () -> (structured: String?, decoded: [NlpParsedAnnouncement]?, minimal: String?, netMs: Int, decMs: Int, err: String?) in
             // 1) Structured çoklu
             let listURLBase = baseURL
@@ -520,13 +649,15 @@ class MainViewModel: ObservableObject {
             var listReq = URLRequest(url: listURL)
             listReq.httpMethod = "POST"
             listReq.addValue("application/json", forHTTPHeaderField: "Content-Type")
+            listReq.addValue("application/json", forHTTPHeaderField: "Accept")
+            listReq.addValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
             listReq.timeoutInterval = 120
-            do { listReq.httpBody = try JSONEncoder().encode(requestBody) } catch {
+            do { listReq.httpBody = try encoder.encode(requestBody) } catch {
                 return (nil, nil, nil, 0, 0, "encode error: \(error.localizedDescription)")
             }
             do {
                 let t0 = CFAbsoluteTimeGetCurrent()
-                let (data, response) = try await URLSession.shared.data(for: listReq)
+                let (data, response) = try await session.data(for: listReq)
                 let tNet = Int((CFAbsoluteTimeGetCurrent() - t0) * 1000)
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
@@ -561,12 +692,14 @@ class MainViewModel: ObservableObject {
                 var minimalReq = URLRequest(url: minimalURL)
                 minimalReq.httpMethod = "POST"
                 minimalReq.addValue("application/json", forHTTPHeaderField: "Content-Type")
+                minimalReq.addValue("application/json", forHTTPHeaderField: "Accept")
+                minimalReq.addValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
                 minimalReq.timeoutInterval = 120
-                do { minimalReq.httpBody = try JSONEncoder().encode(requestBody) } catch {
+                do { minimalReq.httpBody = try encoder.encode(requestBody) } catch {
                     return (structured, decoded, nil, tNet, tDec, "minimal encode error: \(error.localizedDescription)")
                 }
                 do {
-                    let (mdata, mresp) = try await URLSession.shared.data(for: minimalReq)
+                    let (mdata, mresp) = try await session.data(for: minimalReq)
                     guard let mhttp = mresp as? HTTPURLResponse, mhttp.statusCode == 200 else {
                         let statusCode = (mresp as? HTTPURLResponse)?.statusCode ?? -1
                         let body = String(data: mdata, encoding: .utf8) ?? ""
@@ -642,7 +775,7 @@ class MainViewModel: ObservableObject {
             }
 
             var payloadObj: [String: Any] = [
-                "raw_text": self.ocrResult,
+                "original_text": self.ocrResult,
                 "items": itemsArray
             ]
             if let path = self.currentStoragePath, !path.isEmpty {

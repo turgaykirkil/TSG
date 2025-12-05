@@ -15,9 +15,10 @@ class Person(Base):
     middle_name = Column(String(100))
     last_name = Column(String(100), nullable=False, index=True)
     full_name = Column(String(300), index=True)  # For faster searching
+    masked_id = Column(String(20), index=True)  # Masked ID from OCR (e.g., "123******45")
     
     # Identification
-    nationality_id = Column(String(20), unique=True, index=True)
+    nationality_id = Column(String(20), index=True)  # Not unique - same person can appear in multiple records
     passport_number = Column(String(50), index=True)
     
     # Contact Information

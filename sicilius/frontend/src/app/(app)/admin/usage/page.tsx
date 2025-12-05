@@ -6,9 +6,11 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 
 interface TableUsage {
+  schema?: string;
   table: string;
   total_bytes: number;
   approx_rows: number;
+  row_count?: number | null;
 }
 
 interface UsageResponse {
@@ -16,11 +18,13 @@ interface UsageResponse {
     database_size_bytes: number | null;
     tables: TableUsage[];
   };
-  storage: {
-    bucket: string;
-    total_files: number;
-    total_bytes: number;
-  };
+  storage: Record<string, StorageBucket> | null;
+}
+
+interface StorageBucket {
+  bucket: string;
+  total_files: number;
+  total_bytes: number;
 }
 
 interface DbTableRow {
@@ -29,11 +33,13 @@ interface DbTableRow {
   approx_rows: number;
   size_bytes: number;
   size: string;
+  row_count?: number | null;
 }
 
 export default function SupabaseUsagePage() {
   const [data, setData] = useState<UsageResponse | null>(null);
   const [dbTables, setDbTables] = useState<DbTableRow[] | null>(null);
+  const [storage, setStorage] = useState<StorageBucket[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,13 +62,15 @@ export default function SupabaseUsagePage() {
     setError(null);
     try {
       const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/usage/supabase-overview`, { credentials: 'include' });
+      const res = await fetch(`${apiUrl}/usage/overview`, { credentials: 'include' });
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
         throw new Error(e.detail || `Sunucu hatası: ${res.status}`);
       }
       const json = (await res.json()) as UsageResponse;
       setData(json);
+      const storageEntries = Object.values(json.storage ?? {}).filter(Boolean) as StorageBucket[];
+      setStorage(storageEntries);
       // Fetch full table list (app/public, physical tables)
       const resTables = await fetch(`${apiUrl}/stats/db-tables`, { credentials: 'include' });
       if (resTables.ok) {
@@ -83,17 +91,20 @@ export default function SupabaseUsagePage() {
   }, [fetchUsage]);
 
   const topTables = (data?.db.tables || []).slice(0, 10);
-  const tableRows: { name: string; approx_rows: number; sizeText: string; sizeBytes: number }[] =
+  const totalStorageFiles = storage.reduce((acc, item) => acc + (item.total_files ?? 0), 0);
+  const totalStorageBytes = storage.reduce((acc, item) => acc + (item.total_bytes ?? 0), 0);
+
+  const tableRows: { name: string; rows: number; sizeText: string; sizeBytes: number }[] =
     (dbTables && dbTables.length > 0)
       ? dbTables.map(r => ({
           name: `${r.schema}.${r.table}`,
-          approx_rows: r.approx_rows ?? 0,
+          rows: (typeof r.row_count === 'number' ? r.row_count : r.approx_rows ?? 0),
           sizeText: r.size ?? '',
           sizeBytes: r.size_bytes ?? 0,
         }))
       : topTables.map(t => ({
-          name: t.table,
-          approx_rows: t.approx_rows ?? 0,
+          name: t.schema ? `${t.schema}.${t.table}` : t.table,
+          rows: (typeof t.row_count === 'number' ? t.row_count : t.approx_rows ?? 0),
           sizeText: humanBytes(t.total_bytes ?? 0),
           sizeBytes: t.total_bytes ?? 0,
         }));
@@ -126,13 +137,30 @@ export default function SupabaseUsagePage() {
             </div>
             <div className="rounded bg-slate-100 dark:bg-slate-900/40 p-4">
               <div className="text-xs text-muted-foreground">Storage Toplam Dosya</div>
-              <div className="text-lg font-semibold">{data?.storage.total_files ?? 0}</div>
+              <div className="text-lg font-semibold">{totalStorageFiles}</div>
             </div>
             <div className="rounded bg-slate-100 dark:bg-slate-900/40 p-4">
               <div className="text-xs text-muted-foreground">Storage Toplam Boyut</div>
-              <div className="text-lg font-semibold">{humanBytes(data?.storage.total_bytes ?? 0)}</div>
+              <div className="text-lg font-semibold">{humanBytes(totalStorageBytes)}</div>
             </div>
           </div>
+
+          {storage.length > 0 && (
+            <div className="mt-6">
+              <div className="font-medium mb-2">MinIO Bucket Detayları</div>
+              <div className="grid gap-4 md:grid-cols-2">
+                {storage.map((bucket) => (
+                  <div key={bucket.bucket} className="rounded border p-4">
+                    <div className="text-sm font-semibold">{bucket.bucket}</div>
+                    <div className="mt-2 text-xs text-muted-foreground">Dosya Sayısı</div>
+                    <div className="text-base font-medium">{bucket.total_files.toLocaleString('tr-TR')}</div>
+                    <div className="mt-2 text-xs text-muted-foreground">Toplam Boyut</div>
+                    <div className="text-base font-medium">{humanBytes(bucket.total_bytes)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="mt-6">
             <div className="font-medium mb-2">Tablo Ölçüleri</div>
@@ -141,7 +169,7 @@ export default function SupabaseUsagePage() {
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-800/50 text-left">
                     <th className="px-3 py-2">Tablo</th>
-                    <th className="px-3 py-2">Satır (yaklaşık)</th>
+                    <th className="px-3 py-2">Satır</th>
                     <th className="px-3 py-2">Boyut</th>
                   </tr>
                 </thead>
@@ -156,7 +184,7 @@ export default function SupabaseUsagePage() {
                   {tableRows.map((t) => (
                     <tr key={t.name} className="border-t">
                       <td className="px-3 py-2 font-mono">{t.name}</td>
-                      <td className="px-3 py-2">{(t.approx_rows ?? 0).toLocaleString('tr-TR')}</td>
+                      <td className="px-3 py-2">{t.rows.toLocaleString('tr-TR')}</td>
                       <td className="px-3 py-2">{t.sizeText}</td>
                     </tr>
                   ))}

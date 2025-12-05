@@ -18,6 +18,12 @@ from app.models.person import Person
 from app.models.relation import CompanyPersonRelation
 from app.models.file_upload import FileUpload
 from app.models.job_history import JobHistory
+from app.models.company_error import CompanyError
+from app.models.app_setting import AppSetting
+from app.models.ocr_result import OcrResult
+from app.models.incoming_email import IncomingEmail
+from app.models.daily_usage import DailyUsage
+from app.models.user_invite import UserInvite
 
 # Alembic Config yapılandırması
 config = context.config
@@ -35,8 +41,16 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 def include_object(object, name, type_, reflected, compare_to):
-    if type_ == "table" and name == "spatial_ref_sys":
-        return False
+    if type_ == "table":
+        if name == "spatial_ref_sys":
+            return False
+        # Exclude tables that don't have models yet
+        if name in [
+            "addresses_history", "company_trade_names", 
+            "ocr_address_mentions", "ocr_id_mentions", 
+            "ocr_person_mentions", "live_stats"
+        ]:
+            return False
     return True
 
 def run_migrations_offline() -> None:
@@ -46,6 +60,8 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_schemas=True,
+        version_table_schema='app'
     )
 
     with context.begin_transaction():
@@ -63,7 +79,9 @@ def run_migrations_online() -> None:
             connection=connection, 
             target_metadata=target_metadata,
             compare_type=True,
-            include_object=include_object
+            include_object=include_object,
+            include_schemas=True,
+            version_table_schema='app'
         )
 
         with context.begin_transaction():

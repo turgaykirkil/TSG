@@ -1,15 +1,19 @@
-from datetime import datetime
+import logging
 import os
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from sqlalchemy import text
+from datetime import datetime
 
-from app.api import deps
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
 from app import models
-from app.core.dependencies import get_supabase_client
-from supabase import Client
+from app.api import deps
+from app.core.config import settings
+from app.core.storage import list_objects
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 def _limit_from_env() -> int:
@@ -17,6 +21,27 @@ def _limit_from_env() -> int:
         return int(os.getenv("TSG_DAILY_QUERY_LIMIT", "20"))
     except Exception:
         return 20
+
+
+def _minio_usage(bucket: str) -> dict:
+    objs = list_objects(bucket)
+    total_files = 0
+    total_bytes = 0
+    for obj in objs:
+        if obj.get("is_dir"):
+            continue
+        total_files += 1
+        total_bytes += int(obj.get("size") or 0)
+    return {"bucket": bucket, "total_files": total_files, "total_bytes": total_bytes}
+
+
+def _safe_count_rows(db: Session, schema: str, table: str) -> int | None:
+    try:
+        result = db.execute(text(f'SELECT COUNT(*) FROM "{schema}"."{table}"')).scalar()
+        return int(result or 0)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Failed to count rows for %s.%s: %s", schema, table, exc)
+        return None
 
 
 @router.get("/me", summary="Get today's usage and remaining queries for current user")
@@ -75,32 +100,27 @@ def reset_my_usage(
     }
 
 
-@router.get("/supabase-overview", summary="Supabase veritabanı ve storage kullanım özeti (admin)")
-def supabase_overview(
+@router.get("/overview", summary="Database and storage usage overview (admin)")
+def usage_overview(
     db: Session = Depends(deps.get_db),
     current_user: models.User = Depends(deps.get_current_active_superuser),
-    supabase: Client = Depends(get_supabase_client),
 ):
-    """
-    - DB toplam boyut (bytes)
-    - public şeması tablo bazlı toplam boyut (bytes) ve yaklaşık satır sayısı
-    - Storage 'gazette-pdfs' bucket toplam dosya sayısı ve toplam byte
-    """
+    """Return database size, top tables, and MinIO storage usage."""
     try:
-        # Database total size
         db_size_bytes = None
         try:
             res = db.execute(text("SELECT pg_database_size(current_database()) AS size")).mappings().first()
             db_size_bytes = int(res["size"]) if res and res.get("size") is not None else None
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to fetch database size: %s", exc)
             db_size_bytes = None
 
-        # Per-table sizes and approx rows (include app & public, tables and matviews)
         tables = []
         try:
             size_rows = db.execute(text(
                 """
                 SELECT 
+                  n.nspname AS schema,
                   c.relname AS table,
                   pg_total_relation_size(c.oid) AS total_bytes,
                   COALESCE(st.n_live_tup, 0) AS approx_rows
@@ -115,68 +135,37 @@ def supabase_overview(
             )).mappings().all()
             for r in size_rows:
                 try:
+                    schema = r.get("schema") or "public"
+                    table_name = r.get("table")
+                    approx = int(r.get("approx_rows") or 0)
+                    row_count = _safe_count_rows(db, schema, table_name) if table_name else None
                     tables.append({
-                        "table": r.get("table"),
+                        "schema": schema,
+                        "table": table_name,
                         "total_bytes": int(r.get("total_bytes") or 0),
-                        "approx_rows": int(r.get("approx_rows") or 0),
+                        "approx_rows": approx,
+                        "row_count": row_count,
                     })
                 except Exception:
                     continue
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to list tables: %s", exc)
             tables = []
 
-        # Storage usage (gazette-pdfs)
-        bucket = "gazette-pdfs"
-        total_files = 0
-        total_bytes = 0
-        try:
-            limit = 1000
-            queue = [""]
-            while queue:
-                current = queue.pop(0)
-                offset = 0
-                while True:
-                    listing = supabase.storage.from_(bucket).list(current, {"limit": limit, "offset": offset, "sortBy": {"column": "name", "order": "asc"}})
-                    items = listing or []
-                    if isinstance(items, dict) and "data" in items:
-                        items = items.get("data") or []
-                    if not items:
-                        break
-                    for obj in items:
-                        try:
-                            name = (obj.get("name") or obj.get("Key") or "")
-                            is_folder = obj.get("metadata") in (None, {}) and not str(name).lower().endswith(".pdf")
-                            if is_folder and name:
-                                next_path = f"{current}/{name}" if current else name
-                                queue.append(next_path)
-                            else:
-                                total_files += 1
-                                size = 0
-                                md = obj.get("metadata") or {}
-                                if isinstance(md, dict) and md.get("size") is not None:
-                                    size = int(md.get("size"))
-                                elif obj.get("size") is not None:
-                                    size = int(obj.get("size"))
-                                total_bytes += max(0, size)
-                        except Exception:
-                            continue
-                    if len(items) < limit:
-                        break
-                    offset += limit
-        except Exception:
-            # Storage sorgusu başarısız olsa da DB verilerini döndür
-            pass
+        storage_usage = {
+            "gazette_pdfs": _minio_usage(settings.minio_bucket_gazette_pdfs),
+            "company_gazettes": _minio_usage(settings.minio_bucket_company_gazettes),
+        }
 
         return {
             "db": {
                 "database_size_bytes": db_size_bytes,
                 "tables": tables,
             },
-            "storage": {
-                "bucket": bucket,
-                "total_files": total_files,
-                "total_bytes": total_bytes,
-            }
+            "storage": storage_usage,
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("usage_overview failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))

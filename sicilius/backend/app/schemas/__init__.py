@@ -19,6 +19,7 @@ from .announcement import Announcement, AnnouncementCreate, AnnouncementUpdate, 
 from .ocr_result import OcrResult, OcrResultCreate, OcrResultUpdate
 from .ocr_result import OcrResult, OcrResultCreate, OcrResultUpdate, OcrBatchRequest
 from .ocr_preview_response import OcrPreviewResponse, OcrPagePreview
+from .company_error import CompanyError, CompanyErrorCreate, CompanyErrorUpdate, CompanyErrorInDB
 
 from .job_history_process import (
     JobResultSummary,
@@ -47,4 +48,5 @@ __all__ = [
     'JobResultSummary', 'JobProgressUpdate', 'JobStartRequest', 'JobUpdateRequest',
     'JobFilter', 'JobStats', 'JobStatusResponse',
     'Msg',
+    'CompanyError', 'CompanyErrorCreate', 'CompanyErrorUpdate', 'CompanyErrorInDB',
 ]

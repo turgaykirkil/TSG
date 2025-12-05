@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, JSON
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, JSON, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -19,8 +19,33 @@ class OcrResult(Base):
     # New required link to company (canonical owner of OCR result)
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
     
-    raw_text = Column(Text, nullable=True)
-    structured_data = Column(JSON, nullable=True) # To store words, bounding boxes, confidence, etc.
+    original_text = Column(Text, nullable=True)
+    # Flattened columns from DB schema
+    publication_date = Column(DateTime(timezone=True), nullable=True)
+    issue_number = Column(Integer, nullable=True)
+    page_number = Column(Integer, nullable=True)
+    pdf_url = Column(Text, nullable=True)
+    pdf_page_count = Column(Integer, nullable=True)
+    sicil_office_header = Column(Text, nullable=True)
+    sicil_dosya_no = Column(Text, nullable=True)
+    mersis_no = Column(Text, nullable=True)
+    trade_name = Column(Text, nullable=True)
+    old_trade_name = Column(Text, nullable=True)
+    addresses = Column(JSON, nullable=True)
+    old_addresses = Column(JSON, nullable=True)
+    persons = Column(JSON, nullable=True)
+    masked_ids = Column(JSON, nullable=True)
+    hususlar = Column(JSON, nullable=True)
+    belgeler = Column(Text, nullable=True)
+    type = Column(Text, nullable=True)
+    item_index = Column(Integer, nullable=True)
+    start_offset = Column(Integer, nullable=True)
+    end_offset = Column(Integer, nullable=True)
+    is_derived = Column(Boolean, nullable=True)
+    derived_from_index = Column(Integer, nullable=True)
+    ilan_sira_no = Column(JSON, nullable=True)
+    content_sha256 = Column(Text, nullable=True)
+    
     status = Column(String, nullable=False, default='pending') # pending, processing, completed, failed
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -35,3 +35,9 @@ __pycache__/
 # Virtual environment
 /backend/venv/
 /backend/.venv/
+
+# Deployment files
+DEPLOYMENT.md
+deploy_security.sh
+deploy_remote.sh
+

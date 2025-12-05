@@ -103,6 +103,11 @@ def _split_person_name(full_name: str) -> Tuple[str, str | None, str] | None:
     if not first or not last:
         return None
     return first, (middle or None), last
+
+
+def _pick_address(addresses: List[str] | None) -> str | None:
+    if not addresses:
+        return None
     # İlk anlamlı adresi seç
     for a in addresses:
         aa = _normalize_whitespace(a)
@@ -326,6 +331,7 @@ def ingest_companies_and_announcements(parsed_list: List[Dict[str, Any]], db: Se
     ocr_created = 0
     errors: List[str] = []
     links: List[Dict[str, Any]] = []
+    seen_relations: set[tuple[Any, Any]] = set()
 
     logger.info("ingest_companies_and_announcements started count=%s", len(parsed_list))
     for item in parsed_list:
@@ -432,12 +438,125 @@ def ingest_companies_and_announcements(parsed_list: List[Dict[str, Any]], db: Se
             ocr = OcrResult(
                 company_id=company_obj.id,
                 announcement_id=ann.id,
-                raw_text=raw_text if isinstance(raw_text, str) else None,
-                structured_data=item,
+                original_text=raw_text if isinstance(raw_text, str) else None,
+                # Map structured data fields to columns
+                publication_date=item.get("publication_date"),
+                issue_number=item.get("issue_number"),
+                page_number=item.get("page_number"),
+                pdf_url=item.get("pdf_url"),
+                pdf_page_count=item.get("pdf_page_count"),
+                sicil_office_header=item.get("sicil_office_header"),
+                sicil_dosya_no=item.get("sicil_dosya_no"),
+                mersis_no=item.get("mersis_no"),
+                trade_name=item.get("trade_name"),
+                old_trade_name=item.get("old_trade_name"),
+                addresses=item.get("addresses"),
+                old_addresses=item.get("old_addresses"),
+                persons=item.get("persons"),
+                masked_ids=item.get("masked_ids"),
+                hususlar=item.get("hususlar"),
+                belgeler=item.get("belgeler"),
+                type=item.get("type"),
+                item_index=item.get("index"),
+                start_offset=item.get("start_offset"),
+                end_offset=item.get("end_offset"),
+                is_derived=item.get("is_derived"),
+                derived_from_index=item.get("derived_from_index"),
+                ilan_sira_no=item.get("ilan_sira_no"),
                 status='completed',
             )
             db.add(ocr)
             ocr_created += 1
+
+            # 4) Normalize persons from OCR JSON to Person and CompanyPersonRelation tables
+            persons_data = item.get("persons")
+            if persons_data and isinstance(persons_data, list):
+                for person_item in persons_data:
+                    if not isinstance(person_item, dict):
+                        continue
+                    
+                    full_name = person_item.get("text")
+                    masked_id = person_item.get("masked_ids")
+                    
+                    if not full_name:
+                        continue
+                    
+                    # Split name into first/last
+                    name_parts = _split_person_name(full_name)
+                    if not name_parts:
+                        logger.debug(f"Could not split person name: {full_name}")
+                        continue
+                    
+                    first_name, middle_name, last_name = name_parts
+                    
+                    # Check if person exists
+                    existing_person = None
+                    if masked_id:
+                        # Find candidates with same masked_id
+                        candidates = db.query(Person).filter(
+                            Person.masked_id == masked_id
+                        ).all()
+                        
+                        # Check name similarity to avoid collisions (e.g. different people with same masked ID)
+                        for candidate in candidates:
+                            # Simple check: first name match or high similarity
+                            # We normalize both names for comparison
+                            cand_first = _normalize_whitespace(candidate.first_name).lower()
+                            curr_first = _normalize_whitespace(first_name).lower()
+                            
+                            cand_last = _normalize_whitespace(candidate.last_name).lower()
+                            curr_last = _normalize_whitespace(last_name).lower()
+                            
+                            # If names are similar enough, assume it's the same person
+                            # At least last name should match, and first name should be contained or similar
+                            if cand_last == curr_last and (curr_first in cand_first or cand_first in curr_first):
+                                existing_person = candidate
+                                break
+                    
+                    if not existing_person:
+                        existing_person = db.query(Person).filter(
+                            Person.first_name == first_name,
+                            Person.last_name == last_name
+                        ).first()
+                    if not existing_person:
+                        # Create new person
+                        person_obj = Person(
+                            first_name=first_name,
+                            middle_name=middle_name,
+                            last_name=last_name,
+                            masked_id=masked_id
+                        )
+                        db.add(person_obj)
+                        db.flush()  # Get person_obj.id
+                        logger.debug(f"Created person: {full_name} (masked_id: {masked_id})")
+                    else:
+                        person_obj = existing_person
+                        logger.debug(f"Found existing person: {full_name}")
+                    
+                    # Create or update CompanyPersonRelation
+                    rel_key = (company_obj.id, person_obj.id)
+                    if rel_key in seen_relations:
+                        continue
+
+                    existing_relation = db.query(CompanyPersonRelation).filter(
+                        CompanyPersonRelation.company_id == company_obj.id,
+                        CompanyPersonRelation.person_id == person_obj.id
+                    ).first()
+                    
+                    if not existing_relation:
+                        relation = CompanyPersonRelation(
+                            company_id=company_obj.id,
+                            person_id=person_obj.id,
+                            relation_type=RelationType.SHAREHOLDER,  # Default, could be refined
+                            is_current=True
+                        )
+                        db.add(relation)
+                        db.flush()
+                        seen_relations.add(rel_key)
+                        logger.debug(f"Created relation: {full_name} <-> {sicil_no}")
+                    else:
+                        seen_relations.add(rel_key)
+
 
             links.append({
                 "index": item.get("index"),

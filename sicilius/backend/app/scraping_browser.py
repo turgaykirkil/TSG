@@ -12,8 +12,6 @@ from datetime import datetime, date
 from typing import Any, Dict, Optional, List
 from urllib.parse import urljoin
 
-from storage3.utils import StorageException
-
 from playwright.async_api import (
     Browser,
     BrowserContext,
@@ -28,7 +26,11 @@ from sqlalchemy.orm import Session
 from app import crud, models, schemas
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.core.supabase_client import supabase
+from app.core.storage import (
+    ensure_bucket,
+    upload_bytes,
+    get_presigned_url,
+)
 from app.schemas.announcement import AnnouncementCreate
 from app.scraping_state import scraping_state
 # from app.services.notification_service import notification_service
@@ -210,9 +212,16 @@ class BrowserManager:
                 self._playwright = await async_playwright().start()
                 
                 # Tarayıcıyı görünür modda daha küçük pencerede aç (geliştirme için konforlu boyut)
-                launch_args = []
+                launch_args = [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-accelerated-2d-canvas",
+                    "--disable-gpu",
+                ]
                 if not headless:
-                    launch_args = ["--window-size=1280,800"]
+                    launch_args.append("--window-size=1280,800")
+                
                 self._browser = await self._playwright.chromium.launch(headless=headless, slow_mo=100, args=launch_args)
 
                 # Oturum saklama/kullanma kaldırıldı; temiz bir context ile başla
@@ -460,19 +469,12 @@ async def start_enhanced_scraping_process(count: int, city: Optional[str] = None
                 return
 
             scraping_state.start(total_count=count)
-            # Ensure the Supabase bucket exists before starting to scrape
             bucket_name = "gazette-pdfs"
             try:
-                buckets = supabase.storage.list_buckets()
-                if not any(b.name == bucket_name for b in buckets):
-                    logger.info(f"Bucket '{bucket_name}' not found. Creating it...")
-                    supabase.storage.create_bucket(id=bucket_name, name=bucket_name, options={"public": True})
-                    logger.info(f"Bucket '{bucket_name}' created successfully.")
-                else:
-                    logger.info(f"Bucket '{bucket_name}' already exists.")
-            except StorageException as e:
-                logger.error(f"An error occurred while checking or creating bucket '{bucket_name}': {e}")
-                # RLS hatası gibi kritik bir durumda işlemi durdurmak için hatayı yükselt
+                ensure_bucket(bucket_name)
+                logger.info("Bucket '%s' hazır", bucket_name)
+            except Exception as e:
+                logger.error("Bucket kontrolü başarısız oldu: %s", e)
                 raise e
             processed = 0
             for num in candidates:
@@ -517,16 +519,10 @@ async def start_enhanced_scraping_process(count: int, city: Optional[str] = None
         # Ensure the Supabase bucket exists before starting to scrape
         bucket_name = "gazette-pdfs"
         try:
-            buckets = supabase.storage.list_buckets()
-            if not any(b.name == bucket_name for b in buckets):
-                logger.info(f"Bucket '{bucket_name}' not found. Creating it...")
-                supabase.storage.create_bucket(id=bucket_name, name=bucket_name, options={"public": True})
-                logger.info(f"Bucket '{bucket_name}' created successfully.")
-            else:
-                logger.info(f"Bucket '{bucket_name}' already exists.")
-        except StorageException as e:
-            logger.error(f"An error occurred while checking or creating bucket '{bucket_name}': {e}")
-            # RLS hatası gibi kritik bir durumda işlemi durdurmak için hatayı yükselt
+            ensure_bucket(bucket_name)
+            logger.info("Bucket '%s' hazır", bucket_name)
+        except Exception as e:
+            logger.error("Bucket kontrolü başarısız oldu: %s", e)
             raise e
 
         for company in companies:
@@ -758,12 +754,14 @@ async def scrape_company(page: Page, db: Session, company):
                                 if content:
                                     file_name = f"announcement_{company.id}_{uuid.uuid4()}.pdf"
                                     bucket_name = "gazette-pdfs"
-                                    # Upload to Supabase
-                                    supabase.storage.from_(bucket_name).upload(
-                                        file=content, path=file_name, file_options={"content-type": "application/pdf"}
+                                    upload_bytes(
+                                        bucket_name=bucket_name,
+                                        object_name=file_name,
+                                        data=content,
+                                        content_type="application/pdf",
                                     )
-                                    pdf_url = supabase.storage.from_(bucket_name).get_public_url(file_name)
-                                    scraping_state.add_log(f"PDF_SUCCESS: PDF for '{title}' downloaded and uploaded.")
+                                    pdf_url = get_presigned_url(bucket_name, file_name, expires=24 * 3600)
+                                    scraping_state.add_log(f"PDF_SUCCESS: '{title}' için PDF yüklendi (MinIO).")
                                 else:
                                     scraping_state.add_log(f"PDF_SKIP: '{title}' için PDF alınamadı.")
 

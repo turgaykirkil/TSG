@@ -3,22 +3,12 @@ from typing import Optional, Any, Union
 
 import logging
 from jose import jwt
-from passlib.context import CryptContext
-from passlib.exc import UnknownHashError
+import bcrypt
 
 logger = logging.getLogger(__name__)
 from pydantic import ValidationError
 
 from app.core.config import settings
-
-# Password hashing
-# Note: bcrypt has a 72-byte password limit. To avoid runtime errors during
-# verification, configure passlib to silently truncate inputs beyond 72 bytes.
-pwd_context = CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto",
-    bcrypt__truncate_error=False,
-)
 
 def create_access_token(
     subject: Union[str, Any], expires_delta: Optional[timedelta] = None
@@ -46,40 +36,34 @@ def create_access_token(
     )
     return encoded_jwt
 
+def _to_bytes(value: Union[str, bytes]) -> bytes:
+    if isinstance(value, bytes):
+        return value
+    return value.encode("utf-8")
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Şifre doğrulama.
-    
-    Args:
-        plain_password: Düz metin şifre
-        hashed_password: Hash'lenmiş şifre
-        
-    Returns:
-        bool: Şifre doğru ise True, değilse False
-    """
-    logger.info(f"Parola doğrulanıyor. DB'den gelen hash'in başlangıcı: {hashed_password[:10] if hashed_password else 'Yok'}")
+    """Şifre doğrulama."""
+    if not hashed_password:
+        return False
     try:
-        return pwd_context.verify(plain_password, hashed_password)
-    except UnknownHashError:
+        return bool(bcrypt.checkpw(_to_bytes(plain_password), _to_bytes(hashed_password)))
+    except ValueError as exc:
         logger.error(
-            f"!!! HASH FORMATI TANINAMADI !!! Veritabanındaki parola (hashed_password) "
-            f"beklenen 'bcrypt' formatında değil. Lütfen kullanıcının parolasını sıfırlayın. "
-            f"Mevcut hash: '{hashed_password}'"
+            "bcrypt hash doğrulanamadı. Hash formatı bozuk olabilir: %s", exc
         )
         return False
-    except Exception as e:
-        logger.error(f"Parola doğrulanırken beklenmedik bir hata oluştu: {e}")
+    except Exception as exc:
+        logger.error("Parola doğrulanırken beklenmedik bir hata oluştu: %s", exc)
         return False
 
 def get_password_hash(password: str) -> str:
-    """Şifre hash'leme.
-    
-    Args:
-        password: Hash'lenecek düz metin şifre
-        
-    Returns:
-        str: Hash'lenmiş şifre
-    """
-    return pwd_context.hash(password)
+    """Şifre hash'leme."""
+    try:
+        return bcrypt.hashpw(_to_bytes(password), bcrypt.gensalt()).decode()
+    except Exception as exc:
+        logger.error("Parola hash'lenirken beklenmedik bir hata oluştu: %s", exc)
+        raise
 
 def verify_token(token: str) -> Optional[dict]:
     """JWT token doğrulama.

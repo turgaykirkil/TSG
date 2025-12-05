@@ -17,6 +17,25 @@ class CRUDAnnouncement(CRUDBase[Announcement, AnnouncementCreate, AnnouncementUp
             )
         ).first()
 
+    def get_by_keys(
+        self,
+        db: Session,
+        *,
+        publication_date: date,
+        issue_number: int,
+        page_number: int,
+        pdf_url: Optional[str] = None
+    ) -> Optional[Announcement]:
+        filters = [
+            Announcement.publication_date == publication_date,
+            Announcement.issue_number == issue_number,
+            Announcement.page_number == page_number
+        ]
+        if pdf_url:
+            filters.append(Announcement.pdf_url == pdf_url)
+        
+        return db.query(Announcement).filter(and_(*filters)).first()
+
     def update(self, db: Session, *, db_obj: Announcement, obj_in: Union[AnnouncementUpdate, Dict[str, Any]]) -> Announcement:
         db_obj = super().update(db, db_obj=db_obj, obj_in=obj_in)
         db.commit()

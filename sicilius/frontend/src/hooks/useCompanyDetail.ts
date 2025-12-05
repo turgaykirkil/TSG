@@ -20,15 +20,18 @@ export interface PersonWithRelation {
 
 export interface AnnouncementLite {
   id: string;
-  title?: string | null;
-  announcement_type?: string | null;
+  title?: string;
   publication_date?: string | null;
-  issue_number?: string | null;
-  page_number?: string | null;
+  issue_number?: string | number | null;
+  page_number?: string | number | null;
+  announcement_type?: string | null;
   newspaper_name?: string | null;
+  original_text?: string | null;
+  hususlar?: string | string[] | null; // New field
   pdf_url?: string | null;
   ocr_status?: string | null;
   created_at?: string | null;
+  _ocr_id?: number | null; // OCR result ID for virtual announcements
 }
 
 export interface HistoryEntryLite {
@@ -79,6 +82,7 @@ export interface CompanyDetailPayload {
   history: HistoryEntryLite[];
   related_companies: RelatedCompany[];
   same_address_companies: SameAddressCompany[];
+  shared_person_companies?: SameAddressCompany[];  // New: companies sharing same persons
   old_addresses: { address: string; matched_company_id?: string | null; matched_company?: any }[];
   old_trade_names?: string[];
 }
@@ -94,19 +98,20 @@ const fetchCompanyDetail = async (companyId: string): Promise<CompanyDetailPaylo
     try {
       const data = await res.json();
       message = data?.detail || message;
-    } catch {}
+    } catch { }
     const err: any = new Error(message);
     err.status = status;
     throw err;
   }
   const data = await res.json();
   return {
-    company: data?.company ?? null,
+    company: data.company || null,
     persons: Array.isArray(data?.persons) ? data.persons : [],
     announcements: Array.isArray(data?.announcements) ? data.announcements : [],
-    history: Array.isArray(data?.history) ? data.history : (Array.isArray(data?.gazette_entries) ? data.gazette_entries : []),
+    history: Array.isArray(data?.history) ? data.history : [],
     related_companies: Array.isArray(data?.related_companies) ? data.related_companies : [],
     same_address_companies: Array.isArray(data?.same_address_companies) ? data.same_address_companies : [],
+    shared_person_companies: Array.isArray(data?.shared_person_companies) ? data.shared_person_companies : [],
     old_addresses: Array.isArray(data?.old_addresses) ? data.old_addresses : [],
     old_trade_names: Array.isArray(data?.old_trade_names) ? data.old_trade_names : [],
   };

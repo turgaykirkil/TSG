@@ -4,7 +4,7 @@ Dependencies for FastAPI endpoints
 import logging
 import secrets
 import uuid
-from typing import Generator, Optional
+from typing import Generator, Optional, TYPE_CHECKING
 
 from fastapi import Depends, HTTPException, status, Request
 import logging
@@ -20,7 +20,8 @@ from app import crud, models, schemas
 from app.core import security
 from app.core.config import settings
 from app.db.session import SessionLocal
-from supabase import Client, create_client
+
+
 
 reusable_oauth2 = OAuth2PasswordBearer(
     tokenUrl=f"{settings.API_V1_STR}/auth/login", auto_error=False
@@ -46,55 +47,11 @@ def get_db() -> Generator:
             # Suppress to avoid noisy shutdown tracebacks
             pass
 
-def _ensure_local_user(db: Session, *, user_id_str: str, email: Optional[str]) -> models.User:
-    """Ensure a shadow local user row exists for Supabase-authenticated users.
-    Creates the row with a random password hash if missing.
-    """
-    try:
-        user_uuid = uuid.UUID(user_id_str)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid Supabase user id")
-
-    # Prefer email-based linkage first to avoid picking a stale shadow row by id
-    if email:
-        try:
-            by_email = crud.user.get_by_email(db, email=email.strip().lower())
-        except Exception:
-            by_email = None
-        if by_email:
-            return by_email
-
-    # Fallback to id-based linkage
-    user = crud.user.get(db, id=user_uuid)
-    if user:
-        return user
-
-    # Create a minimal user row (shadow) for Supabase-authenticated users.
-    # Not used for auth in Supabase mode, so avoid invoking bcrypt hashing backend
-    # which may error on first-use long-secret detection in some environments.
-    from app.models.user import User, UserRole
-    placeholder_hash = "!supabase-shadow"
-    new_user = User(
-        id=user_uuid,
-        email=(email or f"user-{user_id_str}@example.com"),
-        hashed_password=placeholder_hash,
-        full_name=email or None,
-        is_active=True,
-        role=UserRole.USER,
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    return new_user
-
 def get_current_user(
     db: Session = Depends(get_db), token: str = Depends(cookie_or_header_scheme)
 ) -> models.User:
     """
-    Resolve current user depending on auth mode.
-    - local: validate our own JWT and fetch user from DB
-    - supabase: validate Supabase JWT (HS256) or fallback to auth.get_user(token),
-      then ensure a shadow local user exists and return it
+    Resolve current user via local JWT.
     """
     if not token:
         raise HTTPException(
@@ -103,102 +60,22 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    if getattr(settings, "auth_mode", "local").lower() != "supabase":
-        # Legacy local JWT mode
-        logging.debug("[deps.py] Resolving current user via local JWT")
-        try:
-            payload = jwt.decode(
-                token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
-            )
-            token_data = schemas.TokenPayload(**payload)
-        except (jwt.JWTError, ValidationError) as e:
-            logging.error(f"[deps.py] Token validation failed. Error: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Could not validate credentials",
-            )
-
-        user = crud.user.get(db, id=token_data.sub)
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        if not user.is_active:
-            raise HTTPException(status_code=400, detail="Inactive user")
-        return user
-
-    # Supabase Auth mode
-    logging.debug("[deps.py] Resolving current user via Supabase JWT")
-    supabase_user_id: Optional[str] = None
-    supabase_email: Optional[str] = None
-
-    # Prefer local HS256 verify if jwt secret provided (faster, no network)
-    if settings.supabase_jwt_secret:
-        try:
-            payload = jwt.decode(
-                token,
-                settings.supabase_jwt_secret,
-                algorithms=["HS256"],
-                options={"verify_aud": False},
-            )
-            supabase_user_id = payload.get("sub")
-            supabase_email = payload.get("email") or (
-                (payload.get("user_metadata") or {}).get("email") if isinstance(payload.get("user_metadata"), dict) else None
-            )
-        except Exception as e:
-            logging.warning(f"[deps.py] Local Supabase JWT verify failed, falling back to get_user: {e}")
-
-    if not supabase_user_id:
-        try:
-            supabase_client = create_client(settings.supabase_url, settings.supabase_key)
-            resp = supabase_client.auth.get_user(token)
-            if not resp or not getattr(resp, "user", None):
-                raise HTTPException(status_code=403, detail="Could not validate Supabase token")
-            supabase_user_id = str(resp.user.id)
-            supabase_email = getattr(resp.user, "email", None)
-            logging.debug(
-                "[deps.get_current_user] gotrue user id=%s email=%s",
-                supabase_user_id,
-                (supabase_email or "").lower(),
-            )
-        except Exception as e:
-            logging.error(f"[deps.py] Supabase auth.get_user failed: {e}", exc_info=True)
-            raise HTTPException(status_code=403, detail="Could not validate credentials")
-
-    user = _ensure_local_user(db, user_id_str=supabase_user_id, email=supabase_email)
-    # Single-session enforcement: reject tokens older than last issued
-    token_iat = 0
+    logging.debug("[deps.py] Resolving current user via local JWT")
     try:
-        claims = jwt.get_unverified_claims(token)
-        token_iat = int(claims.get("iat", 0) or 0)
-    except Exception:
-        token_iat = 0
-    try:
-        latest_iat = int(getattr(user, "latest_session_iat", 0) or 0)
-    except Exception:
-        latest_iat = 0
-    if latest_iat and token_iat and token_iat < latest_iat:
-        logging.warning(
-            "[deps.get_current_user] session superseded email=%s token_iat=%s latest_iat=%s",
-            (user.email or "").lower(), token_iat, latest_iat,
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
         )
-        raise HTTPException(status_code=401, detail="Session superseded")
-    # If this token is newer than recorded, update once to enforce single-session forward
-    if token_iat and (not latest_iat or token_iat > latest_iat):
-        try:
-            setattr(user, "latest_session_iat", int(token_iat))
-            db.add(user)
-            db.commit()
-        except Exception:
-            db.rollback()
-    try:
-        role_val = getattr(user.role, "value", str(user.role))
-    except Exception:
-        role_val = str(getattr(user, "role", None))
-    logging.debug(
-        "[deps.get_current_user] mapped local user email=%s id=%s role=%s",
-        (user.email or "").lower(),
-        user.id,
-        role_val,
-    )
+        token_data = schemas.TokenPayload(**payload)
+    except (jwt.JWTError, ValidationError) as e:
+        logging.error(f"[deps.py] Token validation failed. Error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Could not validate credentials",
+        )
+
+    user = crud.user.get(db, id=token_data.sub)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
     return user
@@ -224,24 +101,6 @@ def get_current_active_user(
     if not crud.user.is_active(current_user):
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
-
-
-def get_supabase_client() -> Generator[Client, None, None]:
-    """
-    Get a Supabase client.
-    """
-    try:
-        if not settings.supabase_url or not settings.supabase_service_role_key:
-            raise ValueError("Supabase URL or Service Role Key not configured")
-
-        supabase_client = create_client(settings.supabase_url, settings.supabase_service_role_key)
-        yield supabase_client
-    except Exception as e:
-        logging.error(f"Failed to create Supabase client: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not connect to Supabase service."
-        )
 
 
 def enforce_daily_limit(
@@ -273,8 +132,17 @@ def enforce_daily_limit(
     if usage is None:
         usage = models.DailyUsage(user_id=current_user.id, day=today, count=0)
         db.add(usage)
-        db.commit()
-        db.refresh(usage)
+        try:
+            db.commit()
+            db.refresh(usage)
+        except:
+            # Race condition: another request created the record
+            db.rollback()
+            usage = (
+                db.query(models.DailyUsage)
+                .filter(models.DailyUsage.user_id == current_user.id, models.DailyUsage.day == today)
+                .first()
+            )
 
     # Süper kullanıcılar için limit uygulanmaz (sınırsız), fakat sayaç artmaya devam eder
     is_admin = crud.user.is_superuser(current_user)

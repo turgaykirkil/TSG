@@ -19,12 +19,13 @@ GeoAlchemy2
 python-jose[cryptography]
 passlib[bcrypt]
 
-# Supabase
-supabase==2.20.0
-realtime>=2.21.1
+# Storage & HTTP
+minio>=7.2.7
 requests
 httpx
 cairosvg
+slowapi==0.1.9  # Rate limiting middleware
+
 
 # OCR & Data Processing
 pypdf

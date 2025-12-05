@@ -1,6 +1,11 @@
 const path = require('path');
 
 /** @type {import('next').NextConfig} */
+const BACKEND_ORIGIN =
+  process.env.BACKEND_ORIGIN ||
+  (process.env.NODE_ENV === 'development'
+    ? 'http://localhost:5001'
+    : 'https://api.sicilius.com.tr');
 const nextConfig = {
 
   webpack: (config, { isServer }) => {
@@ -20,19 +25,27 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
 
-  // Proxy API requests to the backend
+  // Proxy API requests to the backend (server-side). Browser hep same-origin'e çağırır.
   async rewrites() {
     return [
       {
-        // Only proxy backend API (FastAPI) which is mounted under /api/v1
         source: '/api/v1/:path*',
-        destination: 'http://backend:5001/api/v1/:path*',
+        destination: `${BACKEND_ORIGIN}/api/v1/:path*`,
       },
     ];
   },
 
   // Security headers
   async headers() {
+    const connectSrc = [
+      "'self'",
+      'https://api.sicilius.com.tr',
+      'https://sicilius.com.tr',
+    ];
+    if (process.env.NODE_ENV !== 'production') {
+      connectSrc.push('http://localhost:5001');
+    }
+
     const csp = [
       "default-src 'self';",
       // Next.js dev ihtiyaçları için 'unsafe-eval' ve style inline izinleri
@@ -41,7 +54,7 @@ const nextConfig = {
       "img-src 'self' data: blob:;",
       "font-src 'self' data:;",
       // Backend ve dev/prod sunucularına bağlantı izni
-      "connect-src 'self' https://api.sicilius.com.tr https://sicilius.com.tr;",
+      `connect-src ${connectSrc.join(' ')};`,
       "frame-ancestors 'none';",
       "base-uri 'self';",
       "form-action 'self';",

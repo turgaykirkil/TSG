@@ -35,7 +35,8 @@ class UserSettings(BaseModel):
     default_user_role: UserRole = Field(default="user")
     invite_enabled: bool = True
     invite_token_ttl_hours: int = Field(default=72, ge=1, le=24*30)
-    monthly_invite_limit_per_admin: int = Field(default=1, ge=0, le=100)
+    monthly_invite_limit_per_user: int = Field(default=1, ge=0, le=100, description="Monthly invite limit for regular users")
+    monthly_invite_limit_per_admin: int = Field(default=999999, ge=0, le=999999, description="Monthly invite limit for admins (effectively unlimited)")
     daily_query_limit: int = Field(default=20, ge=0, le=10000)
 
 class UserSettingsOut(UserSettings):

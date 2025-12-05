@@ -9,6 +9,7 @@ from app.scraping_browser import browser_manager, start_enhanced_scraping_proces
 from app.scraping_state import scraping_state
 from app.api import deps
 from app.models import User
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -72,11 +73,13 @@ async def start_login_session(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/browser/open", response_model=Dict[str, Any])
-async def open_browser(headless: bool = Body(False, embed=True)) -> Any:
+async def open_browser(headless: Optional[bool] = Body(None, embed=True)) -> Any:
     """
     Opens a persistent browser instance for scraping.
     Set `headless` to `True` to run in the background.
     """
+    if headless is None:
+        headless = settings.HEADLESS
     result = await browser_manager.open_browser(headless=headless)
     if result.get("status") == "error":
         raise HTTPException(status_code=500, detail=result.get("message"))
@@ -108,9 +111,9 @@ async def start_scraping(
     """
     Starts the enhanced scraping process in the background.
     """
-    # If browser is not open, open it automatically (headed) and proceed for development visibility.
+    # If browser is not open, open it automatically (headed/headless based on config)
     if not browser_manager.get_status().get("is_open"):
-        await browser_manager.open_browser(headless=False)
+        await browser_manager.open_browser(headless=settings.HEADLESS)
 
     logging.info(f"User {current_user.email} initiated scraping: mode={request.mode}, count={request.count}, city={request.city}")
 

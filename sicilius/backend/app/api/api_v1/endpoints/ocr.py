@@ -1,15 +1,15 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status, File, UploadFile
-from sqlalchemy.orm import Session
+from typing import List
 from uuid import UUID
 
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
+from sqlalchemy.orm import Session
+
 from app import crud, models, schemas
-from app.services import ocr_service
 from app.api import deps
-from supabase.client import Client
-from typing import List
-from supabase.client import Client
-from typing import List
+from app.core.config import settings
+from app.core.storage import list_objects
+from app.services import ocr_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -93,20 +93,20 @@ async def get_ocr_technical_preview(
 
 # The list-pdfs endpoint is temporarily disabled as we are switching to local file upload
 @router.get("/list-pdfs", response_model=List[schemas.FileNameRequest], include_in_schema=False)
-def list_available_pdfs(
-    supabase: Client = Depends(deps.get_supabase_client)
-):
-    """
-    List all available PDFs in the 'gazette-pdfs' storage bucket.
-    """
+def list_available_pdfs():
+    """MinIO üzerindeki gazete PDF dosyalarını listeler."""
     try:
-        files = supabase.storage.from_("gazette-pdfs").list()
-        # Filter out any non-PDF files or system files like .emptyFolderPlaceholder
-        pdf_files = [schemas.FileNameRequest(file_name=file['name']) for file in files if file['name'].lower().endswith('.pdf')]
-        return pdf_files
-    except Exception as e:
+        objects = list_objects(settings.minio_bucket_gazette_pdfs)
+    except Exception as exc:  # pragma: no cover - ağ/erişim hatası
+        logger.error("MinIO list_objects failed: %s", exc, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Could not list files from Supabase Storage: {e}"
+            detail=f"Could not list files from storage: {exc}"
         )
+    pdf_files = []
+    for obj in objects:
+        name = obj.get("object_name", "")
+        if name.lower().endswith(".pdf") and not obj.get("is_dir"):
+            pdf_files.append(schemas.FileNameRequest(file_name=name))
+    return pdf_files
 

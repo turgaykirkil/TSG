@@ -48,16 +48,39 @@ def send_email(db: Session, to: str, subject: str, body_text: str, body_html: Op
     if body_html:
         msg.add_alternative(body_html, subtype="html")
 
-    if secure == "ssl":
-        with smtplib.SMTP_SSL(host, port) as server:
-            server.login(user, password)
-            server.send_message(msg)
-    else:
-        with smtplib.SMTP(host, port) as server:
-            server.ehlo()
-            server.starttls()
-            server.login(user, password)
-            server.send_message(msg)
+    try:
+        if secure == "ssl":
+            logger.info(f"Connecting to SMTP (SSL): {host}:{port} as {user}")
+            with smtplib.SMTP_SSL(host, port, timeout=30) as server:
+                server.set_debuglevel(1)  # Enable SMTP debug output
+                logger.info("SMTP SSL connected, attempting login...")
+                server.login(user, password)
+                logger.info("SMTP login successful, sending message...")
+                server.send_message(msg)
+                logger.info("Email sent successfully via SSL")
+        else:
+            logger.info(f"Connecting to SMTP (STARTTLS): {host}:{port} as {user}")
+            with smtplib.SMTP(host, port, timeout=30) as server:
+                server.set_debuglevel(1)  # Enable SMTP debug output
+                logger.info("SMTP connected, sending EHLO...")
+                server.ehlo()
+                logger.info("Starting TLS...")
+                server.starttls()
+                server.ehlo()  # EHLO again after STARTTLS
+                logger.info("STARTTLS enabled, attempting login...")
+                server.login(user, password)
+                logger.info("SMTP login successful, sending message...")
+                server.send_message(msg)
+                logger.info("Email sent successfully via STARTTLS")
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error(f"SMTP Authentication failed: {e}")
+        raise RuntimeError(f"Email authentication failed: {e}")
+    except smtplib.SMTPException as e:
+        logger.error(f"SMTP error: {e}")
+        raise RuntimeError(f"Email sending failed: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected email error: {e}", exc_info=True)
+        raise RuntimeError(f"Email error: {e}")
 
 
 def send_invite_email(db: Session, to: str, token: str) -> None:

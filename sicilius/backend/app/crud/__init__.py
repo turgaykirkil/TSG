@@ -32,6 +32,9 @@ from .crud_job_history import job_history
 # Announcement CRUD operations
 from .crud_announcement import announcement
 
+# Company Error CRUD operations
+from .crud_company_error import company_error
+
 # Company Scrape CRUD operations
 
 
@@ -50,4 +53,5 @@ __all__ = [
     "job_history",
     "company_scrape",
     "announcement",
+    "company_error",
 ]

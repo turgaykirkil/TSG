@@ -7,12 +7,10 @@ import re
 import unicodedata
 from fastapi import APIRouter, Depends, HTTPException, Body, Request
 from pydantic import BaseModel
-from supabase import Client
+from app.core.dependencies import get_db
 from typing import List, Dict, Any
-
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from app.core.dependencies import get_db, get_supabase_client
 from app.core.config import settings
 
 # Configure logging
@@ -171,7 +169,7 @@ async def process_coordinates(request: Request, request_body: CoordinateProcessi
 
 
 @router.post("/resolve-conflicts", summary="Find and resolve coordinate conflicts")
-async def resolve_conflicts(supabase: Client = Depends(get_supabase_client)):
+async def resolve_conflicts(db: Session = Depends(get_db)):
     """
     Finds and resolves conflicts where multiple companies share the same coordinates or addresses.
     This involves two main scenarios:
@@ -191,36 +189,28 @@ async def resolve_conflicts(supabase: Client = Depends(get_supabase_client)):
     try:
         # Fetch all companies with address and coordinates
         add_log("info", "Fetching all companies with coordinate and address data.")
-        response = supabase.from_("companies").select("id, address, koordinat").not_.is_("address", "NULL").not_.is_("koordinat", "NULL").execute()
+        # Using raw SQL for PostGIS types handling might be easier, or just fetch as text
+        fetch_query = text("SELECT id, address, ST_AsText(koordinat) as koordinat_wkt FROM public.companies WHERE address IS NOT NULL AND koordinat IS NOT NULL")
+        result = db.execute(fetch_query).mappings().all()
         
-        if not response.data:
+        if not result:
             add_log("info", "No companies with address and coordinate data found.")
             return {"message": "No data to process.", "logs": logs}
 
-        companies = response.data
+        companies = result
         add_log("info", f"Found {len(companies)} companies to analyze.")
 
         # --- 1. Resolve Address Conflicts (Same address, different coordinates) ---
         add_log("info", "Analyzing for address conflicts (same address, different coordinates).")
         address_map = {}
         for company in companies:
-            if company.get('address') and company.get('koordinat'):
+            if company['address'] and company['koordinat_wkt']:
                 cleaned_address = clean_address(company['address'])
-                coord_val = company['koordinat']
+                coord_val = company['koordinat_wkt'] # WKT string like POINT(30 40)
                 
-                # Convert GeoJSON dict to a hashable tuple, or keep as is if already hashable
-                hashable_coord = None
-                if isinstance(coord_val, dict) and 'coordinates' in coord_val and isinstance(coord_val['coordinates'], list):
-                    hashable_coord = tuple(coord_val['coordinates'])
-                elif isinstance(coord_val, str) or isinstance(coord_val, tuple):
-                    hashable_coord = coord_val
-                else:
-                    add_log("warning", f"Skipping unhashable or unexpected coordinate format for company ID {company.get('id')}: {coord_val}")
-                    continue
-
                 if cleaned_address not in address_map:
                     address_map[cleaned_address] = []
-                address_map[cleaned_address].append(hashable_coord)
+                address_map[cleaned_address].append(coord_val)
 
         address_conflicts = {addr: coords for addr, coords in address_map.items() if len(set(coords)) > 1}
         add_log("info", f"Found {len(address_conflicts)} addresses with conflicting coordinates.")
@@ -238,12 +228,12 @@ async def resolve_conflicts(supabase: Client = Depends(get_supabase_client)):
                     if geocoding_data:
                         first_result = geocoding_data[0]
                         lat, lon = float(first_result['lat']), float(first_result['lon'])
-                        correct_point_wkt = f"POINT({lon} {lat})"
-                        add_log("info", f"Standardizing address to coordinate: {correct_point_wkt}")
+                        # Update using SQL
+                        update_query = text("UPDATE public.companies SET koordinat = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326) WHERE address = :address")
+                        db.execute(update_query, {"lon": lon, "lat": lat, "address": address})
+                        db.commit()
                         
-                        update_response = supabase.from_("companies").update({"koordinat": correct_point_wkt}).eq("address", address).execute()
-                        if not update_response.data:
-                            add_log("error", f"Failed to update companies with address: {address}")
+                        add_log("info", f"Standardizing address to coordinate: POINT({lon} {lat})")
                     else:
                         add_log("warning", f"Could not re-geocode address: {address}")
                 except Exception as e:
@@ -254,22 +244,13 @@ async def resolve_conflicts(supabase: Client = Depends(get_supabase_client)):
         add_log("info", "Analyzing for coordinate conflicts (same coordinate, different addresses).")
         coordinate_map = {}
         for company in companies:
-            if company.get('koordinat') and company.get('address'):
+            if company['koordinat_wkt'] and company['address']:
                 cleaned_address = clean_address(company['address'])
-                coord_val = company['koordinat']
+                coord_val = company['koordinat_wkt']
 
-                hashable_coord = None
-                if isinstance(coord_val, dict) and 'coordinates' in coord_val and isinstance(coord_val['coordinates'], list):
-                    hashable_coord = tuple(coord_val['coordinates'])
-                elif isinstance(coord_val, str) or isinstance(coord_val, tuple):
-                    hashable_coord = coord_val
-                else:
-                    # Already logged in the first loop, so we can just skip
-                    continue
-
-                if hashable_coord not in coordinate_map:
-                    coordinate_map[hashable_coord] = []
-                coordinate_map[hashable_coord].append(cleaned_address)
+                if coord_val not in coordinate_map:
+                    coordinate_map[coord_val] = []
+                coordinate_map[coord_val].append(cleaned_address)
         
         coordinate_conflicts = {coord: addrs for coord, addrs in coordinate_map.items() if len(set(addrs)) > 1}
         add_log("info", f"Found {len(coordinate_conflicts)} coordinates with conflicting addresses.")
@@ -293,12 +274,12 @@ async def resolve_conflicts(supabase: Client = Depends(get_supabase_client)):
                         if geocoding_data:
                             first_result = geocoding_data[0]
                             lat, lon = float(first_result['lat']), float(first_result['lon'])
-                            new_point_wkt = f"POINT({lon} {lat})"
-                            add_log("info", f"Updating address '{address}' to new coordinate: {new_point_wkt}")
                             
-                            update_response = supabase.from_("companies").update({"koordinat": new_point_wkt}).eq("address", address).execute()
-                            if not update_response.data:
-                                add_log("error", f"Failed to update company with address: {address}")
+                            update_query = text("UPDATE public.companies SET koordinat = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326) WHERE address = :address")
+                            db.execute(update_query, {"lon": lon, "lat": lat, "address": address})
+                            db.commit()
+                            
+                            add_log("info", f"Updating address '{address}' to new coordinate: POINT({lon} {lat})")
                         else:
                             add_log("warning", f"Could not re-geocode address for conflict resolution: {address}")
                     except Exception as e:

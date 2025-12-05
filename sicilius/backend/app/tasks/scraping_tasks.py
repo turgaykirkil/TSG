@@ -10,7 +10,7 @@ from playwright.async_api import async_playwright
 from playwright._impl._errors import TargetClosedError
 
 from app.core.celery_app import celery_app
-from app.core.supabase_client import supabase
+from app.core.storage import ensure_bucket, upload_bytes, get_presigned_url
 from app.utils.text_utils import normalize_city, CITY_VALUE_MAP
 from app.utils.scrape_helpers_async import ensure_captcha  # CAPTCHA otomasyonu
 
@@ -148,12 +148,16 @@ def run_scraping_task(self: Task, count: int):
                                         pdf_name = f"gazette_{uuid.uuid4()}.pdf"
                                         storage_path = f"gazette_pdfs/{company.id}/{pdf_name}"
 
-                                        supabase.storage.from_("company-gazettes").upload(
-                                            path=storage_path, file=pdf_content, file_options={"content-type": "application/pdf"}
+                                        bucket = "company-gazettes"
+                                        ensure_bucket(bucket)
+                                        upload_bytes(
+                                            bucket_name=bucket,
+                                            object_name=storage_path,
+                                            data=pdf_content,
+                                            content_type="application/pdf",
                                         )
-                                        res = supabase.storage.from_("company-gazettes").get_public_url(storage_path)
-                                        pdf_url = res.data
-                                        log_and_update_state(f"PDF_UPLOADED: {pdf_name} Supabase'e yüklendi.")
+                                        pdf_url = get_presigned_url(bucket, storage_path, expires=24 * 3600)
+                                        log_and_update_state(f"PDF_UPLOADED: {pdf_name} MinIO'ya yüklendi.")
                                         await new_page.close()
                                     except Exception as pdf_e:
                                         logger.error(f"PDF_ERROR: PDF işlenirken hata: {pdf_e}")
