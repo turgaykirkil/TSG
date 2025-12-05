@@ -7,7 +7,7 @@
 
 **Türkiye Ticaret Sicil Gazetesi verilerini analiz eden, yapay zeka destekli akıllı şirket araştırma platformu.**
 
-[Demo](https://sicilius.com.tr) • [Dokümantasyon](#-özellikler) • [Kurulum](#-kurulum)
+[Sicilius web sitesi](https://sicilius.com.tr) • [Dokümantasyon](#-özellikler) • [Kurulum](#-kurulum)
 
 </div>
 
@@ -34,7 +34,6 @@ Sicilius, Türkiye Ticaret Sicil Gazetesi'nde yayınlanan şirket ilanlarını o
 - **Piyasa Araştırması:** Şirket kuruluşları ve değişikliklerini takip edin
 - **Due Diligence:** Şirket geçmişlerini detaylı inceleyin
 - **İlişki Haritalama:** Şirketler arası bağlantıları keşfedin
-- **Trend Analizi:** Sektörel trendleri analiz edin
 
 ---
 
@@ -42,21 +41,13 @@ Sicilius, Türkiye Ticaret Sicil Gazetesi'nde yayınlanan şirket ilanlarını o
 
 ### 🔍 Akıllı Arama
 - Fuzzy search ile esnek şirket araması
-- NACE kodu ve sicil bazlı filtreleme
 - Ortak yönetici/hissedar ilişkisi tespiti
 - Coğrafi konum bazlı arama
 
 ### 📊 Veri Görselleştirme
-- Zaman serisi grafikleri
 - İnteraktif harita görünümü
 - Detaylı şirket profilleri
-- Excel/PDF export
-
-### 🛡️ Admin Özellikleri
-- Kullanıcı yönetimi
-- Email inbox yönetimi
-- Hata raporlama sistemi
-- Kullanım istatistikleri
+- PDF export
 
 ---
 
@@ -127,6 +118,23 @@ sicilius/
 ├── ocr_app/          # OCR companion app
 └── docker-compose.yml
 ```
+
+---
+
+## 💝 Hakkında
+
+Sicilius, **tamamen açık kaynak** ve **ücretsiz** bir projedir. 
+
+Bu platform, Türkiye'deki şirket verilerinin daha erişilebilir olması ve araştırmacıların işini kolaylaştırmak amacıyla **hobi projesi** olarak geliştirilmiştir. Herhangi bir **ticari amaç** güdülmemekte ve kullanıcılardan **hiçbir ücret talep edilmemektedir**.
+
+### 🎯 Amaçlarımız
+
+- 📖 **Bilgiyi Demokratikleştirmek:** Kamuya açık verileri herkesin kolayca erişebileceği hale getirmek
+- 🤝 **Topluluk Katkısı:** Açık kaynak ruhuna uygun olarak, herkesin katkıda bulunabileceği bir platform oluşturmak  
+- 🎓 **Eğitim ve Öğrenme:** Modern web teknolojileri ve yapay zeka uygulamaları için bir örnek teşkil etmek
+- 💡 **İnovasyon:** Kamusal verilerin yapay zeka ile nasıl anlamlı hale getirilebileceğini göstermek
+
+> **Not:** Bu proje gönüllü geliştiriciler tarafından boş zamanlarında hobi amaçlı geliştirilmektedir. Herhangi bir kar amacı güdülmemektedir ve SaaS/ticari bir ürün değildir.
 
 ---
 

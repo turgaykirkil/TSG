@@ -55,9 +55,7 @@ NEXT_PUBLIC_API_URL=http://localhost:5001/api/v1
 ## 📱 Pages
 
 - `/` - Home page
-- `/login` - Authentication
 - `/dashboard` - Main dashboard
-- `/admin` - Admin panel
 
 ## 🎨 Design System
 

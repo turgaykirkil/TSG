@@ -61,7 +61,8 @@ def init_db():
     # Import all models here to ensure they are registered with SQLAlchemy
     from app.models import (
         User, Company, Gazette, GazetteEntry, Person, 
-        CompanyPersonRelation, FileUpload, JobHistory, Announcement, CompanyError
+        CompanyPersonRelation, FileUpload, JobHistory, Announcement, CompanyError,
+        ContactMessage
     )
     
     # Create all tables

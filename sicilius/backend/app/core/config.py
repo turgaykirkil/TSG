@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     
     # Cloudflare Email Routing Webhook
     CLOUDFLARE_WEBHOOK_SECRET: Optional[str] = None  # Optional HMAC secret for webhook validation
+    
+    # Contact Form
+    CONTACT_EMAIL: str = "info@sicilius.com.tr"  # Email to receive contact form submissions
 
 
 

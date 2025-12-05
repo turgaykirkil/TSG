@@ -261,3 +261,112 @@ def send_invite_email(db: Session, to: str, token: str) -> None:
             server.starttls()
             server.login(user, password)
             server.send_message(msg)
+
+
+
+def send_contact_notification(
+    db: Session,
+    to_email: str,
+    first_name: str,
+    last_name: str,
+    email: str,
+    subject: str,
+    message: str,
+) -> None:
+    """
+    Send notification email for contact form submissions.
+    Uses email settings from database (app_settings table).
+    """
+    # Get email settings from database
+    data = _get_email_settings(db)
+    if not data:
+        logger.warning("Email settings not configured in database, skipping contact notification")
+        return
+    
+    host = data.get("host")
+    port = int(data.get("port") or 587)
+    secure = (data.get("secure") or "starttls").lower()
+    user = data.get("username")
+    password = data.get("password")
+    from_name = data.get("from_name") or "Sicilius"
+    from_email = data.get("from_email")
+    
+    if not all([host, port, user, from_email, password]):
+        logger.warning("Incomplete SMTP settings in database, skipping contact notification")
+        return
+    
+    msg = EmailMessage()
+    msg["Subject"] = f"İletişim Formu: {subject}"
+    msg["From"] = f"{from_name} <{from_email}>"
+    msg["To"] = to_email
+    msg["Reply-To"] = email
+    
+    # Plain text content
+    body_text = f"""
+Yeni İletişim Formu Mesajı
+
+Ad Soyad: {first_name} {last_name}
+E-posta: {email}
+Konu: {subject}
+
+Mesaj:
+{message}
+
+---
+Bu mesaj Sicilius iletişim formundan gönderilmiştir.
+"""
+    
+    # HTML content
+    body_html = f"""
+<html>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+    <h2 style="color: #2563eb;">Yeni İletişim Formu Mesajı</h2>
+    
+    <table style="border-collapse: collapse; margin: 20px 0;">
+        <tr>
+            <td style="padding: 8px; font-weight: bold;">Ad Soyad:</td>
+            <td style="padding: 8px;">{first_name} {last_name}</td>
+        </tr>
+        <tr>
+            <td style="padding: 8px; font-weight: bold;">E-posta:</td>
+            <td style="padding: 8px;"><a href="mailto:{email}">{email}</a></td>
+        </tr>
+        <tr>
+            <td style="padding: 8px; font-weight: bold;">Konu:</td>
+            <td style="padding: 8px;">{subject}</td>
+        </tr>
+    </table>
+    
+    <div style="background: #f9fafb; padding: 15px; border-left: 4px solid #2563eb; margin: 20px 0;">
+        <h3 style="margin-top: 0;">Mesaj:</h3>
+        <p style="white-space: pre-wrap;">{message}</p>
+    </div>
+    
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
+    <p style="color: #6b7280; font-size: 12px;">
+        Bu mesaj Sicilius iletişim formundan gönderilmiştir.
+    </p>
+</body>
+</html>
+"""
+    
+    msg.set_content(body_text)
+    msg.add_alternative(body_html, subtype="html")
+    
+    # Send email
+    try:
+        if secure == "ssl":
+            with smtplib.SMTP_SSL(host, port) as server:
+                server.login(user, password)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(host, port) as server:
+                server.ehlo()
+                server.starttls()
+                server.login(user, password)
+                server.send_message(msg)
+        logger.info(f"Contact notification sent to {to_email}")
+    except Exception as e:
+        logger.error(f"Failed to send contact notification: {e}")
+        # Don't raise - contact form should still work even if email fails
+

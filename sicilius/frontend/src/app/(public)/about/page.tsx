@@ -42,24 +42,24 @@ const features = [
 
 const values = [
   {
-    name: 'Yenilikçilik',
-    description: 'Sürekli olarak yeni teknolojileri takip ediyor ve uyguluyoruz.',
+    name: 'Bilgiyi Demokratikleştirmek',
+    description: 'Kamuya açık verileri herkesin kolayca erişebileceği hale getiriyoruz.',
     icon: Lightbulb,
   },
   {
-    name: 'Güvenilirlik',
-    description: 'Müşteri memnuniyetini her şeyin üzerinde tutuyoruz.',
-    icon: Shield,
-  },
-  {
-    name: 'İşbirliği',
-    description: 'Müşterilerimizle güçlü ve sürdürülebilir ilişkiler kuruyoruz.',
+    name: 'Topluluk Katkısı',
+    description: 'Açık kaynak ruhuna uygun olarak, herkesin katkıda bulunabileceği bir platform oluşturuyoruz.',
     icon: Handshake,
   },
   {
-    name: 'Mükemmellik',
-    description: 'En yüksek standartlarda hizmet sunmayı hedefliyoruz.',
+    name: 'Eğitim ve Öğrenme',
+    description: 'Modern web teknolojileri ve yapay zeka uygulamaları için bir örnek teşkil ediyoruz.',
     icon: Award,
+  },
+  {
+    name: 'İnovasyon',
+    description: 'Kamusal verilerin yapay zeka ile nasıl anlamlı hale getirilebileceğini gösteriyoruz.',
+    icon: Shield,
   },
 ];
 
@@ -75,15 +75,15 @@ export default function AboutPage() {
             </Reveal>
             <Reveal delayMs={120}>
               <p className="mt-6 text-lg leading-8 text-foreground/70">
-                Sicilius bağımsız ve ücretsiz bir platformdur. Amacımız, kamuya açık kurumsal bilgilere herkes için adil ve kesintisiz erişim sağlamaktır. Hızlı arama, detaylı şirket kartları ve sade bir deneyim sunuyoruz; ticari satış, paket veya kurumsal plan sunmuyoruz.
+                Sicilius, <strong>tamamen açık kaynak</strong> ve <strong>ücretsiz</strong> bir projedir.
+                Bu platform, Türkiye'deki şirket verilerinin daha erişilebilir olması ve araştırmacıların işini
+                kolaylaştırmak amacıyla <strong>hobi projesi</strong> olarak geliştirilmiştir. Herhangi bir ticari
+                amaç güdülmemekte ve kullanıcılardan hiçbir ücret talep edilmemektedir.
               </p>
             </Reveal>
             <Reveal delayMs={220}>
               <div className="mt-10 flex items-center gap-x-6">
-                <Button asChild size="lg" variant="gradient" className="rounded-lg">
-                  <Link href="/davet">Davet ile Katıl</Link>
-                </Button>
-                <Link href="/contact" className="text-sm font-semibold leading-6">
+                <Link href="/contact" className="text-base font-semibold leading-6 text-primary hover:text-primary/80">
                   Bizimle İletişime Geçin <span aria-hidden="true">→</span>
                 </Link>
               </div>
@@ -159,10 +159,12 @@ export default function AboutPage() {
         <div className="mx-auto max-w-7xl px-6 lg:px-8 w-full">
           <div className="mx-auto max-w-2xl lg:mx-0">
             <Reveal>
-              <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Değerlerimiz</h2>
+              <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Amaçlarımız</h2>
             </Reveal>
             <Reveal delayMs={120}>
-              <p className="mt-6 text-lg leading-8 text-foreground/70">İş yapış şeklimizi şekillendiren temel değerlerimiz:</p>
+              <p className="mt-6 text-lg leading-8 text-foreground/70">
+                Açık kaynak ve ücretsiz bir platform olarak, bu temel amaçlar doğrultusunda çalışıyoruz:
+              </p>
             </Reveal>
           </div>
           <dl className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 text-base leading-7 text-foreground/70 sm:grid-cols-2 lg:mx-0 lg:max-w-none lg:gap-x-16">
@@ -184,17 +186,19 @@ export default function AboutPage() {
         <div className="container mx-auto px-6">
           <div className="relative isolate overflow-hidden text-center shadow-2xl rounded-3xl ring-1 ring-inset ring-border/50 mx-auto max-w-5xl bg-gradient-to-br from-primary/10 via-background to-secondary/10 dark:from-primary/15 dark:via-slate-900 dark:to-secondary/15 px-8 sm:px-12 md:px-16 py-16 md:py-20">
             <Reveal>
-              <h2 className="mx-auto max-w-2xl text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Adil ve Kesintisiz Erişim İçin Birlikteyiz</h2>
+              <h2 className="mx-auto max-w-2xl text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+                Açık Kaynak ve Ücretsiz
+              </h2>
             </Reveal>
             <Reveal delayMs={120}>
-              <p className="mx-auto mt-6 max-w-xl text-lg leading-8 text-foreground/80">Davet bağlantınızla hemen katılın; ücretli paket veya kurumsal plan yok. Sade, hızlı ve ücretsiz.</p>
+              <p className="mx-auto mt-6 max-w-xl text-lg leading-8 text-foreground/80">
+                Gönüllü geliştiriciler tarafından hobi amaçlı geliştirilmektedir. Herhangi bir kar amacı
+                güdülmemektedir ve SaaS/ticari bir ürün değildir. Davet bağlantınızla hemen katılın.
+              </p>
             </Reveal>
             <Reveal delayMs={220}>
               <div className="mt-10 flex items-center justify-center gap-x-6">
-                <Button asChild variant="gradient" className="px-3.5 py-2.5 text-sm font-semibold">
-                  <Link href="/davet">Davet ile Katıl</Link>
-                </Button>
-                <Link href="/contact" className="text-sm font-semibold leading-6 text-primary">
+                <Link href="/contact" className="text-sm font-semibold leading-6 text-primary hover:text-primary/80">
                   İletişime Geçin <span aria-hidden="true">→</span>
                 </Link>
               </div>
