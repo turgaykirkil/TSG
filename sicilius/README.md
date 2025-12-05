@@ -1,89 +1,162 @@
-# TSG Araştırma Platformu
+# 🏢 Sicilius - Şirket Araştırma Platformu
 
-Bu proje, TSG Araştırma Platformu'nun arka uç uygulamasını içerir.
+<div align="center">
 
-## Gereksinimler
+![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
 
-- Docker 20.10+ ve Docker Compose
-- Python 3.10+
-- PostgreSQL 13+
-- Redis 6+
+**Türkiye Ticaret Sicil Gazetesi verilerini analiz eden, yapay zeka destekli akıllı şirket araştırma platformu.**
 
-## Kurulum
+[Demo](https://sicilius.com.tr) • [Dokümantasyon](#-özellikler) • [Kurulum](#-kurulum)
 
-1. Depoyu klonlayın:
-   ```bash
-   git clone https://github.com/yourusername/tsg-platform.git
-   cd tsg-platform
-   ```
+</div>
 
-2. Gerekli ortam değişkenlerini ayarlayın:
-   ```bash
-   cp .env.example .env
-   ```
-   Ardından `.env` dosyasını düzenleyerek gerekli ayarları yapın.
+---
 
-3. Docker konteynerlerini başlatın:
-   ```bash
-   docker-compose up -d
-   ```
+## 📸 Önizleme
 
-4. Veritabanı migrasyonlarını çalıştırın:
-   ```bash
-   docker-compose exec backend alembic upgrade head
-   ```
+<div align="center">
 
-## Geliştirme Ortamı
+![Sicilius Dashboard](docs/screenshot-dashboard.png)
 
-### Yerel Geliştirme İçin
+*Sicilius ana arama ekranı - Hızlı ve akıllı şirket araması*
 
-1. Python sanal ortamı oluşturun ve etkinleştirin:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # Linux/macOS
-   # veya
-   .\venv\Scripts\activate  # Windows
-   ```
+</div>
 
-2. Gerekli bağımlılıkları yükleyin:
-   ```bash
-   pip install -r backend/requirements.txt
-   ```
+---
 
-3. Veritabanı ve Redis başlatın:
-   ```bash
-   docker-compose up -d db redis
-   ```
+## 🎯 Genel Bakış
 
-4. Uygulamayı çalıştırın:
-   ```bash
-   cd backend
-   uvicorn app.main:app --reload
-   ```
+Sicilius, Türkiye Ticaret Sicil Gazetesi'nde yayınlanan şirket ilanlarını otomatik işleyerek, şirket bilgilerini yapılandırılmış bir veritabanında toplayan ve kullanıcılara güçlü arama ve analiz araçları sunan bir platformdur.
 
-## API Dokümantasyonu
+### 📊 Kullanım Alanları
 
-Uygulama çalıştıktan sonra aşağıdaki adreslerden API dokümantasyonuna ulaşabilirsiniz:
+- **Piyasa Araştırması:** Şirket kuruluşları ve değişikliklerini takip edin
+- **Due Diligence:** Şirket geçmişlerini detaylı inceleyin
+- **İlişki Haritalama:** Şirketler arası bağlantıları keşfedin
+- **Trend Analizi:** Sektörel trendleri analiz edin
 
-- Swagger UI: http://localhost:8000/api/docs
-- ReDoc: http://localhost:8000/api/redoc
+---
 
-## Test
+## ✨ Özellikler
 
-Testleri çalıştırmak için:
+### 🔍 Akıllı Arama
+- Fuzzy search ile esnek şirket araması
+- NACE kodu ve sicil bazlı filtreleme
+- Ortak yönetici/hissedar ilişkisi tespiti
+- Coğrafi konum bazlı arama
+
+### 📊 Veri Görselleştirme
+- Zaman serisi grafikleri
+- İnteraktif harita görünümü
+- Detaylı şirket profilleri
+- Excel/PDF export
+
+### 🛡️ Admin Özellikleri
+- Kullanıcı yönetimi
+- Email inbox yönetimi
+- Hata raporlama sistemi
+- Kullanım istatistikleri
+
+---
+
+## 🛠 Teknoloji Stack
+
+### Backend
+- FastAPI - Modern Python web framework
+- PostgreSQL + PostGIS - Veritabanı
+- Redis - Cache layer
+- Minio - Object storage
+
+### Frontend
+- Next.js 14 - React framework
+- Tailwind CSS - Styling
+- Leaflet - Harita görselleştirme
+- TypeScript - Type safety
+
+---
+
+## 🚀 Kurulum
+
+### Docker ile (Önerilen)
 
 ```bash
-pytest
+# Repository'yi klonlayın
+git clone <repo-url>
+cd sicilius
+
+# Environment variables ayarlayın
+cp backend/.env.example backend/.env
+cp frontend/.env.local.example frontend/.env.local
+
+# Container'ları başlatın
+docker-compose up -d --build
+
+# Database migration
+docker-compose exec backend alembic upgrade head
 ```
 
-## Dağıtım
+Uygulama şu adreslerde çalışacaktır:
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:5001
+- API Docs: http://localhost:5001/docs
 
-Üretim ortamı için:
+### Yerel Geliştirme
 
-1. `.env` dosyasında `ENVIRONMENT=production` olarak ayarlayın
-2. Güvenli bir `SECRET_KEY` belirleyin
-3. `docker-compose -f docker-compose.prod.yml up -d` komutuyla üretim ortamını başlatın
+Detaylı kurulum bilgisi için ilgili klasörlerdeki README dosyalarına bakınız:
+- [Backend README](backend/README.md)
+- [Frontend README](frontend/README.md)
 
-## Lisans
+---
 
-Bu proje [MIT lisansı](LICENSE) altında lisanslanmıştır.
+## 📚 API Dokümantasyonu
+
+API endpoint'lerini keşfetmek için Swagger UI:
+```
+http://localhost:5001/docs
+```
+
+---
+
+## 📂 Proje Yapısı
+
+```
+sicilius/
+├── backend/          # FastAPI backend service
+├── frontend/         # Next.js frontend app
+├── ocr_app/          # OCR companion app
+└── docker-compose.yml
+```
+
+---
+
+## 🔒 Güvenlik
+
+- JWT tabanlı authentication
+- Role-based access control
+- Rate limiting
+- Input validation
+- HTTPS/TLS desteği
+
+---
+
+## 📝 Lisans
+
+Bu proje MIT lisansı altında lisanslanmıştır.
+
+---
+
+## 📧 İletişim
+
+- **Website:** [sicilius.com.tr](https://sicilius.com.tr)
+- **Email:** info@sicilius.com.tr
+
+---
+
+<div align="center">
+
+**Made with ❤️ by Sicilius Team**
+
+⭐ Bu projeyi beğendiyseniz yıldız vermeyi unutmayın!
+
+</div>
