@@ -24,15 +24,31 @@ def _limit_from_env() -> int:
 
 
 def _minio_usage(bucket: str) -> dict:
-    objs = list_objects(bucket)
-    total_files = 0
-    total_bytes = 0
-    for obj in objs:
-        if obj.get("is_dir"):
-            continue
-        total_files += 1
-        total_bytes += int(obj.get("size") or 0)
-    return {"bucket": bucket, "total_files": total_files, "total_bytes": total_bytes}
+    """Get MinIO bucket usage. Returns empty stats if MinIO is unavailable."""
+    try:
+        objs = list_objects(bucket)
+        total_files = 0
+        total_bytes = 0
+        for obj in objs:
+            if obj.get("is_dir"):
+                continue
+            total_files += 1
+            total_bytes += int(obj.get("size") or 0)
+        return {
+            "bucket": bucket, 
+            "total_files": total_files, 
+            "total_bytes": total_bytes,
+            "status": "available"
+        }
+    except Exception as exc:
+        logger.debug("MinIO unavailable for bucket %s: %s", bucket, exc)
+        return {
+            "bucket": bucket,
+            "total_files": 0,
+            "total_bytes": 0,
+            "status": "unavailable",
+            "error": "MinIO connection failed"
+        }
 
 
 def _safe_count_rows(db: Session, schema: str, table: str) -> int | None:

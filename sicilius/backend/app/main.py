@@ -49,6 +49,14 @@ for noisy_logger in [
     except Exception:
         pass
 
+# Completely suppress urllib3 retry warnings (MinIO connection attempts)
+# These generate excessive logs (5 retries per bucket = 10+ lines)
+for silent_logger in ["urllib3", "urllib3.connectionpool"]:
+    try:
+        logging.getLogger(silent_logger).setLevel(logging.ERROR)
+    except Exception:
+        pass
+
 # --- Sentry Initialization (optional) ---
 if settings.sentry_dsn:
     sentry_sdk.init(
@@ -62,18 +70,74 @@ if settings.sentry_dsn:
 
 # --- Application Event Handlers ---
 
+import subprocess
+import socket
+
+def check_port(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('localhost', port)) == 0
+
+def check_and_fix_tunnels():
+    """
+    Checks if local development tunnels are active. If not, attempts to start them.
+    This allows the backend to self-heal connectivity issues to the remote dev server.
+    """
+    # Only run in local dev mode (when using specific ports)
+    # Check 5433 (DB) as the primary indicator
+    if check_port(5433):
+        return
+
+    logger.warning("⚠️  Local DB tunnel (port 5433) invalid or closed. Attempting auto-fix...")
+    
+    # Try to find and kill stale ssh processes for these ports
+    try:
+        for p in [5433, 9000, 9001]:
+           subprocess.run(f"lsof -t -i:{p} | xargs kill -9", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+    # Start tunnels
+    cmd = (
+        "ssh -f -N -L 5433:localhost:5432 -o ServerAliveInterval=60 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes nalanmerci@192.168.1.5 && "
+        "ssh -f -N -L 9000:localhost:9000 -o ServerAliveInterval=60 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes nalanmerci@192.168.1.5 && "
+        "ssh -f -N -L 9001:localhost:9001 -o ServerAliveInterval=60 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes nalanmerci@192.168.1.5"
+    )
+    
+    try:
+        subprocess.run(cmd, shell=True, check=True)
+        import time
+        time.sleep(3) # Wait for tunnels to establish
+        logger.info("✅ SSH Tunnels restarted successfully.")
+    except Exception as e:
+        logger.error(f"❌ Failed to auto-start tunnels: {e}")
+
 async def startup_event():
     """
     Actions to perform on application startup.
     - Create database tables.
     """
     logger.debug("Application startup event triggered.")
+    
+    # Auto-heal attempt BEFORE trying connection
+    # Check if we are likely in the local environment requiring tunnels
+    # Simple heuristic: If DB URL points to localhost:5433
+    if "localhost:5433" in str(settings.DATABASE_URL):
+         check_and_fix_tunnels()
+
     try:
         logger.debug("Synchronizing database tables...")
         Base.metadata.create_all(bind=engine)
         logger.debug("Database tables synchronized successfully.")
     except Exception as e:
-        logger.error(f"Database error during startup: {e}", exc_info=True)
+        logger.error(f"Database error during startup: {e}")
+        if "Connection refused" in str(e) and "localhost:5433" in str(settings.DATABASE_URL):
+             logger.warning("Retrying connection after tunnel check...")
+             check_and_fix_tunnels()
+             try:
+                 Base.metadata.create_all(bind=engine)
+                 logger.info("Database connection recovered.")
+             except Exception as retry_e:
+                 logger.error(f"Retry failed: {retry_e}", exc_info=True)
     logger.debug("Application startup event finished.")
 
 async def shutdown_event():

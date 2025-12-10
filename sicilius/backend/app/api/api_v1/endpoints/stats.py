@@ -16,12 +16,13 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def _count_storage_pdfs(prefix: str | None = None) -> dict:
+def _count_storage_pdfs(bucket: str, prefix: str | None = None) -> dict:
+    """Count PDF files in a MinIO bucket."""
     try:
-        objects = list_objects(settings.minio_bucket_gazette_pdfs, prefix=prefix)
+        objects = list_objects(bucket, prefix=prefix)
     except Exception as exc:  # pragma: no cover - defensive
-        logger.warning("MinIO list_objects failed: %s", exc, exc_info=True)
-        return {"bucket": settings.minio_bucket_gazette_pdfs, "pdf_count": 0, "total_bytes": 0, "error": str(exc)}
+        logger.debug("MinIO list_objects failed for bucket %s: %s", bucket, exc)
+        return {"bucket": bucket, "pdf_count": 0, "total_bytes": 0, "status": "unavailable"}
 
     total_files = 0
     total_bytes = 0
@@ -32,7 +33,23 @@ def _count_storage_pdfs(prefix: str | None = None) -> dict:
         if name.endswith(".pdf"):
             total_files += 1
             total_bytes += int(obj.get("size") or 0)
-    return {"bucket": settings.minio_bucket_gazette_pdfs, "pdf_count": total_files, "total_bytes": total_bytes}
+    return {"bucket": bucket, "pdf_count": total_files, "total_bytes": total_bytes, "status": "available"}
+
+
+def _get_all_storage_stats() -> dict:
+    """Get combined storage statistics from all MinIO buckets."""
+    gazette_stats = _count_storage_pdfs(settings.minio_bucket_gazette_pdfs)
+    company_stats = _count_storage_pdfs(settings.minio_bucket_company_gazettes)
+    
+    total_files = gazette_stats.get("pdf_count", 0) + company_stats.get("pdf_count", 0)
+    total_bytes = gazette_stats.get("total_bytes", 0) + company_stats.get("total_bytes", 0)
+    
+    return {
+        "total_files": total_files,
+        "total_bytes": total_bytes,
+        "gazette_pdfs": gazette_stats,
+        "company_gazettes": company_stats,
+    }
 
 
 def _safe_count_rows(db: Session, schema: str, table: str) -> int | None:
@@ -46,7 +63,7 @@ def _safe_count_rows(db: Session, schema: str, table: str) -> int | None:
 
 @router.get("/storage-pdfs-count", summary="Get total count of PDF files in gazette-pdfs bucket")
 def get_storage_pdfs_count():
-    data = _count_storage_pdfs()
+    data = _count_storage_pdfs(settings.minio_bucket_gazette_pdfs)
     return {"bucket": data["bucket"], "pdf_count": data.get("pdf_count", 0)}
 
 
@@ -117,7 +134,7 @@ def get_stats(db: Session = Depends(deps.get_db)):
         ).scalar() or 0
         ocr_processed = db.execute(select(func.count(OcrResult.id))).scalar() or 0
 
-        storage_stats = _count_storage_pdfs()
+        storage_stats = _get_all_storage_stats()
 
         return {
             "total_companies": int(total_companies),
@@ -125,9 +142,12 @@ def get_stats(db: Session = Depends(deps.get_db)):
             "total_announcements": int(total_announcements),
             "new_companies_today": int(new_companies_today),
             "ocr_processed": int(ocr_processed),
-            "storage_pdf_count": int(storage_stats.get("pdf_count", 0)),
-            "storage_pdf_bytes": int(storage_stats.get("total_bytes", 0)),
-            "storage_error": storage_stats.get("error"),
+            "storage_total_files": int(storage_stats.get("total_files", 0)),
+            "storage_total_bytes": int(storage_stats.get("total_bytes", 0)),
+            "storage_buckets": {
+                "gazette_pdfs": storage_stats.get("gazette_pdfs", {}),
+                "company_gazettes": storage_stats.get("company_gazettes", {}),
+            },
         }
     except Exception as exc:  # pragma: no cover - defensive
         logger.error("Error fetching general stats: %s", exc, exc_info=True)

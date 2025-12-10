@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const BACKEND_ORIGIN =
-  process.env.BACKEND_ORIGIN ||
+  process.env.API_URL ||
   (process.env.NODE_ENV === 'development'
     ? 'http://localhost:5001'
-    : 'https://api.sicilius.com.tr');
+    : 'http://sicilius-backend:5001');
+
 
 export const runtime = 'nodejs';
 

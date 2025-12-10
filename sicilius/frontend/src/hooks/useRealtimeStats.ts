@@ -7,7 +7,22 @@ export interface StatsData {
   scraped_companies: number;
   total_announcements: number;
   new_companies_today: number;
-  storage_pdf_count?: number | null;
+  storage_total_files?: number;
+  storage_total_bytes?: number;
+  storage_buckets?: {
+    gazette_pdfs?: {
+      bucket: string;
+      pdf_count: number;
+      total_bytes: number;
+      status?: string;
+    };
+    company_gazettes?: {
+      bucket: string;
+      pdf_count: number;
+      total_bytes: number;
+      status?: string;
+    };
+  };
 }
 
 const API_URL = `/api/v1/stats`;

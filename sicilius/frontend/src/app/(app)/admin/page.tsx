@@ -64,7 +64,7 @@ const AdminPage = () => {
           <FileUploadSection />
         </TabsContent>
         <TabsContent value="coordinates">
-          <CoordinatesDashboard onStatsUpdate={() => {}} />
+          <CoordinatesDashboard onStatsUpdate={() => { }} />
         </TabsContent>
         <TabsContent value="scraping">
           <ScrapingDashboard />
@@ -77,7 +77,7 @@ const AdminPage = () => {
         </TabsContent>
       </Tabs>
 
-                  {error && <div className="text-red-500 text-center my-4 p-4 border border-red-500 rounded-md">{error}</div>}
+      {error && <div className="text-red-500 text-center my-4 p-4 border border-red-500 rounded-md">{error}</div>}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5 mt-8">
         <StatCard
           title="Toplam Şirket"
@@ -86,7 +86,7 @@ const AdminPage = () => {
           change=""
           isLoading={!stats && !error}
         />
-        <StatCard 
+        <StatCard
           title="Taranan Şirket"
           value={stats?.scraped_companies?.toLocaleString('tr-TR') || '0'}
           icon={FileSearch}
@@ -108,10 +108,10 @@ const AdminPage = () => {
           isLoading={!stats && !error}
         />
         <StatCard
-          title="Bucket PDF"
+          title="Storage Toplam Dosya"
           value={
-            stats?.storage_pdf_count != null
-              ? stats.storage_pdf_count.toLocaleString('tr-TR')
+            stats?.storage_total_files != null
+              ? stats.storage_total_files.toLocaleString('tr-TR')
               : '0'
           }
           icon={FileSearch}

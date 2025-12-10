@@ -18,7 +18,8 @@ try:
     if settings.TESSERACT_CMD:
         pytesseract.pytesseract.tesseract_cmd = settings.TESSERACT_CMD
     if settings.TESSDATA_PREFIX:
-        os.environ.setdefault("TESSDATA_PREFIX", settings.TESSDATA_PREFIX)
+        # Force set the environment variable to ensure it's used
+        os.environ["TESSDATA_PREFIX"] = settings.TESSDATA_PREFIX
 except Exception:
     pass
 
@@ -60,6 +61,7 @@ def preprocess(img: Image.Image) -> Image.Image:
     g = g.resize((w * 2, h * 2), resample=Image.NEAREST)
     g = g.filter(ImageFilter.MedianFilter(size=3))
     g = g.point(lambda p: 255 if p > 150 else 0)
+    # g.save("/Users/nalanmerci/sicilius/backend/last_captcha_processed.png")
     return g
 
 
@@ -74,7 +76,8 @@ def ocr_from_bytes(png_bytes: bytes) -> Optional[str]:
         txt = (txt or "").strip().replace(" ", "")
         if 3 <= len(txt) <= 6:
             return txt
-    except Exception:
+    except Exception as e:
+        print(f"[OCR ERROR] {e}")
         return None
     return None
 

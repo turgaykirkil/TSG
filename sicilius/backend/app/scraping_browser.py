@@ -277,6 +277,8 @@ class BrowserManager:
             # Optional local cleanup of previous session artifacts inside project root
             if cleanup:
                 try:
+                    if not os.path.exists('/app/data/uploads'): os.makedirs('/app/data/uploads', exist_ok=True)
+                    debug_dir = '/app/data/uploads'
                     # storage state file (legacy)
                     if os.path.exists(self._storage_state_path):
                         os.remove(self._storage_state_path)

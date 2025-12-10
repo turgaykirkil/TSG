@@ -1,0 +1,201 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@400;700&display=swap');
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: #050b14;
+    /* Darker NEXUS background */
+    color: #e2e8f0;
+    overflow-x: hidden;
+}
+
+/* NEXUS Font for Headings */
+h1,
+h2,
+h3,
+.nexus-font {
+    font-family: 'Inter', sans-serif;
+    /* User requested "more presentational", removing sci-fi font */
+    letter-spacing: -0.02em;
+    /* Tight tracking for professional look */
+}
+
+/* Glassmorphism Panel */
+.glass-panel {
+    background: rgba(16, 23, 41, 0.6);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(56, 189, 248, 0.1);
+    /* Slight Cyan tint */
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #020617;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #1e293b;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #334155;
+}
+
+/* Animations */
+@keyframes pulse-glow {
+
+    0%,
+    100% {
+        box-shadow: 0 0 15px rgba(56, 189, 248, 0.1);
+    }
+
+    50% {
+        box-shadow: 0 0 25px rgba(56, 189, 248, 0.3);
+    }
+}
+
+.animate-glow {
+    animation: pulse-glow 3s infinite;
+}
+
+.fade-in {
+    animation: fadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Loader Line */
+.loader-line {
+    height: 3px;
+    width: 100%;
+    position: relative;
+    overflow: hidden;
+    background-color: #0f172a;
+}
+
+.loader-line:before {
+    display: block;
+    position: absolute;
+    content: "";
+    left: -200px;
+    width: 200px;
+    height: 3px;
+    background-color: #0ea5e9;
+    /* Sky 500 */
+    animation: loading 2s linear infinite;
+}
+
+@keyframes loading {
+    from {
+        left: -200px;
+        width: 30%;
+    }
+
+    50% {
+        width: 30%;
+    }
+
+    70% {
+        width: 70%;
+    }
+
+    80% {
+        left: 50%;
+    }
+
+    95% {
+        left: 120%;
+    }
+
+    to {
+        left: 100%;
+    }
+}
+
+/* --- NEXUS MIST REVEAL ANIMATION --- */
+#splash-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background-color: #000000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 1.5s ease-in-out, visibility 1.5s;
+}
+
+.mist-container {
+    position: relative;
+    width: 300px;
+    height: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* The Logo Glow */
+.nexus-logo-glow {
+    filter: drop-shadow(0 0 20px rgba(6, 182, 212, 0.6));
+    /* Cyan Glow */
+    animation: logo-pulse 3s infinite alternate;
+}
+
+@keyframes logo-pulse {
+    0% {
+        filter: drop-shadow(0 0 15px rgba(6, 182, 212, 0.4));
+        opacity: 0.8;
+    }
+
+    100% {
+        filter: drop-shadow(0 0 30px rgba(6, 182, 212, 0.8));
+        opacity: 1;
+    }
+}
+
+/* Mist Layers */
+.mist {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.9) 60%);
+    pointer-events: none;
+    z-index: 10;
+    animation: disperse-mist 2.5s ease-in-out forwards;
+}
+
+@keyframes disperse-mist {
+    0% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(2);
+    }
+}
+
+/* Content Reveal */
+#main-app {
+    opacity: 0;
+    transition: opacity 1.5s ease-in-out;
+}

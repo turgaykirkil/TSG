@@ -1,0 +1,15 @@
+# Main site (HTTP only for local network)
+:80 {
+    reverse_proxy /api/* sicilius-backend:5001
+    reverse_proxy * sicilius-frontend:3000
+}
+
+# MinIO Console - Web UI
+minio.turgaysicil.com {
+    reverse_proxy sicilius-minio:9001
+}
+
+# MinIO S3 API
+s3.turgaysicil.com {
+    reverse_proxy sicilius-minio:9000
+}

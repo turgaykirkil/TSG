@@ -1,0 +1,1114 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEXUS - Future of Credit Risk</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        slate: { 850: '#151e2e', 900: '#0f172a', 950: '#020617' },
+                        brand: { dark: '#0B1120' }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['Orbitron', 'monospace'], // For tech vibes
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- External Libs -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
+
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body class="antialiased h-screen flex flex-col overflow-hidden">
+
+    <!-- SPLASH SCREEN / MIST REVEAL -->
+    <div id="splash-screen">
+        <div class="mist-container">
+            <!-- Mist Layers -->
+            <div class="mist"></div>
+
+            <!-- NEXUS SVG LOGO -->
+            <svg class="nexus-logo-glow relative z-20 w-48 h-48 sm:w-64 sm:h-64" viewBox="0 0 100 100" fill="none"
+                xmlns="http://www.w3.org/2000/svg">
+                <!-- Outer Hexagon -->
+                <path d="M50 5 L93.3 30 V80 L50 105 L6.7 80 V30 L50 5Z" stroke="#0ea5e9" stroke-width="1"
+                    stroke-opacity="0.5" />
+
+                <!-- Inner Network Nodes -->
+                <circle cx="50" cy="55" r="8" fill="#0ea5e9" class="animate-pulse" />
+                <circle cx="50" cy="25" r="4" fill="#6366f1" />
+                <circle cx="25" cy="70" r="4" fill="#6366f1" />
+                <circle cx="75" cy="70" r="4" fill="#6366f1" />
+
+                <!-- Connections -->
+                <line x1="50" y1="55" x2="50" y2="25" stroke="#38bdf8" stroke-width="2" />
+                <line x1="50" y1="55" x2="25" y2="70" stroke="#38bdf8" stroke-width="2" />
+                <line x1="50" y1="55" x2="75" y2="70" stroke="#38bdf8" stroke-width="2" />
+
+                <!-- Text -->
+                <text x="50" y="125" text-anchor="middle" fill="#e2e8f0" font-family="Orbitron, sans-serif"
+                    font-size="14" letter-spacing="4">NEXUS</text>
+            </svg>
+        </div>
+    </div>
+
+    <!-- MAIN APP CONTAINER (Initially Hidden) -->
+    <div id="main-app" class="flex-grow flex flex-col relative overflow-y-auto">
+
+        <!-- Navigation -->
+        <nav class="glass-panel sticky top-0 z-50 border-b border-gray-800">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex items-center justify-between h-20">
+                    <div class="flex items-center space-x-3">
+                        <!-- Small Logo Icon -->
+                        <div
+                            class="w-10 h-10 rounded-lg flex items-center justify-center border border-blue-500/30 bg-blue-900/20">
+                            <i class="fa-solid fa-network-wired text-blue-400"></i>
+                        </div>
+                        <div>
+                            <span class="text-2xl font-bold tracking-tight text-white block font-mono">FKDS</span>
+                            <span class="text-[10px] text-slate-400 uppercase tracking-widest">Powered by NEXUS
+                                Process</span>
+                        </div>
+                    </div>
+
+                    <div class="flex space-x-1 bg-slate-800/50 p-1 rounded-lg border border-slate-700">
+                        <button onclick="switchMode('presentation')" id="btn-pres"
+                            class="px-6 py-2 rounded-md text-sm font-medium transition-all duration-300 bg-blue-600 text-white shadow-lg">
+                            <i class="fa-solid fa-chart-pie mr-2"></i>Vizyon
+                        </button>
+                        <button onclick="switchMode('simulation')" id="btn-sim"
+                            class="px-6 py-2 rounded-md text-sm font-medium transition-all duration-300 text-slate-400 hover:text-white hover:bg-slate-700">
+                            <i class="fa-solid fa-bolt mr-2"></i>Simülasyon
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- CONTENT AREA -->
+        <main class="flex-grow">
+
+            <!-- MODE: PRESENTATION -->
+            <div id="view-presentation" class="max-w-7xl mx-auto px-4 py-8 space-y-32 pb-32">
+                <!-- Hero -->
+                <div class="text-center space-y-8 pt-16">
+                    <div
+                        class="inline-flex items-center space-x-2 bg-slate-800/50 px-4 py-2 rounded-full border border-slate-700">
+                        <span class="flex h-2 w-2 relative">
+                            <span
+                                class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                        </span>
+                        <span class="text-slate-400 text-xs tracking-wider font-medium">FKDS: GÜÇLENDİRİLMİŞ KARAR
+                            SÜRECİ</span>
+                    </div>
+                    <h1 class="text-5xl md:text-7xl font-bold text-white tracking-tight leading-tight">
+                        Veriye Dayalı<br>
+                        <span
+                            class="bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-indigo-500">Operasyonel
+                            Mükemmellik</span>
+                    </h1>
+                    <p class="text-xl text-slate-400 max-w-3xl mx-auto leading-relaxed">
+                        Yüksek enflasyonist ekosistemde,
+                        <span class="text-white font-semibold">NEXUS Karar Süreci</span> ve <span
+                            class="text-white font-semibold">Graf Ağ Analizi</span>
+                        ile ticari riski şansa bırakmayın.
+                    </p>
+                </div>
+
+                <!-- SECTION 1: MACRO & PROBLEM (Deep Dive) -->
+                <div class="space-y-12">
+                    <div class="border-l-4 border-blue-500 pl-6">
+                        <h2 class="text-3xl font-bold text-white mb-4">Sektörel Makro Görünüm (2025)</h2>
+                        <p class="text-slate-400 max-w-4xl text-lg">
+                            Sektör, reel büyümenin üzerinde bir performans sergilerken, artan operasyonel maliyetler ve
+                            şubeleşme verimliliği zorunlu kılıyor.
+                            NEXUS, statik risk yönetiminden <strong>dinamik ve öngörücü (prediktif)</strong> risk
+                            yönetimine geçişi sağlar.
+                        </p>
+                    </div>
+
+                    <!-- NEW: NEXUS DATA UNIVERSE (DETAILED) -->
+                    <div class="bg-slate-900/50 rounded-3xl p-8 border border-slate-700/50 relative overflow-hidden">
+                        <!-- Background Glow -->
+                        <div
+                            class="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full bg-blue-500/5 blur-[120px] pointer-events-none">
+                        </div>
+
+                        <div class="text-center mb-12 relative z-10">
+                            <span class="text-xs font-mono text-blue-400 tracking-widest uppercase">NEXUS SÜRECİNİN
+                                YAKITI</span>
+                            <h3 class="text-3xl md:text-4xl font-bold text-white mt-2">6 Boyutlu Veri Entegrasyonu</h3>
+                            <p class="text-slate-400 mt-4 max-w-2xl mx-auto text-lg">
+                                Karar motorumuz, sadece tek bir kaynağa değil, birbirini doğrulayan 6 farklı istihbarat
+                                kanalına aynı anda bağlanır.
+                            </p>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative z-10">
+                            <!-- 1. Ticaret Sicil -->
+                            <div
+                                class="glass-panel p-6 rounded-2xl hover:bg-slate-800/80 transition duration-300 group hover:border-blue-500/50">
+                                <div class="flex items-center space-x-4 mb-6">
+                                    <div
+                                        class="p-3 bg-blue-900/20 rounded-xl text-blue-400 group-hover:scale-110 transition shadow-[0_0_15px_rgba(59,130,246,0.2)]">
+                                        <i class="fa-solid fa-landmark text-2xl"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="text-white font-bold text-lg">Ticaret Sicil</h4>
+                                        <span
+                                            class="text-[10px] text-blue-400 px-2 py-0.5 rounded bg-blue-900/30 border border-blue-800">YASAL
+                                            KİMLİK</span>
+                                    </div>
+                                </div>
+                                <ul class="space-y-3 mb-6">
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Kuruluş Yılı &
+                                            Süreklilik</span></li>
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Sermaye Gücü
+                                            (Ödenmiş/Taahhüt)</span></li>
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Ortaklık
+                                            Değişim Hareketleri</span></li>
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>NACE Kodu
+                                            (Sektör Riski)</span></li>
+                                </ul>
+                                <div class="pt-4 border-t border-slate-700/50">
+                                    <p class="text-xs text-slate-500 italic">"Paravan şirketleri ve sık ortak değiştiren
+                                        şaibeli yapıları henüz başvurudayken eler."</p>
+                                </div>
+                            </div>
+
+                            <!-- 2. KKB -->
+                            <div
+                                class="glass-panel p-6 rounded-2xl hover:bg-slate-800/80 transition duration-300 group hover:border-green-500/50">
+                                <div class="flex items-center space-x-4 mb-6">
+                                    <div
+                                        class="p-3 bg-green-900/20 rounded-xl text-green-400 group-hover:scale-110 transition shadow-[0_0_15px_rgba(34,197,94,0.2)]">
+                                        <i class="fa-solid fa-chart-line text-2xl"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="text-white font-bold text-lg">KKB & Findeks</h4>
+                                        <span
+                                            class="text-[10px] text-green-400 px-2 py-0.5 rounded bg-green-900/30 border border-green-800">FİNANSAL
+                                            KARNE</span>
+                                    </div>
+                                </div>
+                                <ul class="space-y-3 mb-6">
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Kredi Notu &
+                                            Trendi</span></li>
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Çek Endeksi
+                                            (Ödenen/Yazılan)</span></li>
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Limit / Risk
+                                            Doluluk Oranı</span></li>
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Geçmiş Dönem
+                                            Gecikmeleri</span></li>
+                                </ul>
+                                <div class="pt-4 border-t border-slate-700/50">
+                                    <p class="text-xs text-slate-500 italic">"Ödeme ahlakını ve aşırı borçlanma
+                                        belirtilerini matematiksel kesinlikle ölçer."</p>
+                                </div>
+                            </div>
+
+                            <!-- 3. Mernis -->
+                            <div
+                                class="glass-panel p-6 rounded-2xl hover:bg-slate-800/80 transition duration-300 group hover:border-indigo-500/50">
+                                <div class="flex items-center space-x-4 mb-6">
+                                    <div
+                                        class="p-3 bg-indigo-900/20 rounded-xl text-indigo-400 group-hover:scale-110 transition shadow-[0_0_15px_rgba(99,102,241,0.2)]">
+                                        <i class="fa-solid fa-id-card text-2xl"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="text-white font-bold text-lg">Mernis & Nüfus</h4>
+                                        <span
+                                            class="text-[10px] text-indigo-400 px-2 py-0.5 rounded bg-indigo-900/30 border border-indigo-800">DOĞRULAMA</span>
+                                    </div>
+                                </div>
+                                <ul class="space-y-3 mb-6">
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>TCKN / VKN
+                                            Doğrulama</span></li>
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>İkametgah
+                                            (Sanal Ofis Kontrolü)</span></li>
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Aile Arası
+                                            Şirket Bağları</span></li>
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Ölüm ve İflas
+                                            Kayıtları</span></li>
+                                </ul>
+                                <div class="pt-4 border-t border-slate-700/50">
+                                    <p class="text-xs text-slate-500 italic">"Kişinin fiziki varlığını ve şirket
+                                        adresinin gerçekliğini teyit eder."</p>
+                                </div>
+                            </div>
+
+                            <!-- 4. Banka Verileri -->
+                            <div
+                                class="glass-panel p-6 rounded-2xl hover:bg-slate-800/80 transition duration-300 group hover:border-amber-500/50">
+                                <div class="flex items-center space-x-4 mb-6">
+                                    <div
+                                        class="p-3 bg-amber-900/20 rounded-xl text-amber-400 group-hover:scale-110 transition shadow-[0_0_15px_rgba(245,158,11,0.2)]">
+                                        <i class="fa-solid fa-building-columns text-2xl"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="text-white font-bold text-lg">Banka Verileri</h4>
+                                        <span
+                                            class="text-[10px] text-amber-400 px-2 py-0.5 rounded bg-amber-900/30 border border-amber-800">MEVCUT
+                                            RİSK</span>
+                                    </div>
+                                </div>
+                                <ul class="space-y-3 mb-6">
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Faktoring Limit
+                                            Doluluğu</span></li>
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Grup İçi Toplam
+                                            Risk</span></li>
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Bloke Çek
+                                            Kayıtları</span></li>
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Teminat /
+                                            İpotek Durumu</span></li>
+                                </ul>
+                                <div class="pt-4 border-t border-slate-700/50">
+                                    <p class="text-xs text-slate-500 italic">"Kurum içindeki mevcut pozisyonu ve teminat
+                                        dengesini gözetir."</p>
+                                </div>
+                            </div>
+
+                            <!-- 5. İç İstihbarat -->
+                            <div
+                                class="glass-panel p-6 rounded-2xl hover:bg-slate-800/80 transition duration-300 group hover:border-red-500/50">
+                                <div class="flex items-center space-x-4 mb-6">
+                                    <div
+                                        class="p-3 bg-red-900/20 rounded-xl text-red-400 group-hover:scale-110 transition shadow-[0_0_15px_rgba(239,68,68,0.2)]">
+                                        <i class="fa-solid fa-clipboard-user text-2xl"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="text-white font-bold text-lg">İç İstihbarat</h4>
+                                        <span
+                                            class="text-[10px] text-red-400 px-2 py-0.5 rounded bg-red-900/30 border border-red-800">SAHA
+                                            GÖZLEMİ</span>
+                                    </div>
+                                </div>
+                                <ul class="space-y-3 mb-6">
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Müşteri Ziyaret
+                                            Notları</span></li>
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Stok ve Fabrika
+                                            Görselleri</span></li>
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Piyasa/Tedarikçi
+                                            Duyumları</span></li>
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Geçmiş Ödeme
+                                            Alışkanlığı</span></li>
+                                </ul>
+                                <div class="pt-4 border-t border-slate-700/50">
+                                    <p class="text-xs text-slate-500 italic">"Rakamların söylemediği 'İtibar' ve
+                                        'Karakter' bilgisini sisteme işler."</p>
+                                </div>
+                            </div>
+
+                            <!-- 6. Müşteri İçsel Veri -->
+                            <div
+                                class="glass-panel p-6 rounded-2xl hover:bg-slate-800/80 transition duration-300 group hover:border-purple-500/50">
+                                <div class="flex items-center space-x-4 mb-6">
+                                    <div
+                                        class="p-3 bg-purple-900/20 rounded-xl text-purple-400 group-hover:scale-110 transition shadow-[0_0_15px_rgba(168,85,247,0.2)]">
+                                        <i class="fa-solid fa-database text-2xl"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="text-white font-bold text-lg">Müşteri Verisi (ERP)</h4>
+                                        <span
+                                            class="text-[10px] text-purple-400 px-2 py-0.5 rounded bg-purple-900/30 border border-purple-800">TİCARİ
+                                            PERFORMANS</span>
+                                    </div>
+                                </div>
+                                <ul class="space-y-3 mb-6">
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Bilanço / Gelir
+                                            Tablosu</span></li>
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Stok Devir
+                                            Hızı</span></li>
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Mal Alım
+                                            Sıklığı</span></li>
+                                    <li class="flex items-start text-sm text-slate-400"><i
+                                            class="fa-solid fa-check text-green-500 mt-1 mr-3"></i><span>Cari Hesap
+                                            Ekstreleri</span></li>
+                                </ul>
+                                <div class="pt-4 border-t border-slate-700/50">
+                                    <p class="text-xs text-slate-500 italic">"Firmanın yaşayan gerçek ticari
+                                        kapasitesini analiz eder."</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- REFACTORED: TRADITIONAL VS NEXUS (VERTICAL FLOW) -->
+                        <div class="mt-24 space-y-16">
+                            <!-- Header & Cards -->
+                            <div>
+                                <div class="text-center max-w-3xl mx-auto mb-12">
+                                    <h2 class="text-4xl font-bold text-white mb-6">Neden Geleneksel Yöntemler Yetersiz
+                                        Kalıyor?</h2>
+                                    <p class="text-slate-400 text-lg">
+                                        Mevcut finansal modeller, bugünün hiper-hızlı ticaret ekosisteminde yetersiz
+                                        kalmaktadır.
+                                        NEXUS, bu yapısal kör noktaları aydınlatmak için geliştirildi.
+                                    </p>
+                                </div>
+
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                                    <!-- Card 1: Time Lag -->
+                                    <div
+                                        class="glass-panel p-8 rounded-2xl border-t-4 border-red-500 hover:-translate-y-2 transition duration-300 relative overflow-hidden group">
+                                        <div
+                                            class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition">
+                                            <i class="fa-solid fa-clock-rotate-left text-9xl text-slate-500"></i>
+                                        </div>
+                                        <div class="relative z-10">
+                                            <h4 class="text-xl font-bold text-white mb-6 flex items-center"><i
+                                                    class="fa-solid fa-hourglass-end text-red-500 mr-3"></i>Veri
+                                                Bayatlığı</h4>
+
+                                            <div class="space-y-4">
+                                                <div class="bg-red-900/10 p-4 rounded-lg border border-red-900/30">
+                                                    <span class="text-xs font-bold text-red-400 block mb-1">GERÇEK
+                                                        HAYAT</span>
+                                                    <p class="text-sm text-slate-400 italic">"Müşterinin getirdiği mizan
+                                                        3 ay öncesine ait ve makyajlı olabilir. Dün gece ilk kez çeki
+                                                        yazıldıysa bunu bilançoda göremezsiniz."</p>
+                                                </div>
+                                                <div class="flex justify-center text-slate-600"><i
+                                                        class="fa-solid fa-arrow-down"></i></div>
+                                                <div class="bg-green-900/10 p-4 rounded-lg border border-green-900/30">
+                                                    <span class="text-xs font-bold text-green-400 block mb-1">NEXUS
+                                                        FARKI</span>
+                                                    <p class="text-sm text-slate-300">NEXUS, <span
+                                                            class="text-white font-bold">KKB ve Risk Merkezi</span>
+                                                        verilerindeki limit aşımlarını izleyerek, nakit sıkışıklığını
+                                                        bilanço gelmeden yakalar.</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Card 2: Blind Spots -->
+                                    <div
+                                        class="glass-panel p-8 rounded-2xl border-t-4 border-red-500 hover:-translate-y-2 transition duration-300 relative overflow-hidden group">
+                                        <div
+                                            class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition">
+                                            <i class="fa-solid fa-eye-slash text-9xl text-slate-500"></i>
+                                        </div>
+                                        <div class="relative z-10">
+                                            <h4 class="text-xl font-bold text-white mb-6 flex items-center"><i
+                                                    class="fa-solid fa-network-wired text-red-500 mr-3"></i>Domino
+                                                Etkisi</h4>
+
+                                            <div class="space-y-4">
+                                                <div class="bg-red-900/10 p-4 rounded-lg border border-red-900/30">
+                                                    <span class="text-xs font-bold text-red-400 block mb-1">GERÇEK
+                                                        HAYAT</span>
+                                                    <p class="text-sm text-slate-400 italic">"Firmanız sağlam olabilir,
+                                                        peki ya mal sattığı ana alıcısı batarsa? 'Domino Etkisi'ni
+                                                        standart raporlar göremez."</p>
+                                                </div>
+                                                <div class="flex justify-center text-slate-600"><i
+                                                        class="fa-solid fa-arrow-down"></i></div>
+                                                <div class="bg-green-900/10 p-4 rounded-lg border border-green-900/30">
+                                                    <span class="text-xs font-bold text-green-400 block mb-1">NEXUS
+                                                        FARKI</span>
+                                                    <p class="text-sm text-slate-300">Graf Motoru, firmanın
+                                                        tedarikçisindeki riski algılar ve <span
+                                                            class="text-white font-bold">bulaşıcılık uyarısı</span>
+                                                        verir.</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Card 3: Human Bias -->
+                                    <div
+                                        class="glass-panel p-8 rounded-2xl border-t-4 border-red-500 hover:-translate-y-2 transition duration-300 relative overflow-hidden group">
+                                        <div
+                                            class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition">
+                                            <i class="fa-solid fa-user-pen text-9xl text-slate-500"></i>
+                                        </div>
+                                        <div class="relative z-10">
+                                            <h4 class="text-xl font-bold text-white mb-6 flex items-center"><i
+                                                    class="fa-solid fa-scale-unbalanced text-red-500 mr-3"></i>Kullanıcı
+                                                İnisiyatifi</h4>
+
+                                            <div class="space-y-4">
+                                                <div class="bg-red-900/10 p-4 rounded-lg border border-red-900/30">
+                                                    <span class="text-xs font-bold text-red-400 block mb-1">GERÇEK
+                                                        HAYAT</span>
+                                                    <p class="text-sm text-slate-400 italic">"Aynı firmaya X şubesi
+                                                        'Riskli' deyip reddederken, Y şubesi 'Biz tanıyoruz' diyerek
+                                                        onay verebiliyor."</p>
+                                                </div>
+                                                <div class="flex justify-center text-slate-600"><i
+                                                        class="fa-solid fa-arrow-down"></i></div>
+                                                <div class="bg-green-900/10 p-4 rounded-lg border border-green-900/30">
+                                                    <span class="text-xs font-bold text-green-400 block mb-1">NEXUS
+                                                        FARKI</span>
+                                                    <p class="text-sm text-slate-300">Kararlar kişinin ruh haline göre
+                                                        değil, <span class="text-white font-bold">Merkezi
+                                                            Algoritma</span> ile standart verilir.</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Full Width Chart -->
+                            <div
+                                class="p-10 glass-panel rounded-3xl border border-blue-900/30 bg-gradient-to-b from-slate-900 to-[#020617] relative overflow-hidden">
+                                <!-- Chart Decoration -->
+                                <div
+                                    class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent opacity-50">
+                                </div>
+
+                                <div class="flex flex-col lg:flex-row items-center justify-between mb-8">
+                                    <div>
+                                        <h4 class="text-2xl font-bold text-white mb-2"><i
+                                                class="fa-solid fa-filter text-blue-500 mr-3"></i>NEXUS Otomatik Karar
+                                            Hunisi</h4>
+                                        <p class="text-slate-400 text-sm max-w-xl">
+                                            Sistem, gelen binlerce başvuruyu saniyeler içinde eler ve sadece "Gerçekten
+                                            İncelenmesi Gereken" %25'lik riskli dilimi uzman önüne düşürür.
+                                        </p>
+                                    </div>
+                                    <div
+                                        class="flex items-center space-x-6 mt-6 lg:mt-0 bg-slate-800/50 px-6 py-4 rounded-xl border border-slate-700">
+                                        <div class="text-center">
+                                            <div class="text-xs font-bold text-slate-500 mb-1">GİRDİ</div>
+                                            <div class="text-sm text-slate-400 font-medium">Bütünleşik Talep<br>Havuzu
+                                            </div>
+                                        </div>
+                                        <i class="fa-solid fa-angle-right text-slate-600"></i>
+                                        <div class="text-center">
+                                            <div class="text-xs font-bold text-blue-500 mb-1">İŞLEM</div>
+                                            <div class="text-sm text-blue-300 font-medium">Oto-Eliminasyon &<br>Standart
+                                                Karar</div>
+                                        </div>
+                                        <i class="fa-solid fa-angle-right text-slate-600"></i>
+                                        <div class="text-center">
+                                            <div class="text-xs font-bold text-amber-500 mb-1">HEDEF</div>
+                                            <div class="text-sm text-amber-300 font-medium">Sadece "Gri
+                                                Alan"<br>İncelemesi</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="sankeyChart" class="w-full h-[500px]"></div>
+
+                                <div class="mt-4 text-center">
+                                    <span
+                                        class="text-xs text-slate-500 bg-slate-900/80 px-3 py-1 rounded-full border border-slate-800">
+                                        <i class="fa-solid fa-info-circle mr-1"></i> Şekil 1: NEXUS Algoritmasının Veri
+                                        Süzme Kapasitesi
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 2: GRAPH NETWORK (FRAUD DETECTION DEEP DIVE) -->
+                    <div class="space-y-12">
+                        <div class="text-center max-w-4xl mx-auto">
+                            <div class="inline-block p-3 rounded-full bg-purple-900/30 text-purple-400 mb-4"><i
+                                    class="fa-solid fa-circle-nodes text-2xl"></i></div>
+                            <h2 class="text-3xl md:text-4xl font-bold text-white mb-6">Graf Tabanlı Dolandırıcılık
+                                Tespiti</h2>
+                            <p class="text-slate-400 text-lg">
+                                Standart SQL sorguları "Tablo" boyutunda düşünür. NEXUS Graf Motoru ise "İlişki"
+                                boyutunda düşünür.
+                                Dolandırıcıların gizlendiği karmaşık paravan ağları, matematiksel graf algoritmalarıyla
+                                deşifre eder.
+                            </p>
+                        </div>
+
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            <!-- Methodology Column -->
+                            <div class="space-y-6">
+                                <h3 class="text-xl font-bold text-white border-b border-purple-500/30 pb-2 mb-4">
+                                    Metodoloji: Nasıl Çalışır?</h3>
+
+                                <div class="glass-panel p-5 rounded-xl border-l-4 border-purple-500">
+                                    <h4 class="text-white font-bold text-sm mb-1"><i
+                                            class="fa-solid fa-arrows-spin text-purple-400 mr-2"></i>Döngüsel Ticaret
+                                        (Cycle Detection)</h4>
+                                    <p class="text-xs text-slate-400">
+                                        A -> B -> C -> A şeklinde dönen fatura ve para trafiğini yakalar. Gerçek
+                                        ticarette mal son kullanıcıda biter, dolandırıcılıkta ise para kaynağa geri
+                                        döner.
+                                    </p>
+                                </div>
+
+                                <div class="glass-panel p-5 rounded-xl border-l-4 border-purple-500">
+                                    <h4 class="text-white font-bold text-sm mb-1"><i
+                                            class="fa-solid fa-bullseye text-purple-400 mr-2"></i>Merkezilik Analizi
+                                        (Centrality Scoring)</h4>
+                                    <p class="text-xs text-slate-400">
+                                        Ağdaki en etkili "Köprü" firmayı bulur. Batarsa tüm ağı çökertecek olan "Gizli
+                                        Lider" şirketi tespit eder.
+                                    </p>
+                                </div>
+
+                                <div class="glass-panel p-5 rounded-xl border-l-4 border-purple-500">
+                                    <h4 class="text-white font-bold text-sm mb-1"><i
+                                            class="fa-solid fa-people-group text-purple-400 mr-2"></i>Topluluk Tespiti
+                                        (Community Detection)</h4>
+                                    <p class="text-xs text-slate-400">
+                                        Birbiriyle organik bağı olmayan ama şüpheli şekilde yoğun işlem yapan "Kapalı
+                                        Devre" grupları (Louvain Algoritması) ile ayrıştırır.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- Data Signals Column -->
+                            <div class="glass-panel p-8 rounded-2xl border border-slate-700 bg-slate-900/50">
+                                <h3 class="text-xl font-bold text-white border-b border-slate-700 pb-2 mb-6">Gerekli
+                                    Veri Sinyalleri</h3>
+                                <ul class="space-y-4">
+                                    <li class="flex items-center group">
+                                        <div
+                                            class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 group-hover:text-blue-400 group-hover:bg-blue-900/20 transition mr-4">
+                                            <i class="fa-solid fa-file-invoice-dollar"></i>
+                                        </div>
+                                        <div>
+                                            <div class="text-sm font-bold text-white">Fatura İlişkisi</div>
+                                            <div class="text-[10px] text-slate-500">Kim kime, ne kadar fatura kesti?
+                                            </div>
+                                        </div>
+                                    </li>
+                                    <li class="flex items-center group">
+                                        <div
+                                            class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 group-hover:text-green-400 group-hover:bg-green-900/20 transition mr-4">
+                                            <i class="fa-solid fa-share-nodes"></i>
+                                        </div>
+                                        <div>
+                                            <div class="text-sm font-bold text-white">Ortaklık Düğümleri</div>
+                                            <div class="text-[10px] text-slate-500">A firmasının ortağı, B firmasında
+                                                yetkili mi?</div>
+                                        </div>
+                                    </li>
+                                    <li class="flex items-center group">
+                                        <div
+                                            class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 group-hover:text-amber-400 group-hover:bg-amber-900/20 transition mr-4">
+                                            <i class="fa-solid fa-map-location-dot"></i>
+                                        </div>
+                                        <div>
+                                            <div class="text-sm font-bold text-white">Adres & İletişim Çakışması</div>
+                                            <div class="text-[10px] text-slate-500">Farklı firmalar aynı telefon/adresi
+                                                mi kullanıyor?</div>
+                                        </div>
+                                    </li>
+                                    <li class="flex items-center group">
+                                        <div
+                                            class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 group-hover:text-red-400 group-hover:bg-red-900/20 transition mr-4">
+                                            <i class="fa-solid fa-link"></i>
+                                        </div>
+                                        <div>
+                                            <div class="text-sm font-bold text-white">Çapraz Kefalet Ağı</div>
+                                            <div class="text-[10px] text-slate-500">Resmi ortaklık olmasa bile,
+                                                birbirine kefil olan firmaları (gizli organik bağ) yakalar.</div>
+                                        </div>
+                                    </li>
+                                </ul>
+
+                                <div class="mt-8 pt-6 border-t border-slate-800 text-center">
+                                    <div class="text-xs text-purple-400 font-mono mb-2">:: SYSTEM ALERT ::</div>
+                                    <p class="text-xs text-slate-400">
+                                        "Bu veriler işlendiğinde, NEXUS insan gözünün göremediği örüntüleri (Pattern
+                                        Recognition) %99.8 doğrulukla yakalar."
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Restored & Animated: 4th Dimension Visual -->
+                        <div class="glass-panel p-6 rounded-2xl border border-slate-700 relative overflow-hidden group">
+                            <div class="absolute top-0 right-0 p-4 opacity-50 z-20">
+                                <div class="flex items-center space-x-2 text-xs text-slate-400">
+                                    <span class="w-2 h-2 rounded-full bg-blue-500"></span><span>Temiz</span>
+                                    <span class="w-2 h-2 rounded-full bg-red-500 ml-2"></span><span>Riskli</span>
+                                </div>
+                            </div>
+                            <div class="relative z-10 text-center mb-4">
+                                <h3 class="text-2xl font-bold text-white">4. Boyut: İlişkisel Risk Simülasyonu</h3>
+                                <p class="text-slate-400 text-sm">Aşağıdaki canlı simülasyon, temiz görünen (Mavi)
+                                    firmaların, riskli (Kırmızı) bir tedarikçi ile temas ettiğinde nasıl "Kirlendiğini"
+                                    göstermektedir.</p>
+                            </div>
+                            <!-- Canvas for Risk Propagation Animation -->
+                            <canvas id="networkRiskCanvas" class="w-full h-[300px] rounded-xl bg-slate-900/50"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- NEW SECTION: TECHNOLOGY STACK -->
+                    <div class="space-y-12">
+                        <div class="text-center max-w-4xl mx-auto">
+                            <div class="inline-block p-3 rounded-full bg-cyan-900/30 text-cyan-400 mb-4"><i
+                                    class="fa-solid fa-microchip text-2xl"></i></div>
+                            <h2 class="text-3xl font-bold text-white mb-6">NEXUS Teknoloji Mimarisi</h2>
+                            <p class="text-slate-400 text-lg">
+                                Milyarlarca satır veriyi milisaniyeler içinde işleyen bu sistem, dünyanın en gelişmiş
+                                açık kaynak kütüphaneleri ve yapay zeka frameworkleri üzerine inşa edilmiştir.
+                            </p>
+                        </div>
+
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
+                            <!-- Tech 1: Python -->
+                            <div
+                                class="glass-panel p-6 rounded-xl border border-slate-700 hover:border-blue-500 transition text-center group">
+                                <div
+                                    class="w-16 h-16 mx-auto bg-slate-800 rounded-full flex items-center justify-center text-4xl mb-4 group-hover:scale-110 transition duration-300">
+                                    <i class="fa-brands fa-python text-blue-400"></i>
+                                </div>
+                                <h4 class="text-white font-bold mb-1">Python</h4>
+                                <p class="text-xs text-slate-500">Ana Backend Dili &<br>AI Motoru</p>
+                            </div>
+
+                            <!-- Tech 2: TensorFlow / Torch -->
+                            <div
+                                class="glass-panel p-6 rounded-xl border border-slate-700 hover:border-orange-500 transition text-center group">
+                                <div
+                                    class="w-16 h-16 mx-auto bg-slate-800 rounded-full flex items-center justify-center text-4xl mb-4 group-hover:scale-110 transition duration-300">
+                                    <i class="fa-solid fa-brain text-orange-500"></i>
+                                </div>
+                                <h4 class="text-white font-bold mb-1">TensorFlow / PyTorch</h4>
+                                <p class="text-xs text-slate-500">Derin Öğrenme &<br>Nöral Ağlar</p>
+                            </div>
+
+                            <!-- Tech 3: NetworkX / Graph -->
+                            <div
+                                class="glass-panel p-6 rounded-xl border border-slate-700 hover:border-purple-500 transition text-center group">
+                                <div
+                                    class="w-16 h-16 mx-auto bg-slate-800 rounded-full flex items-center justify-center text-4xl mb-4 group-hover:scale-110 transition duration-300">
+                                    <i class="fa-solid fa-circle-nodes text-purple-500"></i>
+                                </div>
+                                <h4 class="text-white font-bold mb-1">NetworkX / Neo4j</h4>
+                                <p class="text-xs text-slate-500">Graf Tabanlı<br>İlişki Analizi</p>
+                            </div>
+
+                            <!-- Tech 4: Frontend -->
+                            <div
+                                class="glass-panel p-6 rounded-xl border border-slate-700 hover:border-yellow-400 transition text-center group">
+                                <div
+                                    class="w-16 h-16 mx-auto bg-slate-800 rounded-full flex items-center justify-center text-4xl mb-4 group-hover:scale-110 transition duration-300">
+                                    <i class="fa-brands fa-js text-yellow-400"></i>
+                                </div>
+                                <h4 class="text-white font-bold mb-1">JavaScript & HTML5</h4>
+                                <p class="text-xs text-slate-500">Responsive Arayüz &<br>Dinamik Görselleştirme</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECTION 3: PSYCHOMETRICS & SEGMENTATION -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                        <div class="space-y-6">
+                            <h2 class="text-3xl font-bold text-white">Psikometrik Skorlama</h2>
+                            <p class="text-slate-400 text-lg">
+                                Finansal verisi olmayan (Thin-file) KOBİ'ler için "Ödeme Niyeti" analizi.
+                            </p>
+                            <p class="text-slate-500">
+                                Geleneksel modeller müşterinin "Kapasitesini" (Gelir, Varlık) ölçerken, NEXUS
+                                Psikometrik
+                                Modülleri müşterinin "Karakterini" (Dürüstlük, İstikrar, Öz Kontrol) ölçer.
+                            </p>
+                            <div class="h-[300px] glass-panel rounded-xl p-4">
+                                <canvas id="radarChart"></canvas>
+                            </div>
+                        </div>
+
+                        <div class="space-y-6">
+                            <h2 class="text-3xl font-bold text-white">Yapay Zeka Segmentasyonu</h2>
+                            <p class="text-slate-400 text-lg">
+                                Gözetimsiz Öğrenme (Unsupervised Learning) ile dinamik müşteri kümeleme.
+                            </p>
+                            <p class="text-slate-500">
+                                Ciro bazlı statik segmentasyon yerine; işlem sıklığı, kârlılık ve risk davranışlarına
+                                göre
+                                anlık değişen kümeler.
+                            </p>
+                            <div class="h-[300px] glass-panel rounded-xl p-4">
+                                <canvas id="bubbleChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+
+                    <!-- NEW SECTION: STRATEGIC MARKETING & FUTURE VISION -->
+                    <div class="space-y-20 py-16 border-t border-slate-800/50 mt-16">
+
+                        <!-- 1. PAZARLAMA DEVRİMİ: GROWTH HACKING -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+                            <div class="space-y-8">
+                                <div class="inline-block p-3 rounded-xl bg-purple-900/30 text-purple-400 mb-2">
+                                    <i class="fa-solid fa-rocket text-2xl"></i>
+                                </div>
+                                <h2 class="text-4xl font-bold text-white tracking-tight">Risk Odaklı <span
+                                        class="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">Büyüme
+                                        Stratejisi</span></h2>
+                                <p class="text-slate-400 text-lg leading-relaxed">
+                                    NEXUS verisi satış ekiplerine bir <strong>"Sniper Tüfeği"</strong> verir. Geleneksel
+                                    pazarlama "herkese" giderken, NEXUS "ödeme gücü en yüksek, riski en düşük" gizli
+                                    şampiyonları hedefler.
+                                </p>
+
+                                <div class="space-y-6">
+                                    <!-- Feature 1 -->
+                                    <div
+                                        class="group flex items-start p-4 hover:bg-slate-800/50 rounded-xl transition border border-transparent hover:border-slate-700">
+                                        <div
+                                            class="w-12 h-12 rounded-lg bg-green-500/20 text-green-400 flex items-center justify-center mt-1 mr-5 shrink-0 group-hover:scale-110 transition">
+                                            <i class="fa-solid fa-gem text-xl"></i>
+                                        </div>
+                                        <div>
+                                            <h4 class="text-white font-bold text-lg mb-1">Gizli Şampiyonları Keşfetme
+                                            </h4>
+                                            <p class="text-sm text-slate-400">Bilanço değerleri düşük görünse de,
+                                                tedarikçi ödemelerini (Nakit Akışını) kusursuz yapan, aslında çok sağlam
+                                                firmaları "Thin-File" havuzundan çekip çıkarır.</p>
+                                        </div>
+                                    </div>
+
+                                    <!-- Feature 2 -->
+                                    <div
+                                        class="group flex items-start p-4 hover:bg-slate-800/50 rounded-xl transition border border-transparent hover:border-slate-700">
+                                        <div
+                                            class="w-12 h-12 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center mt-1 mr-5 shrink-0 group-hover:scale-110 transition">
+                                            <i class="fa-solid fa-magnifying-glass-chart text-xl"></i>
+                                        </div>
+                                        <div>
+                                            <h4 class="text-white font-bold text-lg mb-1">Mikro-Segmentasyon</h4>
+                                            <p class="text-sm text-slate-400">Müşteriyi sadece "İyi/Kötü" diye değil;
+                                                "Büyümeye Aç", "Nakit Sıkışıklığında", "Yatırım Aşamasında" gibi,
+                                                davranışsal DNA'sına göre sınıflandırır.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Visual: Qualitative Strategy Card -->
+                            <div class="relative group">
+                                <div
+                                    class="absolute -inset-1 bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl blur opacity-25 group-hover:opacity-50 transition duration-1000">
+                                </div>
+                                <div
+                                    class="relative glass-panel p-8 rounded-2xl border border-slate-700 flex flex-col justify-between h-[360px]">
+                                    <h3 class="text-white font-bold text-xl mb-6 text-center">
+                                        Pazarlama Yaklaşımı
+                                    </h3>
+
+                                    <!-- Qualitative Comparison -->
+                                    <div class="space-y-8 flex-1 flex flex-col justify-center">
+                                        <!-- Traditional -->
+                                        <div class="relative pl-6 border-l-2 border-slate-700">
+                                            <div class="text-xs text-slate-500 uppercase tracking-widest mb-1">
+                                                Geleneksel Yöntem</div>
+                                            <div class="text-slate-300 font-medium">"Deneme Yanılma"</div>
+                                            <p class="text-sm text-slate-500 mt-1">Sahadaki satışçı her kapıyı çalar,
+                                                firma riskli mi değil mi ancak başvuru aşamasında öğrenir. <span
+                                                    class="text-red-400">Vakit ve efor kaybı.</span></p>
+                                        </div>
+
+                                        <!-- NEXUS -->
+                                        <div class="relative pl-6 border-l-2 border-purple-500">
+                                            <div
+                                                class="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-purple-500 box-content border-4 border-slate-900">
+                                            </div>
+                                            <div class="text-xs text-purple-400 uppercase tracking-widest mb-1">NEXUS
+                                                Stratejisi</div>
+                                            <div class="text-white font-bold text-lg">"Nokta Atışı Hedefleme"</div>
+                                            <p class="text-sm text-slate-400 mt-1">Satışçı sadece <strong>"Sistemin
+                                                    Onaylayacağı"</strong> firmaya gider. Reddedilme ihtimali olanla
+                                                vakit kaybetmez.</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="mt-6 pt-6 border-t border-slate-800 text-center">
+                                        <div
+                                            class="inline-flex items-center space-x-2 bg-gradient-to-r from-purple-900/50 to-pink-900/50 border border-purple-500/30 px-4 py-2 rounded-full">
+                                            <i class="fa-solid fa-bullseye text-purple-400"></i>
+                                            <span class="text-sm text-white font-bold">Maksimum Verimlilik</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. GELECEK VİZYONU: OPERASYONEL MÜKEMMELLİK -->
+                        <div class="text-center max-w-5xl mx-auto pt-12">
+                            <div class="mb-12">
+                                <h2 class="text-3xl font-bold text-white mb-4">NEXUS Stratejik Yol Haritası</h2>
+                                <p class="text-slate-400">Bizim tek bir ürünümüz var, ama onu rakiplerden ayıran 3 temel
+                                    stratejimiz var.</p>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                                <!-- Strategy 1 -->
+                                <div
+                                    class="glass-panel p-8 rounded-2xl border border-green-500/30 bg-gradient-to-b from-green-900/10 to-transparent relative group hover:-translate-y-2 transition-all duration-300">
+                                    <div
+                                        class="absolute top-4 right-4 text-green-500/20 text-4xl font-black group-hover:text-green-500/40 transition">
+                                        01</div>
+                                    <div
+                                        class="w-14 h-14 rounded-full bg-green-900/50 text-green-400 flex items-center justify-center text-2xl mb-6 border border-green-500/30 shadow-[0_0_20px_rgba(34,197,94,0.2)]">
+                                        <i class="fa-solid fa-scale-balanced"></i>
+                                    </div>
+                                    <h3 class="text-white font-bold text-xl mb-3">Objektif Karar</h3>
+                                    <p class="text-sm text-slate-400 leading-relaxed">
+                                        <span class="text-green-400 font-bold">Kullanıcı İnisiyatifine Son.</span>
+                                        Kararlar kişinin ruh haline göre değil, kurumun dijital hafızasına göre verilir.
+                                        Standart ve şeffaf süreç.
+                                    </p>
+                                </div>
+
+                                <!-- Strategy 2 -->
+                                <div
+                                    class="glass-panel p-8 rounded-2xl border border-blue-500/30 bg-gradient-to-b from-blue-900/10 to-transparent relative group hover:-translate-y-2 transition-all duration-300">
+                                    <div
+                                        class="absolute top-4 right-4 text-blue-500/20 text-4xl font-black group-hover:text-blue-500/40 transition">
+                                        02</div>
+                                    <div
+                                        class="w-14 h-14 rounded-full bg-blue-900/50 text-blue-400 flex items-center justify-center text-2xl mb-6 border border-blue-500/30 shadow-[0_0_20px_rgba(59,130,246,0.2)]">
+                                        <i class="fa-solid fa-bolt"></i>
+                                    </div>
+                                    <h3 class="text-white font-bold text-xl mb-3">Proaktif Tahsis</h3>
+                                    <p class="text-sm text-slate-400 leading-relaxed">
+                                        <span class="text-blue-400 font-bold">Başvuru Beklemez, Gider Alır.</span>
+                                        Rakipler müşteri beklerken; NEXUS ağdaki firmaları önceden skorlar. Satışçı
+                                        müşteriye <strong>"Limitin Hazır"</strong> diyerek gider.
+                                    </p>
+                                </div>
+
+                                <!-- Strategy 3 -->
+                                <div
+                                    class="glass-panel p-8 rounded-2xl border border-purple-500/30 bg-gradient-to-b from-purple-900/10 to-transparent relative group hover:-translate-y-2 transition-all duration-300">
+                                    <div
+                                        class="absolute top-4 right-4 text-purple-500/20 text-4xl font-black group-hover:text-purple-500/40 transition">
+                                        03</div>
+                                    <div
+                                        class="w-14 h-14 rounded-full bg-purple-900/50 text-purple-400 flex items-center justify-center text-2xl mb-6 border border-purple-500/30 shadow-[0_0_20px_rgba(168,85,247,0.2)]">
+                                        <i class="fa-solid fa-chart-line"></i>
+                                    </div>
+                                    <h3 class="text-white font-bold text-xl mb-3">Ölçeklenebilir Hacim</h3>
+                                    <p class="text-sm text-slate-400 leading-relaxed">
+                                        <span class="text-purple-400 font-bold">Aynı Ekiple 10x İşlem.</span>
+                                        Otomasyon sayesinde, personel sayısını artırmadan işlem hacmini katlayarak
+                                        büyüme.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- CTA Section -->
+                    <div
+                        class="glass-panel p-12 rounded-3xl text-center space-y-8 border-t border-blue-500/30 bg-gradient-to-b from-slate-900 to-slate-950">
+                        <h2 class="text-3xl font-bold text-white">Teoriden Pratiğe</h2>
+                        <p class="text-slate-400 max-w-2xl mx-auto">
+                            Tüm bu teorik altyapı, saniyeler süren bir simülasyonla test edilebilir.
+                            Sisteme bir çek girin ve NEXUS karar motorunun nasıl çalıştığını canlı izleyin.
+                        </p>
+                        <button onclick="switchMode('simulation')"
+                            class="inline-flex items-center px-8 py-4 text-lg font-medium text-white transition-all duration-200 bg-blue-600 rounded-lg hover:bg-blue-500 hover:scale-105 shadow-xl shadow-blue-500/20">
+                            Simülasyonu Başlat <i class="fa-solid fa-arrow-right ml-3"></i>
+                        </button>
+                        <div class="text-slate-600 text-xs mt-4">
+                            *Simülasyon Modu, gerçek zamanlı OCR ve API çağrılarını taklit eden bir demo ortamıdır.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MODE: SIMULATION -->
+            <!-- MODE: SIMULATION -->
+            <div id="view-simulation" class="max-w-7xl mx-auto px-4 py-8 space-y-8" style="display: none;">
+                <!-- Status Bar -->
+                <div class="flex items-center justify-between glass-panel p-4 rounded-xl border-l-4 border-l-green-500">
+                    <div class="flex items-center space-x-4">
+                        <div class="h-2 w-2 bg-green-500 rounded-full animate-pulse"></div>
+                        <span class="text-xs font-mono text-green-400">SYSTEM ONLINE :: WAITING FOR INPUT</span>
+                    </div>
+                    <div class="text-xs text-slate-600 font-mono">LATENCY: 12ms</div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                    <!-- Left: Input Control -->
+                    <div class="lg:col-span-4 space-y-6">
+                        <div class="glass-panel p-6 rounded-2xl">
+                            <h3 class="text-lg font-bold text-white mb-6 flex items-center">
+                                <i class="fa-solid fa-keyboard mr-3 text-slate-500"></i>Veri Girişi
+                            </h3>
+
+                            <!-- Upload -->
+                            <div class="mb-6 relative group">
+                                <input type="file" id="file-upload"
+                                    class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                    onchange="simulateUpload()">
+                                <div
+                                    class="border-2 border-dashed border-slate-700 rounded-xl p-8 text-center group-hover:border-blue-500 transition-colors bg-slate-900/50">
+                                    <i
+                                        class="fa-solid fa-cloud-arrow-up text-3xl text-slate-500 mb-3 group-hover:text-blue-400"></i>
+                                    <p class="text-sm text-slate-400">Çek görseli yükleyin</p>
+                                    <p id="upload-status" class="text-xs text-slate-600 mt-2">veya sürükleyip
+                                        bırakın
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- Manual Inputs -->
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-400 mb-1">Keşideci
+                                        Firma</label>
+                                    <select id="drawer-select"
+                                        class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none">
+                                        <option value="" disabled selected>Seçiniz...</option>
+                                    </select>
+                                </div>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-xs font-medium text-slate-400 mb-1">Tutar
+                                            (TL)</label>
+                                        <input type="number" id="amount-input"
+                                            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                            placeholder="0.00">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-slate-400 mb-1">Vade</label>
+                                        <input type="date" id="issue-date"
+                                            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-slate-400 focus:ring-2 focus:ring-blue-500 outline-none">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Actions -->
+                            <div class="mt-8 flex space-x-3">
+                                <button onclick="resetSimulation()"
+                                    class="flex-1 px-4 py-3 rounded-lg border border-slate-700 text-slate-400 hover:bg-slate-800 transition">Sıfırla</button>
+                                <button onclick="startAnalysis()"
+                                    class="flex-[2] px-4 py-3 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-500 shadow-lg shadow-blue-500/20 transition">
+                                    <i class="fa-solid fa-rocket mr-2"></i>Analiz Et
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Visualization Pipeline -->
+                    <div class="lg:col-span-8 space-y-6">
+                        <!-- Pipeline Steps -->
+                        <div
+                            class="glass-panel p-6 rounded-2xl border border-slate-800 flex justify-between items-start md:items-center gap-2 overflow-x-auto bg-slate-950/50">
+                            <!-- Step 1: OCR -->
+                            <div id="step-ocr"
+                                class="flex flex-col items-center justify-center space-y-2 p-4 rounded-xl border border-transparent transition-all duration-300 text-slate-600 min-w-[100px]">
+                                <i class="fa-solid fa-eye text-2xl mb-2"></i>
+                                <span class="text-[10px] font-bold uppercase tracking-wider">OCR & Belge</span>
+                            </div>
+                            <div class="hidden md:block w-8 h-px bg-slate-800 shrink-0"></div>
+
+                            <!-- Step 2: Enrich -->
+                            <div id="step-enrich"
+                                class="flex flex-col items-center justify-center space-y-2 p-4 rounded-xl border border-transparent transition-all duration-300 text-slate-600 min-w-[100px]">
+                                <i class="fa-solid fa-database text-2xl mb-2"></i>
+                                <span class="text-[10px] font-bold uppercase tracking-wider">Zenginleştirme</span>
+                            </div>
+                            <div class="hidden md:block w-8 h-px bg-slate-800 shrink-0"></div>
+
+                            <!-- Step 3: Graph -->
+                            <div id="step-graph"
+                                class="flex flex-col items-center justify-center space-y-2 p-4 rounded-xl border border-transparent transition-all duration-300 text-slate-600 min-w-[100px]">
+                                <i class="fa-solid fa-circle-nodes text-2xl mb-2"></i>
+                                <span class="text-[10px] font-bold uppercase tracking-wider">Ağ Analizi</span>
+                            </div>
+                            <div class="hidden md:block w-8 h-px bg-slate-800 shrink-0"></div>
+
+                            <!-- Step 4: Decision -->
+                            <div id="step-decision"
+                                class="flex flex-col items-center justify-center space-y-2 p-4 rounded-xl border border-transparent transition-all duration-300 text-slate-600 min-w-[100px]">
+                                <i class="fa-solid fa-gavel text-2xl mb-2"></i>
+                                <span class="text-[10px] font-bold uppercase tracking-wider">NEXUS Kararı</span>
+                            </div>
+                        </div>
+
+                        <!-- Visualization Stage Area -->
+                        <div
+                            class="relative h-[400px] glass-panel border border-slate-800 rounded-2xl overflow-hidden bg-gradient-to-br from-slate-950 to-slate-900">
+                            <!-- Background Graph Container -->
+                            <div id="simGraph" class="absolute inset-0 w-full h-full">
+                                <!-- Placeholder before start -->
+                                <div
+                                    class="absolute inset-0 flex items-center justify-center text-slate-600 text-sm flex-col">
+                                    <i class="fa-solid fa-network-wired text-4xl mb-4 opacity-50"></i>
+                                    <span>NEXUS Ağ Motoru Bekleniyor...</span>
+                                </div>
+                            </div>
+
+                            <!-- Result Overlay (Scorecard) -->
+                            <div id="result-overlay"
+                                class="absolute inset-0 z-20 bg-slate-950/90 backdrop-blur-sm p-4 hidden flex items-start justify-center overflow-y-auto py-8 md:py-12">
+                                <!-- Dynamic Content Injected Here -->
+                            </div>
+                        </div> <!-- Close Visualization Stage Area -->
+                    </div> <!-- Close Right Column lg:col-span-8 -->
+
+                </div> <!-- Close Grid grid-cols-12 -->
+            </div> <!-- Close Start Simulation View -->
+        </main>
+
+        <!-- Footer -->
+        <footer class="glass-panel border-t border-slate-800 py-6 mt-12 mb-0">
+            <div class="max-w-7xl mx-auto px-4 flex justify-between items-center">
+                <p class="text-slate-600 text-xs">© 2025 NEXUS Core Technologies.</p>
+                <div class="flex space-x-4 text-slate-600 text-xs font-mono">
+                    <span>V2.1.0-RC</span>
+                    <span>SECURE::TLS1.3</span>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- App Scripts -->
+    <!-- App Scripts -->
+    <script src="js/data.js?v=2.8"></script>
+    <script src="js/charts.js?v=2.8"></script>
+    <script src="js/simulation.js?v=2.8"></script>
+    <script src="js/app.js?v=2.8"></script>
+</body>
+
+</html>

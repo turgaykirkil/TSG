@@ -2,10 +2,10 @@ const path = require('path');
 
 /** @type {import('next').NextConfig} */
 const BACKEND_ORIGIN =
-  process.env.BACKEND_ORIGIN ||
+  process.env.API_URL ||
   (process.env.NODE_ENV === 'development'
     ? 'http://localhost:5001'
-    : 'https://api.sicilius.com.tr');
+    : 'http://sicilius-backend:5001');
 const nextConfig = {
 
   webpack: (config, { isServer }) => {
@@ -29,6 +29,14 @@ const nextConfig = {
   async rewrites() {
     return [
       {
+        source: '/nexus',
+        destination: '/nexus/index.html',
+      },
+      {
+        source: '/nexus/',
+        destination: '/nexus/index.html',
+      },
+      {
         source: '/api/v1/:path*',
         destination: `${BACKEND_ORIGIN}/api/v1/:path*`,
       },
@@ -49,10 +57,10 @@ const nextConfig = {
     const csp = [
       "default-src 'self';",
       // Next.js dev ihtiyaçları için 'unsafe-eval' ve style inline izinleri
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:;",
-      "style-src 'self' 'unsafe-inline';",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://cdn.plot.ly https://cdnjs.cloudflare.com;",
+      "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com;",
       "img-src 'self' data: blob:;",
-      "font-src 'self' data:;",
+      "font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com;",
       // Backend ve dev/prod sunucularına bağlantı izni
       `connect-src ${connectSrc.join(' ')};`,
       "frame-ancestors 'none';",
@@ -67,14 +75,9 @@ const nextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          {
-            key: 'Permissions-Policy',
-            // Tüm potansiyel riskli API'leri kapat
-            value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), fullscreen=*, accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), clipboard-read=(), clipboard-write=(), display-capture=(), encrypted-media=(), gyroscope=(), magnetometer=(), midi=(), picture-in-picture=*',
-          },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
           { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
-          { key: 'Cross-Origin-Embedder-Policy', value: 'require-corp' },
           // CSP en sonda
           { key: 'Content-Security-Policy', value: csp },
         ],
