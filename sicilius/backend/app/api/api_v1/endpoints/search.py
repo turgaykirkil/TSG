@@ -1408,128 +1408,12 @@ def company_detail(
 
         same_address_companies: List[Dict[str, Any]] = []
         
-        # Collect all candidate addresses from Company and OCR
-        candidate_addresses = set()
-        if company_obj.address:
-            candidate_addresses.add(company_obj.address)
-        if ocr_entities.get("addresses"):
-            candidate_addresses.update(ocr_entities["addresses"])
-            
-        # Normalize candidate addresses
-        target_norms = set()
-        for addr in candidate_addresses:
-            # Use Python normalization to get the target string
-            norm = _normalize_text_for_compare(addr)
-            if norm and len(norm) > 10:  # Skip too short addresses to avoid false positives
-                target_norms.add(norm)
-        
-        if target_norms:
-            found_company_ids = {company_uuid}
-            
-            for norm_addr in target_norms:
-                if len(same_address_companies) >= 50:
-                    break
-                
-                # 1. Search in Company table (Exact match on normalized address)
-                # Normalize in PostgreSQL: remove non-alphanumeric, lowercase, trim whitespace
-                company_matches = (
-                    db.query(Company)
-                    .filter(Company.id.notin_(found_company_ids))
-                    .filter(Company.address.isnot(None))
-                    .filter(
-                        func.lower(
-                            func.trim(
-                                func.regexp_replace(
-                                    Company.address,
-                                    r'[^0-9a-zA-ZçğıöşüÇĞİÖŞÜ]+',
-                                    ' ',
-                                    'g'
-                                )
-                            )
-                        ) == norm_addr
-                    )
-                    .limit(20)
-                    .all()
-                )
-                
-                for comp in company_matches:
-                    if comp.id not in found_company_ids:
-                        found_company_ids.add(comp.id)
-                        same_address_companies.append(_company_to_dict(comp))
-                
-                # 2. Search in OcrResult table (Contains match on normalized JSON)
-                # This finds companies where the address appears in the OCR results
-                if len(same_address_companies) < 50:
-                    ocr_matches = (
-                        db.query(OcrResult.company_id)
-                        .filter(OcrResult.company_id.notin_(found_company_ids))
-                        .filter(OcrResult.addresses.isnot(None))
-                        .filter(
-                            func.lower(
-                                func.trim(
-                                    func.regexp_replace(
-                                        func.cast(OcrResult.addresses, Text),
-                                        r'[^0-9a-zA-ZçğıöşüÇĞİÖŞÜ]+',
-                                        ' ',
-                                        'g'
-                                    )
-                                )
-                            ).like(f"%{norm_addr}%")
-                        )
-                        .distinct()
-                        .limit(20)
-                        .all()
-                    )
-                    
-                    ocr_company_ids = [row[0] for row in ocr_matches]
-                    if ocr_company_ids:
-                        ocr_companies = db.query(Company).filter(Company.id.in_(ocr_company_ids)).all()
-                        for comp in ocr_companies:
-                            if comp.id not in found_company_ids:
-                                found_company_ids.add(comp.id)
-                                same_address_companies.append(_company_to_dict(comp))
+        # PERFORMANS OPTİMİZASYONU: Adres eşleştirme bloğu Nexus'a devredildi.
+        same_address_companies: List[Dict[str, Any]] = []
 
         related_companies: List[Dict[str, Any]] = []
-        if person_ids:
-            other_relations = (
-                db.query(CompanyPersonRelation)
-                .filter(
-                    CompanyPersonRelation.person_id.in_(person_ids),
-                    CompanyPersonRelation.company_id != company_uuid,
-                )
-                .all()
-            )
-            company_ids = {rel.company_id for rel in other_relations if rel.company_id}
-            companies_lookup: Dict[uuid.UUID, Company] = {}
-            if company_ids:
-                companies_lookup = {
-                    comp.id: comp
-                    for comp in db.query(Company).filter(Company.id.in_(company_ids)).all()
-                }
-            combined: Dict[uuid.UUID, Dict[str, Any]] = {}
-            for rel in other_relations:
-                comp = companies_lookup.get(rel.company_id)
-                if not comp:
-                    continue
-                entry = combined.setdefault(
-                    rel.company_id,
-                    {
-                        **_company_to_dict(comp),
-                        "shared_persons": [],
-                    },
-                )
-                entry["shared_persons"].append(
-                    {
-                        "person_id": str(rel.person_id) if rel.person_id else None,
-                        "relation_type": rel.relation_type.value if rel.relation_type else None,
-                        "position": rel.position,
-                        "is_current": rel.is_current,
-                        "start_date": _iso_or_none(rel.start_date),
-                        "end_date": _iso_or_none(rel.end_date),
-                        "person": _person_to_dict(persons_map[rel.person_id]) if rel.person_id in persons_map else None,
-                    }
-                )
-            related_companies = list(combined.values())
+        # PERFORMANS OPTİMİZASYONU: İlişkili şirketler bloğu Nexus'a devredildi.
+        related_companies: List[Dict[str, Any]] = []
 
 
 
@@ -1582,128 +1466,128 @@ def company_detail(
         registry_related_companies: List[Dict[str, Any]] = []
         shared_person_companies: List[Dict[str, Any]] = []
         
-        # Find companies sharing the same persons (by masked_id and name)
-        # HIGH confidence: name + masked_id match
-        # LOW confidence: only masked_id match
-        if ocr_entities["persons"]:
-            try:
-                # Extract current company's persons data
-                current_persons_map: Dict[str, str] = {}  # masked_id -> full_name
-                current_masked_ids: Set[str] = set()
+        # PERFORMANS OPTİMİZASYONU: OCR ortak kişi eşleştirme Nexus'a devredildi.
+        shared_person_companies = []
+        
+        # if ocr_entities["persons"]:
+        #     try:
+        #         # Extract current company's persons data
+        #         # current_persons_map: Dict[str, str] = {}  # masked_id -> full_name
+        #         # current_masked_ids: Set[str] = set()
                 
-                for person in ocr_entities["persons"]:
-                    masked_id = person.get("masked_id")
-                    full_name = person.get("full_name") or person.get("name")
-                    if masked_id:
-                        current_masked_ids.add(masked_id)
-                        if full_name:
-                            current_persons_map[masked_id] = full_name
+        #         # for person in ocr_entities["persons"]:
+        #         #     masked_id = person.get("masked_id")
+        #         #     full_name = person.get("full_name") or person.get("name")
+        #         #     if masked_id:
+        #         #         current_masked_ids.add(masked_id)
+        #         #         if full_name:
+        #         #             current_persons_map[masked_id] = full_name
                 
-                if current_masked_ids:
-                    # Use PostgreSQL to find companies with overlapping masked_ids
-                    shared_companies_data: Dict[uuid.UUID, Dict[str, Any]] = {}
+        #         # if current_masked_ids:
+        #         #     # Use PostgreSQL to find companies with overlapping masked_ids
+        #         #     shared_companies_data: Dict[uuid.UUID, Dict[str, Any]] = {}
                     
-                    # Query OCR results that might have matching persons
-                    potential_matches = (
-                        db.query(OcrResult.company_id)
-                        .filter(
-                            OcrResult.company_id != company_uuid,
-                            OcrResult.persons.isnot(None)
-                        )
-                        .distinct()
-                        .limit(500)  # Reasonable limit for performance
-                        .all()
-                    )
+        #         #     # Query OCR results that might have matching persons
+        #         #     potential_matches = (
+        #         #     db.query(OcrResult.company_id)
+        #         #     .filter(
+        #         #         OcrResult.company_id != company_uuid,
+        #         #         OcrResult.persons.isnot(None)
+        #         #     )
+        #         #     .distinct()
+        #         #     .limit(500)  # Reasonable limit for performance
+        #         #     .all()
+        #         #     )
                     
-                    other_company_ids = [row[0] for row in potential_matches]
+        #         #     other_company_ids = [row[0] for row in potential_matches]
                     
-                    if other_company_ids:
-                        # Fetch OCR data for these companies in batch
-                        other_ocr_batch = (
-                            db.query(OcrResult)
-                            .filter(OcrResult.company_id.in_(other_company_ids))
-                            .limit(1000)
-                            .all()
-                        )
+        #         #     if other_company_ids:
+        #         #         # Fetch OCR data for these companies in batch
+        #         #         other_ocr_batch = (
+        #         #             db.query(OcrResult)
+        #         #             .filter(OcrResult.company_id.in_(other_company_ids))
+        #         #             .limit(1000)
+        #         #             .all()
+        #         #         )
                         
-                        # Group by company_id
-                        company_ocr_map: Dict[uuid.UUID, List[OcrResult]] = {}
-                        for ocr in other_ocr_batch:
-                            if ocr.company_id:
-                                company_ocr_map.setdefault(ocr.company_id, []).append(ocr)
+        #         #         # Group by company_id
+        #         #         company_ocr_map: Dict[uuid.UUID, List[OcrResult]] = {}
+        #         #         for ocr in other_ocr_batch:
+        #         #             if ocr.company_id:
+        #         #                 company_ocr_map.setdefault(ocr.company_id, []).append(ocr)
                         
-                        # Check each company for person matches
-                        for other_company_id, ocr_list in company_ocr_map.items():
-                            other_entities = _extract_ocr_entities(ocr_list)
-                            other_persons = other_entities.get("persons", [])
+        #         #         # Check each company for person matches
+        #         #         for other_company_id, ocr_list in company_ocr_map.items():
+        #         #             other_entities = _extract_ocr_entities(ocr_list)
+        #         #             other_persons = other_entities.get("persons", [])
                             
-                            if not other_persons:
-                                continue
+        #         #             if not other_persons:
+        #         #                 continue
                             
-                            # Find matching persons
-                            matched_persons_high = []  # name + masked_id match
-                            matched_persons_low = []   # only masked_id match
+        #         #             # Find matching persons
+        #         #             matched_persons_high = []  # name + masked_id match
+        #         #             matched_persons_low = []   # only masked_id match
                             
-                            for other_person in other_persons:
-                                other_masked_id = other_person.get("masked_id")
-                                other_full_name = other_person.get("full_name") or other_person.get("name")
+        #         #             for other_person in other_persons:
+        #         #                 other_masked_id = other_person.get("masked_id")
+        #         #                 other_full_name = other_person.get("full_name") or other_person.get("name")
                                 
-                                if other_masked_id and other_masked_id in current_masked_ids:
-                                    # masked_id matches!
-                                    current_name = current_persons_map.get(other_masked_id)
+        #         #                 if other_masked_id and other_masked_id in current_masked_ids:
+        #         #                     # masked_id matches!
+        #         #                     current_name = current_persons_map.get(other_masked_id)
                                     
-                                    if current_name and other_full_name:
-                                        # Normalize names for comparison
-                                        current_name_norm = _normalize_text_for_compare(current_name)
-                                        other_name_norm = _normalize_text_for_compare(other_full_name)
+        #         #                     if current_name and other_full_name:
+        #         #                         # Normalize names for comparison
+        #         #                         current_name_norm = _normalize_text_for_compare(current_name)
+        #         #                         other_name_norm = _normalize_text_for_compare(other_full_name)
                                         
-                                        if current_name_norm == other_name_norm:
-                                            # HIGH confidence: both name and masked_id match
-                                            matched_persons_high.append({
-                                                "full_name": other_full_name,
-                                                "masked_id": other_masked_id,
-                                                "relation_type": "OCR_ORTAK",
-                                            })
-                                        else:
-                                            # LOW confidence: only masked_id matches, names differ
-                                            matched_persons_low.append({
-                                                "full_name": other_full_name,
-                                                "masked_id": other_masked_id,
-                                                "relation_type": "OCR_MASKED_ONLY",
-                                            })
-                                    else:
-                                        # LOW confidence: masked_id matches but no name comparison possible
-                                        matched_persons_low.append({
-                                            "full_name": other_full_name or "Bilinmeyen",
-                                            "masked_id": other_masked_id,
-                                            "relation_type": "OCR_MASKED_ONLY",
-                                        })
+        #         #                         if current_name_norm == other_name_norm:
+        #         #                             # HIGH confidence: both name and masked_id match
+        #         #                             matched_persons_high.append({
+        #         #                                 "full_name": other_full_name,
+        #         #                                 "masked_id": other_masked_id,
+        #         #                                 "relation_type": "OCR_ORTAK",
+        #         #                             })
+        #         #                         else:
+        #         #                             # LOW confidence: only masked_id matches, names differ
+        #         #                             matched_persons_low.append({
+        #         #                                 "full_name": other_full_name,
+        #         #                                 "masked_id": other_masked_id,
+        #         #                                 "relation_type": "OCR_MASKED_ONLY",
+        #         #                             })
+        #         #                     else:
+        #         #                         # LOW confidence: masked_id matches but no name comparison possible
+        #         #                         matched_persons_low.append({
+        #         #                             "full_name": other_full_name or "Bilinmeyen",
+        #         #                             "masked_id": other_masked_id,
+        #         #                             "relation_type": "OCR_MASKED_ONLY",
+        #         #                         })
                             
-                            # If we found any matches, add this company
-                            if matched_persons_high or matched_persons_low:
-                                other_company = db.query(Company).filter(Company.id == other_company_id).first()
-                                if other_company:
-                                    company_dict = _company_to_dict(other_company)
-                                    company_dict["shared_persons"] = matched_persons_high + matched_persons_low
-                                    company_dict["match_strength"] = "high" if matched_persons_high else "low"
-                                    shared_person_companies.append(company_dict)
+        #         #             # If we found any matches, add this company
+        #         #             if matched_persons_high or matched_persons_low:
+        #         #                 other_company = db.query(Company).filter(Company.id == other_company_id).first()
+        #         #                 if other_company:
+        #         #                     company_dict = _company_to_dict(other_company)
+        #         #                     company_dict["shared_persons"] = matched_persons_high + matched_persons_low
+        #         #                     company_dict["match_strength"] = "high" if matched_persons_high else "low"
+        #         #                     shared_person_companies.append(company_dict)
                         
-                        # Sort by match strength (high first) and number of shared persons
-                        shared_person_companies.sort(
-                            key=lambda x: (
-                                0 if x.get("match_strength") == "high" else 1,
-                                -len(x.get("shared_persons", []))
-                            )
-                        )
+        #         #         # Sort by match strength (high first) and number of shared persons
+        #         #         shared_person_companies.sort(
+        #         #             key=lambda x: (
+        #         #                 0 if x.get("match_strength") == "high" else 1,
+        #         #                 -len(x.get("shared_persons", []))
+        #         #             )
+        #         #         )
                         
-                        # Limit to top 50
-                        shared_person_companies = shared_person_companies[:50]
+        #         #         # Limit to top 50
+        #         #         shared_person_companies = shared_person_companies[:50]
             
-            except Exception as exc_shared:
-                logger.warning(
-                    f"[Company Detail] shared person lookup failed for company_id={company_id}: {exc_shared}"
-                )
-                shared_person_companies = []
+        #     except Exception as exc_shared:
+        #         logger.warning(
+        #             f"[Company Detail] shared person lookup failed for company_id={company_id}: {exc_shared}"
+        #         )
+        #         shared_person_companies = []
         
         try:
             existing_registry_ids: Set[uuid.UUID] = set()
@@ -1771,138 +1655,9 @@ def company_detail(
         if not persons_payload and ocr_rows:
             persons_payload = ocr_entities["persons"]  # Use extracted entities with proper fields
 
-        if ocr_entities["addresses"]:
-            existing_same_ids = {
-                entry.get("id") for entry in same_address_companies if entry.get("id")
-            }
-            other_entities_cache: Dict[uuid.UUID, Dict[str, Any]] = {}
-
-            def _company_addresses_with_ocr(company_obj: Company) -> List[str]:
-                addresses: List[str] = []
-                if company_obj.address:
-                    addresses.append(company_obj.address)
-                entities = other_entities_cache.get(company_obj.id)
-                if entities is None:
-                    rows = (
-                        db.query(OcrResult)
-                        .filter(OcrResult.company_id == company_obj.id)
-                        .limit(20)
-                        .all()
-                    )
-                    entities = _extract_ocr_entities(rows)
-                    other_entities_cache[company_obj.id] = entities
-                addresses.extend(entities["addresses"])
-                return addresses
-
-            canonical = _resolve_canonical_address(company_obj.address, ocr_entities["addresses"])
-
-            if canonical:
-                canonical_original, canonical_norm_ws, canonical_norm_compare = canonical
-
-                direct_matches = (
-                    db.query(Company)
-                    .filter(Company.id != company_uuid)
-                    .filter(Company.address.isnot(None))
-                    .filter(
-                        func.lower(
-                            func.trim(func.regexp_replace(Company.address, r"\s+", " ", "g"))
-                        )
-                        == canonical_norm_ws
-                    )
-                    .limit(500)
-                    .all()
-                )
-
-                for other in direct_matches:
-                    other_id_str = str(other.id)
-                    if other_id_str in existing_same_ids:
-                        continue
-                    other_norm = _normalize_address_for_compare(other.address)
-                    if other_norm != canonical_norm_compare:
-                        continue
-                    other_addresses = _company_addresses_with_ocr(other)
-                    same_address_companies.append(
-                        _company_to_dict(other, ocr_addresses=other_addresses)
-                    )
-                    existing_same_ids.add(other_id_str)
-                    if len(same_address_companies) >= 50:
-                        break
-
-                if len(same_address_companies) < 50:
-                    ocr_candidate_ids = (
-                        db.query(OcrResult.company_id)
-                        .filter(OcrResult.company_id != company_uuid)
-                        .filter(OcrResult.company_id.isnot(None))
-                        .distinct()
-                        .limit(500)
-                        .all()
-                    )
-
-                    for (candidate_id,) in ocr_candidate_ids:
-                        if len(same_address_companies) >= 50:
-                            break
-                        if not isinstance(candidate_id, uuid.UUID):
-                            continue
-                        candidate_id_str = str(candidate_id)
-                        if candidate_id_str in existing_same_ids or candidate_id_str == str(company_uuid):
-                            continue
-                        candidate_company = db.query(Company).filter(Company.id == candidate_id).first()
-                        if not candidate_company:
-                            continue
-                        if candidate_company.address:
-                            candidate_norm = _normalize_address_for_compare(candidate_company.address)
-                            if candidate_norm == canonical_norm_compare:
-                                other_addresses = _company_addresses_with_ocr(candidate_company)
-                                same_address_companies.append(
-                                    _company_to_dict(candidate_company, ocr_addresses=other_addresses)
-                                )
-                                existing_same_ids.add(candidate_id_str)
-                                continue
-                        other_addresses = _company_addresses_with_ocr(candidate_company)
-                        other_norms = {
-                            _normalize_address_for_compare(addr)
-                            for addr in other_addresses
-                            if addr
-                        }
-                        other_norms.discard(None)
-                        if canonical_norm_compare in other_norms:
-                            same_address_companies.append(
-                                _company_to_dict(candidate_company, ocr_addresses=other_addresses)
-                            )
-                            existing_same_ids.add(candidate_id_str)
-
-        # masked_id üzerinden diğer şirketlerin OCR raw_text'inde arama yapan ilişki bloğu kaldırıldı (performans ve istek gereği)
-
-        # Geocoding devre dışı (modal performansı için)
-        if False and not company_payload.get("koordinat"):
-            normalized_address = company_payload.get("address") or company_obj.address
-            if normalized_address and settings.locationiq_token:
-                try:
-                    params = {
-                        "key": settings.locationiq_token,
-                        "q": normalized_address,
-                        "format": "json",
-                        "countrycodes": "tr",
-                        "limit": 1,
-                    }
-                    response = requests.get("https://us1.locationiq.com/v1/search.php", params=params, timeout=10)
-                    response.raise_for_status()
-                    data = response.json()
-                    if data:
-                        lat = float(data[0]["lat"])
-                        lon = float(data[0]["lon"])
-                        company_payload["koordinat"] = {"x": lon, "y": lat}
-                        db.execute(
-                            text(
-                                "UPDATE public.companies SET koordinat = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326) WHERE id = :cid"
-                            ),
-                            {"lon": lon, "lat": lat, "cid": str(company_uuid)},
-                        )
-                        db.commit()
-                except Exception as geo_exc:
-                    logger.warning(
-                        f"[Company Detail] LocationIQ lookup failed for company_id={company_id}: {geo_exc}"
-                    )
+        # [PERFORMANS] Duplicate address logic removed.
+        # if ocr_entities["addresses"]: ...
+        # [CLEANUP] All legacy address/geolocation logic removed for performance.
 
         return {
             "company": company_payload,

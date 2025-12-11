@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { FileText, Users, Clock, MapPin, FileDown, AlertTriangle } from 'lucide-react';
 
 const MiniMap = dynamic(() => import('@/components/maps/MiniMap').then(m => m.MiniMap), { ssr: false });
+import NexusAnalysisSection from './nexus/NexusAnalysisSection';
 import ReportErrorModal from './ReportErrorModal';
 
 function maskUiName(full: string): string {
@@ -350,23 +351,11 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
         ${oldAddrs.length ? `<ul>${oldAddrs.map((oa: any) => `<li>${esc(oa?.address || '-')}</li>`).join('')}</ul>` : `<div class="row muted">Eski adres bulunamadı.</div>`}
       </div>` : ''}
 
-      ${sameAddr ? `
-      <div class="section">
-        <h2>İlişkiler (Aynı Adres)</h2>
-        ${sameAddr.length ? `<ul>${sameAddr.map((c: any) => `<li><div><strong>${esc(c.firma_unvani || c.unvan || 'Bilinmeyen Firma')}</strong></div><div class="muted">MERSİS: ${esc(maskMersisUi(c.mersis_number || c.mersis_number_ocr))}</div><div class="muted">${esc(c.adres || c.address || '-')}</div></li>`).join('')}</ul>` : `<div class="row muted">Aynı adres üzerinden ilişki bulunamadı.</div>`}
-      </div>` : ''}
 
       ${regRel ? `
       <div class="section">
         <h2>İlişkiler (MERSİS/Sicil)</h2>
         ${regRel.length ? `<ul>${regRel.map((c: any) => `<li><div><strong>${esc(c.firma_unvani || c.unvan || 'Bilinmeyen Firma')}</strong></div><div class="muted">MERSİS: ${esc(maskMersisUi(c.mersis_number || c.mersis_number_ocr))}</div>${(c.adres || c.address) ? `<div class="muted">${esc(c.adres || c.address)}</div>` : ''}</li>`).join('')}</ul>` : `<div class="row muted">MERSİS/Sicil üzerinden ilişki bulunamadı.</div>`}
-      </div>` : ''}
-
-      ${(relStrong.length + relWeak.length) ? `
-      <div class="section">
-        <h2>İlişkiler (Ortak Kişiler)</h2>
-        ${relStrong.length ? `<div class="row"><strong>İsim + Kimlik ile eşleşenler (yüksek güven)</strong></div><ul>${relStrong.map((rc: any) => `<li><strong>${esc(rc.firma_unvani || rc.unvan || 'Şirket')}</strong> • güven: yüksek${Array.isArray(rc.shared_persons) && rc.shared_persons.length ? ` • ${rc.shared_persons.length} ortak kişi` : ''}</li>`).join('')}</ul>` : ''}
-        ${relWeak.length ? `<div class="row"><strong>Sadece Kimlik ile eşleşenler (düşük güven)</strong></div><ul>${relWeak.map((rc: any) => `<li><strong>${esc(rc.firma_unvani || rc.unvan || 'Şirket')}</strong> • güven: düşük${Array.isArray(rc.shared_persons) && rc.shared_persons.length ? ` • ${rc.shared_persons.length} ortak kişi` : ''}</li>`).join('')}</ul>` : ''}
       </div>` : ''}
 
     </div>
@@ -791,6 +780,12 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
               </section>
             )}
 
+            {/* NEXUS Ağ Analizi */}
+            {company?.id && (
+              <NexusAnalysisSection companyId={company.id} />
+            )}
+
+            {/* Konkordato */}
             {/* Konum & Yakın Şirketler */}
             <section onClick={() => !nearbyEnabled && setNearbyEnabled(true)}>
               <div className="flex items-center justify-between">
@@ -965,37 +960,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
                 )}
               </section>
             )}
-            {Array.isArray((data as any)?.same_address_companies) && (
-              <section>
-                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">İlişkiler (Aynı Adres)</h3>
-                {(data as any).same_address_companies.length ? (
-                  <ul className="mt-2 space-y-2 text-sm max-h-60 overflow-auto pr-1">
-                    {(data as any).same_address_companies.map((c: any) => {
-                      const title = c.firma_unvani || c.unvan || 'Bilinmeyen Firma';
-                      const mersis = c.mersis_number || c.mersis_number_ocr || '';
-                      const addr = c.adres || c.address || 'Adres yok';
-                      const handleClick = () => {
-                        if (onOpenCompany && c.id) onOpenCompany(c.id);
-                      };
-                      return (
-                        <li
-                          key={c.id}
-                          className="border rounded p-2 bg-white dark:bg-slate-900 dark:border-slate-700 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-                          role="button"
-                          onClick={handleClick}
-                        >
-                          <div className="font-medium">{title}</div>
-                          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">MERSİS: {mersis || '-'}</div>
-                          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">{addr}</div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : (
-                  <div className="mt-2 text-xs text-muted-foreground dark:text-slate-400">Aynı adreste başka şirket bulunamadı.</div>
-                )}
-              </section>
-            )}
+
 
             {Array.isArray((data as any)?.registry_related_companies) && (
               <section>
@@ -1038,116 +1003,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
             )}
 
 
-            {Array.isArray((data as any)?.related_companies) && (
-              <section>
-                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">İlişkiler (Ortak Kişiler)</h3>
-                {(data as any).related_companies.length ? (
-                  <div className="mt-2 space-y-4">
-                    {(() => {
-                      const related = (data as any).related_companies as any[];
-                      const isHigh = (rc: any) => {
-                        if (typeof rc?.match_strength === 'string') return rc.match_strength === 'high';
-                        const persons: any[] = Array.isArray(rc.shared_persons) ? rc.shared_persons : [];
-                        return persons.some((sp) => sp?.relation_type === 'MASK_NAME_MATCH');
-                      };
-                      const strong = related.filter(isHigh);
-                      const weak = related.filter((rc) => !isHigh(rc));
-
-                      const renderList = (arr: any[]) => (
-                        <ul className="space-y-2 text-sm max-h-72 overflow-auto pr-1">
-                          {arr.map((rc) => {
-                            const title = rc.firma_unvani || rc.unvan || 'Şirket';
-                            const sub = rc.sicil_no || '';
-                            const mersis = rc.mersis_number || rc.mersis_number_ocr || '';
-                            const persons: any[] = Array.isArray(rc.shared_persons) ? rc.shared_persons : [];
-                            const handleClick = () => {
-                              if (onOpenCompany && rc.id) onOpenCompany(rc.id);
-                            };
-                            return (
-                              <li
-                                key={rc.id}
-                                className="border rounded p-2 bg-white dark:bg-slate-900 dark:border-slate-700 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-                                role="button"
-                                onClick={handleClick}
-                              >
-                                <div className="flex items-center justify-between">
-                                  <div>
-                                    <span className="font-medium">{title}</span>
-                                    {sub ? <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">{sub}</span> : null}
-                                    {mersis ? <Badge variant="outline" className="ml-2 align-middle dark:border-slate-700 dark:text-slate-300">MERSİS: {maskMersisUi(mersis)}</Badge> : null}
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs text-slate-500 dark:text-slate-400">{persons.length} ortak kişi</span>
-                                    {(() => {
-                                      const isHighRc = (typeof rc?.match_strength === 'string') ? (rc.match_strength === 'high') : (Array.isArray(persons) && persons.some((sp: any) => sp?.relation_type === 'MASK_NAME_MATCH'));
-                                      return (
-                                        <Badge variant={isHighRc ? 'default' : 'outline'} className="text-[10px] py-0.5 dark:border-slate-700 dark:text-slate-300">
-                                          {isHighRc ? 'Yüksek Güven' : 'Düşük Güven'}
-                                        </Badge>
-                                      );
-                                    })()}
-                                  </div>
-                                </div>
-                                {persons.length ? (
-                                  <ul className="mt-1 grid grid-cols-1 gap-1">
-                                    {persons.map((sp: any, idx: number) => {
-                                      const nmRaw = sp.full_name || `${sp.first_name || ''} ${sp.last_name || ''}`.trim();
-                                      const nm = nmRaw && nmRaw.length > 0 ? nmRaw : '';
-                                      const baseNm = typeof sp.full_name_base === 'string' ? sp.full_name_base.trim() : '';
-                                      const otherNm = typeof sp.full_name_other === 'string' ? sp.full_name_other.trim() : '';
-                                      const mids: string[] = Array.isArray(sp.masked_ids) ? sp.masked_ids : (nm && nm.includes('*') ? [nm] : []);
-                                      const showName = nm && !nm.includes('*');
-                                      const showPair = !showName && (baseNm || otherNm);
-                                      return (
-                                        <li key={`${rc.id}-sp-${idx}`} className="text-xs text-slate-600 dark:text-slate-300">
-                                          {showName ? (
-                                            <span className="font-medium">{maskUiName(nm)}</span>
-                                          ) : showPair ? (
-                                            <span className="font-medium">
-                                              {otherNm ? `İlişkili şirkette: ${maskUiName(otherNm)}` : ''}
-                                            </span>
-                                          ) : null}
-                                          {mids.length ? (
-                                            <span className="ml-1 inline-flex flex-wrap gap-1 align-middle">
-                                              {mids.map((m, mi) => (
-                                                <Badge key={`${rc.id}-sp-${idx}-mid-${mi}`} variant="outline" className="dark:border-slate-700 dark:text-slate-300">Kimlik: {m}</Badge>
-                                              ))}
-                                            </span>
-                                          ) : null}
-                                        </li>
-                                      );
-                                    })}
-                                  </ul>
-                                ) : null}
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      );
-
-                      return (
-                        <>
-                          {strong.length > 0 && (
-                            <div>
-                              <h4 className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">İsim + Kimlik ile eşleşenler (yüksek güven)</h4>
-                              <div className="mt-2">{renderList(strong)}</div>
-                            </div>
-                          )}
-                          {weak.length > 0 && (
-                            <div>
-                              <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-200">Sadece Kimlik ile eşleşenler (düşük güven)</h4>
-                              <div className="mt-2">{renderList(weak)}</div>
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </div>
-                ) : (
-                  <div className="mt-2 text-xs text-muted-foreground">Ortak kişi üzerinden ilişkili şirket bulunamadı.</div>
-                )}
-              </section>
-            )}
+            {/* İlişkiler (Aynı Adres) ve İlişkiler (Ortak Kişiler) bölümleri NEXUS entegrasyonu sonrası kaldırıldı. turgaykirkil */}
           </div>
         )}
 

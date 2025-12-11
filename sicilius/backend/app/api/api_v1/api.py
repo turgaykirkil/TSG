@@ -27,6 +27,7 @@ from app.api.api_v1.endpoints import (
     cloudflare_webhook,
     company_errors,
     contact_messages,
+    nexus,
 )
 
 api_router = APIRouter()
@@ -49,6 +50,7 @@ api_router.include_router(gazettes.router, prefix="/gazettes", tags=["Gazettes"]
 api_router.include_router(persons.router, prefix="/persons", tags=["Persons"])
 api_router.include_router(company_errors.router, prefix="/errors", tags=["Company Errors"])
 api_router.include_router(contact_messages.router, prefix="/contact", tags=["Contact Messages"])
+api_router.include_router(nexus.router, prefix="/nexus", tags=["NEXUS Risk Engine"])
 
 # Functionality
 # OCR/Parsing endpointleri yalnızca API_ONLY=False iken ve ilgili bayraklar true ise dahil edilir
