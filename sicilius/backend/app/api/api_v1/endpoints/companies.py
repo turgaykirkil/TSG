@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app import crud, models, schemas
 from app.api import deps
 from app.core.config import settings
+from app.api.api_v1.endpoints.processing import geocode_company_by_id
 
 router = APIRouter()
 
@@ -110,14 +111,15 @@ def search_companies(
     return companies
 
 @router.get("/{company_id}", response_model=schemas.Company)
-def read_company(
+async def read_company(
     *,
     db: Session = Depends(deps.get_db),
-    company_id: int,
+    company_id: str,
     current_user: models.User = Depends(deps.get_current_active_user),
 ) -> Any:
     """
     Get company by ID.
+    If coordinates are missing, it attempts to fetch them on-the-fly.
     """
     company = crud.company.get(db, id=company_id)
     if not company:
@@ -125,6 +127,21 @@ def read_company(
             status_code=404,
             detail="The company with this ID does not exist in the system",
         )
+    
+    # On-the-fly geocoding request
+    if company.address and not company.koordinat:
+        try:
+             success = await geocode_company_by_id(db, company.id, company.address)
+             if success:
+                 # Force explicit refresh by expiring session cache and re-querying
+                 # This ensures we get the COMMITTED data from geocode_company_by_id
+                 db.expire_all() 
+                 company = crud.company.get(db, id=company_id)
+        except Exception as e:
+            # Log but don't fail the request just because geocoding failed
+             import logging
+             logging.getLogger(__name__).error(f"On-demand geocoding failed for {company_id}: {e}")
+
     return company
 
 @router.put("/{company_id}", response_model=schemas.Company)

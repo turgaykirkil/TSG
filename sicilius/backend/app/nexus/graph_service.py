@@ -5,6 +5,9 @@ from app.models.company import Company
 from app.models.person import Person
 from app.models.relation import CompanyPersonRelation
 from app.models.announcement import Announcement
+from app.models.ocr_result import OcrResult
+from app.nexus.ml.features import extract_capital, calculate_sector_entropy
+from app.nexus.ml.anomaly import NexusAnomalyDetector
 from uuid import UUID
 import logging
 
@@ -47,18 +50,75 @@ class NexusGraphService:
             
         return " ".join(masked_parts)
 
+    def _get_node_features(self, company: Company) -> dict:
+        """
+        Extracts ML features for a single company using GLOBAL (Intrinsic) data.
+        This ensures the AI score is consistent regardless of the current graph view.
+        """
+        # 1. Capital from OCR
+        ocr_res = self.db.query(OcrResult).filter(OcrResult.company_id == company.id).order_by(OcrResult.created_at.desc()).first()
+        capital = extract_capital(ocr_res.original_text) if ocr_res else 0.0
+        
+        # 2. Global Address Density (Specific to this company's address)
+        density = 1
+        if company.address:
+            # OPTIMIZATION: Index on address is crucial here
+            density = self.db.query(Company).filter(Company.address == company.address).count()
+
+        # 3. Global Network Stats (Intrinsic Connectivity)
+        # Instead of "Graph Degree" (View dependent), use "DB Degree" (Absolute truth)
+        global_degree = self.db.query(CompanyPersonRelation).filter(CompanyPersonRelation.company_id == company.id).count()
+        
+        # 4. Partnership Structure (How many partners?)
+        # This might be similar to degree but semantically distinct (In-degree vs Out-degree usually)
+        # For now, simplistic total relation count serves as both.
+        
+        # 5. Business Complexity (Heuristic)
+        # Long titles usually indicate detailed scope. Short/Generic titles might be shell.
+        title_len = len(company.unvan) if company.unvan else 0
+        
+        # 6. Address Sector Entropy (High Risk Indicator)
+        # Are neighbors at the same address in the same sector?
+        address_entropy = 0.0
+        if company.address:
+             # Fetch 10 neighbors at same address
+             neighbors = self.db.query(Company.unvan).filter(
+                 Company.address == company.address,
+                 Company.id != company.id
+             ).limit(10).all()
+             
+             if neighbors:
+                 titles = [company.unvan] + [n[0] for n in neighbors]
+                 address_entropy = calculate_sector_entropy(titles)
+
+        return {
+            "id": str(company.id),
+            "capital": capital,
+            "address_density": density,
+            "global_degree": global_degree,
+            "title_len": title_len,
+            "address_entropy": address_entropy
+        }
+
     def analyze_company_network(self, target_company_id: UUID, depth: int = 2, limit: int = 10) -> dict:
         """
         Builds a relationship graph of Companies ONLY.
         Companies are linked if they share a Person or an Address.
+        Integates Unsupervised Learning (Isolation Forest) for Anomaly Detection.
         """
         G = nx.DiGraph()
         
         visited_companies = set()
         queue = [(target_company_id, 0)]
         
-        # Address map for risk analysis
+        # Address map for risk analysis (Legacy/Visualization)
         address_map = {}
+        
+        # Feature Collection for ML
+        node_features_map = {}
+        
+        # Track missing coordinates for background processing
+        missing_coords = set()
 
         while queue:
             if G.number_of_nodes() >= limit:
@@ -78,11 +138,15 @@ class NexusGraphService:
             if not comp:
                 continue
 
-        # 2. Add Node
+            # 2. Add Node
             # Colors/Types: "company" is standard. "target" can be distinguished by ID in UI.
             G.add_node(str(comp.id), label=comp.unvan, type="company", 
                        risk_status=self._check_risk_status(comp))
             
+            # Extract ML Features
+            if str(comp.id) not in node_features_map:
+                node_features_map[str(comp.id)] = self._get_node_features(comp)
+
             # Track Address for Analysis
             if comp.address:
                 norm_addr = self._normalize_location(comp.address)
@@ -96,11 +160,11 @@ class NexusGraphService:
             # Even if we don't load all nodes due to limit, we MUST know if this address is crowded.
             # Only do this for the TARGET company (depth=0) to be efficient.
             if current_depth == 0 and comp.address:
-                 # Count all companies with this exact address in DB
-                 total_at_address = self.db.query(Company).filter(Company.address == comp.address).count()
+                 # We already calculated density in _get_node_features, reuse if possible or query
+                 # For safety/clarity keeping explicit here as it modifies address_map
+                 total_at_address = node_features_map[str(comp.id)]['address_density']
                  if total_at_address > 3:
-                     # Mark this address as suspicious in the map conceptually, even if nodes aren't in graph
-                     # valid way: store in a separate set or just ensure analysis phase catches it.
+                     # Mark this address as suspicious in the map conceptually
                      # We'll use a special key for global risks
                      address_map[f"GLOBAL_RISK::{norm_addr}"] = ["DUMMY"] * total_at_address
 
@@ -158,6 +222,14 @@ class NexusGraphService:
                             if G.number_of_nodes() >= limit: break
                             G.add_node(other_node_id, label=other_comp.unvan, type="company",
                                        risk_status=self._check_risk_status(other_comp))
+                            
+                            if other_comp.koordinat is None:
+                                missing_coords.add(str(other_comp.id))
+                            
+                            # Extract Features for new node
+                            if other_node_id not in node_features_map:
+                                node_features_map[other_node_id] = self._get_node_features(other_comp)
+
                             queue.append((other_cid, current_depth + 1))
                         
                         # Add Edge
@@ -187,6 +259,14 @@ class NexusGraphService:
                      if other_node_id not in G.nodes:
                         G.add_node(other_node_id, label=other_comp.unvan, type="company",
                                    risk_status=self._check_risk_status(other_comp))
+                        
+                        if other_comp.koordinat is None:
+                            missing_coords.add(str(other_comp.id))
+                        
+                        # Extract Features for new node
+                        if other_node_id not in node_features_map:
+                            node_features_map[other_node_id] = self._get_node_features(other_comp)
+
                         queue.append((other_comp.id, current_depth + 1))
                      
                      G.add_edge(str(current_id), other_node_id, 
@@ -201,10 +281,30 @@ class NexusGraphService:
         except Exception:
             cycles = []
 
-        # 2. Address Risk
+        # 2. AI Anomaly Detection
+        # (Feature map already contains intrinsic global_degree)
+        
+        # Run ML Model
+        detector = NexusAnomalyDetector()
+        anomaly_scores = detector.detect_anomalies(list(node_features_map.values()))
+        
+        # Update Node Status based on AI
+        for nid, score in anomaly_scores.items():
+            if nid in G.nodes:
+                G.nodes[nid]['anomaly_score'] = score
+                # Interpret Score: Lower is more anomalous. 
+                # -1.0 to -0.1 is usually considered anomalous in robust datasets.
+                # In small local graphs, -0.05 is a safe bet for "Standing out".
+                if score < -0.05:
+                    current_risk = G.nodes[nid].get('risk_status')
+                    if current_risk != 'HIGH':
+                        G.nodes[nid]['risk_status'] = 'HIGH'
+                        G.nodes[nid]['risk_reason'] = f'AI Detected Anomaly (Score: {score:.2f})'
+
+        # 3. Address Risk (Visualization)
         suspicious_addresses = [addr for addr, comps in address_map.items() if len(comps) > 3]
 
-        # 3. Contagion Risk
+        # 4. Contagion Risk
         risky_neighbors = []
         for node, attrs in G.nodes(data=True):
             if attrs.get('risk_status') == 'HIGH':
@@ -226,7 +326,9 @@ class NexusGraphService:
                 "risky_neighbors": risky_neighbors,
                 "total_nodes": G.number_of_nodes(),
                 "total_edges": G.number_of_edges(),
-                "limit_reached": G.number_of_nodes() >= limit
+                "limit_reached": G.number_of_nodes() >= limit,
+                "ai_enabled": True,
+                "missing_coords": list(missing_coords)
             }
         }
 

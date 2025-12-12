@@ -72,3 +72,6 @@ phonenumbers
 # Firebase Admin SDK
 firebase-admin
 networkx
+scikit-learn
+shapely
+

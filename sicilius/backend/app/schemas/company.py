@@ -65,9 +65,23 @@ class Company(CompanyInDBBase):
     def koordinat_to_point(cls, v: Any) -> Optional[Point]:
         if v is None:
             return None
-        # Handle WKBElement from GeoAlchemy2, which has .x (lon) and .y (lat)
+            
+        # Try to convert GeoAlchemy2 element using to_shape
+        try:
+            # Check if it looks like a GeoElement (has 'desc', 'data', or is WKBElement/WKTElement)
+            # Simplest is to try importing to_shape locally to avoid circular deps if any, 
+            # but top level import is better. checking for to_shape usage.
+            from geoalchemy2.shape import to_shape
+            shape = to_shape(v)
+            if hasattr(shape, 'x') and hasattr(shape, 'y'):
+                 return Point(lon=shape.x, lat=shape.y)
+        except Exception:
+             pass
+
+        # Valid fallback for objects that might already be shapes or proxies with x/y
         if hasattr(v, 'x') and hasattr(v, 'y'):
             return Point(lon=v.x, lat=v.y)
+            
         # Handle if it's already a dict
         if isinstance(v, dict) and 'lat' in v and 'lon' in v:
             return Point(**v)

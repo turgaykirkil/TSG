@@ -209,7 +209,16 @@ export default function NexusAnalysisSection({ companyId }: NexusAnalysisSection
                                     height={300}
                                     graphData={graph}
                                     onNodeClick={handleNodeClick}
-                                    nodeLabel="label"
+                                    nodeLabel={(node: any) => {
+                                        let text = node.label;
+                                        if (node.anomaly_score !== undefined) {
+                                            const score = parseFloat(node.anomaly_score).toFixed(2);
+                                            // AI Score explanation: Lower is riskier
+                                            text += `\n🤖 AI Anomali Skoru: ${score}`;
+                                            if (node.risk_reason) text += `\n⚠️ ${node.risk_reason}`;
+                                        }
+                                        return text;
+                                    }}
                                     nodeColor={(node: any) => {
                                         if (node.id === companyId) return '#3b82f6'; // Hedef şirket (Mavi)
                                         if (expandedNodeIds.has(node.id)) return '#a855f7'; // Genişletilmiş Node (Mor)
