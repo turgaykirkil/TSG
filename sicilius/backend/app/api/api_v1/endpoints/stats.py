@@ -134,6 +134,7 @@ def get_stats(db: Session = Depends(deps.get_db)):
         ).scalar() or 0
         ocr_processed = db.execute(select(func.count(OcrResult.id))).scalar() or 0
 
+        # storage_stats = _get_all_storage_stats()
         storage_stats = _get_all_storage_stats()
 
         return {
@@ -149,6 +150,15 @@ def get_stats(db: Session = Depends(deps.get_db)):
                 "company_gazettes": storage_stats.get("company_gazettes", {}),
             },
         }
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.error("Error fetching general stats: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Could not retrieve statistics: {exc}")
+    except Exception as exc:
+        logger.error("Error fetching general stats (returning fallback): %s", exc)
+        return {
+            "total_companies": 0,
+            "scraped_companies": 0,
+            "total_announcements": 0,
+            "new_companies_today": 0,
+            "ocr_processed": 0,
+            "storage_total_files": 0,
+            "storage_total_bytes": 0,
+            "storage_buckets": {"gazette_pdfs": {}, "company_gazettes": {}},
+        }

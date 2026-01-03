@@ -36,9 +36,18 @@ if is_supabase:
 else:
     # Regular pooling for local/managed Postgres
     engine_kwargs.update({
-        "pool_recycle": 600,  # Recycle connections more aggressively
+        "pool_recycle": 120,  # Lower recycle time (2 mins) to avoid stale remote connections
         "pool_size": 10,
         "max_overflow": 20,
+    })
+
+# Add TCP Keepalive for Postgres to detect dead connections faster
+if "postgresql" in DATABASE_URL_STR or "postgres" in DATABASE_URL_STR:
+    connect_args.update({
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 5,
     })
 
 engine = create_engine(

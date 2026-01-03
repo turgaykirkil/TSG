@@ -42,3 +42,12 @@ deploy_security.sh
 deploy_remote.sh
 start_local_dev.sh
 
+# Sicilius Operational & Test Scripts
+start_scraping_worker.sh
+start_tunnels.sh
+backend/test_*.py
+backend/debug_*.py
+backend/db_check.py
+*.zip
+.dockerignore
+

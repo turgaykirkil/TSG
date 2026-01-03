@@ -222,12 +222,12 @@ class BrowserManager:
                 if not headless:
                     launch_args.append("--window-size=1280,800")
                 
-                self._browser = await self._playwright.chromium.launch(headless=headless, slow_mo=100, args=launch_args)
+                self._browser = await self._playwright.webkit.launch(headless=headless, slow_mo=100, args=launch_args)
 
                 # Oturum saklama/kullanma kaldırıldı; temiz bir context ile başla
                 self._context = await self._browser.new_context(
                     ignore_https_errors=True,
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
                     viewport={"width": 1280, "height": 800}
                 )
                 
@@ -479,10 +479,26 @@ async def start_enhanced_scraping_process(count: int, city: Optional[str] = None
                 logger.error("Bucket kontrolü başarısız oldu: %s", e)
                 raise e
             processed = 0
+            processed_since_restart = 0
+            RESTART_THRESHOLD = 5
+
             for num in candidates:
                 if scraping_state.should_stop:
                     scraping_state.add_log("STOP_SIGNAL_RECEIVED: Stopping task.")
                     break
+                
+                # Check for browser restart
+                if processed_since_restart >= RESTART_THRESHOLD:
+                    scraping_state.add_log(f"RESTART_BROWSER: Reached threshold ({RESTART_THRESHOLD}). Restarting browser to free memory.")
+                    await browser_manager.close_browser()
+                    await asyncio.sleep(5)  # Cooldown
+                    page = await browser_manager.get_page()
+                    if not page:
+                        scraping_state.add_log("RESTART_ERROR: Could not re-open browser page.")
+                        break
+                    await ensure_login(page)
+                    processed_since_restart = 0
+
                 try:
                     found = await search_by_office_and_sicil(page, office_label, num)
                     if found:
@@ -502,6 +518,7 @@ async def start_enhanced_scraping_process(count: int, city: Optional[str] = None
                     scraping_state.add_log(f"CITY_FILL_ERROR: {office_label} #{num} denemesinde hata: {e}")
                 finally:
                     processed += 1
+                    processed_since_restart += 1
                     scraping_state.update_progress(processed)
                     if processed >= count:
                         break
@@ -527,12 +544,32 @@ async def start_enhanced_scraping_process(count: int, city: Optional[str] = None
             logger.error("Bucket kontrolü başarısız oldu: %s", e)
             raise e
 
+        company_processed_count = 0
+        processed_since_restart = 0
+        RESTART_THRESHOLD = 5
+
         for company in companies:
             if scraping_state.should_stop:
                 scraping_state.add_log("STOP_SIGNAL_RECEIVED: Stopping task.")
                 break
+            
+            # Check for browser restart (Normal Mode)
+            if processed_since_restart >= RESTART_THRESHOLD:
+                scraping_state.add_log(f"RESTART_BROWSER: Reached threshold ({RESTART_THRESHOLD}). Restarting browser to free memory.")
+                await browser_manager.close_browser()
+                await asyncio.sleep(5)  # Cooldown
+                page = await browser_manager.get_page()
+                if not page:
+                    scraping_state.add_log("RESTART_ERROR: Could not re-open browser page.")
+                    break
+                await ensure_login(page)
+                processed_since_restart = 0
+
             # We use the main, robust scrape_company function which handles all logic including DB operations.
             await scrape_company(page, db, company)
+            company_processed_count += 1
+            processed_since_restart += 1
+            scraping_state.update_progress(company_processed_count)
 
     except Exception as e:
         error_message = f"An unexpected error occurred during the main scraping loop: {traceback.format_exc()}"

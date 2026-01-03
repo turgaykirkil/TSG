@@ -1081,7 +1081,7 @@ def search_all_related(query: str, db: Session) -> SearchResult:
             base_pat = f"%{q_raw}%"
             company_query = company_query.filter(or_(*[field.ilike(base_pat) for field in text_fields]))
 
-        company_candidates = company_query.limit(400).all()
+        company_candidates = company_query.limit(20).all()
     
     # --- OCR & Person Search ---
     ocr_scores: Dict[uuid.UUID, int] = {}

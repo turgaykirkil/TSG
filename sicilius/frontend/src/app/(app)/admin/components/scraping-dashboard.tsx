@@ -25,8 +25,9 @@ export default function ScrapingDashboard() {
     setError(null);
     setIsLoading(true);
     try {
-      const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/scraping/start`, {
+      // Use the proxy endpoint (Next.js route handler) for failover support
+      // Do NOT use getApiUrl() here as it points directly to backend 5001 via rewrites
+      const response = await fetch(`/api/scraping/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ count: scrapeCount }),
@@ -57,8 +58,9 @@ export default function ScrapingDashboard() {
     setIsLoading(true);
     setSelectedCity(city);
     try {
-      const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/scraping/start`, {
+      // Use the proxy endpoint (Next.js route handler) for failover support
+      // Do NOT use getApiUrl() here as it points directly to backend 5001 via rewrites
+      const response = await fetch(`/api/scraping/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ count: scrapeCount, mode: 'city_fill', city }),
