@@ -22,12 +22,12 @@ export function PeopleTable({ people = [] }: PeopleTableProps) {
             <TableRow
               key={row.id || idx}
               className={`cursor-pointer hover:bg-muted/50 dark:hover:bg-slate-800 ${idx % 2 === 1 ? 'bg-muted/30 dark:bg-slate-900/40' : ''} focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0A192F] focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
-              onClick={() => console.log('Kişi detayına git:', row.id)}
+              onClick={() => { /* Kişi detayına git */ }}
               tabIndex={0}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  console.log('Kişi detayına git:', row.id);
+                  // console.log('Kişi detayına git:', row.id);
                 }
               }}
               aria-label={`Kişi: ${row.full_name || '-'}${row.nationality_id ? ', Kimlik: ' + row.nationality_id : ''}`}

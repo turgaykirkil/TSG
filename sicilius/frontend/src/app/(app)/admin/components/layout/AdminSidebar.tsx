@@ -47,7 +47,7 @@ const userNavigation: NavItem[] = [
 
 const adminNavigation: NavItem[] = [
   { name: 'Admin Paneli', href: '/admin', icon: Home },
-  { name: 'OCR Yönetimi', href: '/admin/ocr', icon: ScanText },
+
   { name: 'Raporlar', href: '/admin/reports', icon: BarChart3 },
   { name: 'Supabase Kullanımı', href: '/admin/usage', icon: Database },
   { name: 'Kullanıcılar', href: '/admin/users', icon: Users },

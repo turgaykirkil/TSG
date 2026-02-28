@@ -87,7 +87,7 @@ function AnnouncementItem({ ann, extractHususFn, forceOpenOnPrint = false }: { a
     if (forceOpenOnPrint) setOpen(true);
   }, [forceOpenOnPrint]);
   const { data, isFetching, isError, error } = useAnnouncementDetail(ann?.id, ann?._ocr_id, open);
-  // Normalize hususlar to a short, readable text. Prefer backend-provided hususlar; do not show company title in the list.
+  // Normalize hususlar to a short, readable text.
   let hususlarText = '' as string;
   try {
     const h = ann?.hususlar;
@@ -100,24 +100,19 @@ function AnnouncementItem({ ann, extractHususFn, forceOpenOnPrint = false }: { a
       if (typeof cand === 'string') hususlarText = cand.trim();
     }
   } catch { }
-  // Avoid showing company title; fallback to extracted hususlar from original_text, then announcement type
+
   const extractedFromText = !hususlarText ? (typeof extractHususFn === 'function' ? extractHususFn(ann?.original_text || null) : null) : null;
-  const hususRaw = ann?.hususlar;
-  let hususTitle = null;
-  if (hususRaw) {
-    if (Array.isArray(hususRaw)) {
-      hususTitle = hususRaw.join(', ');
-    } else if (typeof hususRaw === 'string') {
-      hususTitle = hususRaw;
-    }
-  }
+  const hususDisplay = hususlarText || extractedFromText;
+
+  // Title priority: 1. Hususlar (Topic) 2. Type 3. Extracted 4. "İlan"
+  // Intentionally ignoring ann.title as it often contains the full company name which is redundant
+  const title = hususDisplay || ann?.announcement_type || 'İlan';
 
   const textSrc = (ann?.original_text || (typeof data?.original_text === 'string' ? data?.original_text : '')) as string;
-  const title = hususTitle || (extractHususFn ? extractHususFn(textSrc) : null) || ann?.title || ann?.announcement_type || 'İlan';
   const dt = ann?.publication_date || ann?.created_at || null;
   const issue = ann?.issue_number || '';
   const page = ann?.page_number || '';
-  const gazette = ann?.newspaper_name || '';
+
   // Metinden tarih/sayi/sayfa cikarimlari (fallback)
   const extractDate = (t?: string | null): string | null => {
     if (!t) return null;
@@ -134,7 +129,6 @@ function AnnouncementItem({ ann, extractHususFn, forceOpenOnPrint = false }: { a
   const extractIssue = (t?: string | null): string | null => {
     if (!t) return null;
     try {
-      // İlan Sıra No: 12345 veya Sayı: 12345
       const m1 = t.match(/İ?Ilan\s*Sıra\s*No\s*[:：]\s*(\d{1,8})/i);
       if (m1 && m1[1]) return m1[1];
       const m2 = t.match(/Sayı\s*[:：]\s*(\d{1,8})/i);
@@ -153,10 +147,8 @@ function AnnouncementItem({ ann, extractHususFn, forceOpenOnPrint = false }: { a
 
   const dateText = (() => {
     if (!dt) return '-';
-    // ISO ise
     let d = new Date(dt);
     if (!isNaN(d.getTime())) return d.toLocaleDateString('tr-TR');
-    // DD.MM.YYYY veya DD/MM/YYYY yakala
     const m = String(dt).match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/);
     if (m) {
       const day = parseInt(m[1], 10);
@@ -165,7 +157,6 @@ function AnnouncementItem({ ann, extractHususFn, forceOpenOnPrint = false }: { a
       const d2 = new Date(yr, mon, day);
       if (!isNaN(d2.getTime())) return d2.toLocaleDateString('tr-TR');
     }
-    // Parse edilemiyorsa ham degeri goster
     return String(dt);
   })();
 
@@ -187,7 +178,6 @@ function AnnouncementItem({ ann, extractHususFn, forceOpenOnPrint = false }: { a
             <div className="font-medium text-left whitespace-pre-wrap break-words" style={{ textAlign: 'left' }} title={title}>{title}</div>
             <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex flex-wrap gap-x-3 gap-y-1">
               <span>Tarih: {dateDisplay}</span>
-              {gazette ? <span>Gazete: {gazette}</span> : null}
               {issueText ? <span>Sayı: {issueText}</span> : null}
               {pageText ? <span>Sayfa: {pageText}</span> : null}
             </div>
@@ -234,9 +224,73 @@ interface CompanyDetailModalProps {
 export default function CompanyDetailModal({ open, onOpenChange, companyId, onOpenCompany, onLimitReached }: CompanyDetailModalProps) {
   const { data, isFetching, isError, error } = useCompanyDetail(companyId, open);
   const [annOpenAll, setAnnOpenAll] = useState(false);
+  /* DEDUPLICATION: Merge duplicate announcements (same date + issue + page)
+     Some announcements appear twice in DB due to multiple scrape passes or OCR versions.
+  */
+  const uniqueAnnouncements = useMemo(() => {
+    const rawAnns: any[] = Array.isArray(data?.announcements) ? data!.announcements : [];
+    if (rawAnns.length < 2) return rawAnns;
+
+    const map = new Map<string, any>();
+
+    // Helper to generate a unique key for deduplication
+    const genKey = (a: any) => {
+      const d = a.publication_date || a.created_at || 'nodate';
+      const i = a.issue_number || 'noissue';
+      const p = a.page_number || 'nopage';
+      // Only dedupe if we have at least issue+page OR date+issue+page
+      // If all generic, treat as distinct to avoid false merges
+      if (i === 'noissue' && p === 'nopage') return `id_${a.id}`;
+      return `${d}_${i}_${p}`;
+    };
+
+    rawAnns.forEach((item) => {
+      const key = genKey(item);
+      if (!map.has(key)) {
+        map.set(key, { ...item }); // clone
+      } else {
+        const existing = map.get(key);
+        // Merge strategy:
+        // 1. Prefer longer original_text
+        const textEx = existing.original_text || '';
+        const textNew = item.original_text || '';
+        if (textNew.length > textEx.length) {
+          existing.original_text = textNew;
+          existing._ocr_id = item._ocr_id || existing._ocr_id; // carry over OCR id
+        }
+
+        // 2. Merge hususlar (topics)
+        const mergeHusus = (h1: any, h2: any) => {
+          const arr = new Set<string>();
+          const add = (h: any) => {
+            if (typeof h === 'string') arr.add(h.trim());
+            else if (Array.isArray(h)) h.forEach(add);
+            else if (h && typeof h === 'object' && (h.text || h.value)) arr.add((h.text || h.value).trim());
+          };
+          add(h1);
+          add(h2);
+          return Array.from(arr);
+        };
+        existing.hususlar = mergeHusus(existing.hususlar, item.hususlar);
+
+        // 3. Prefer defined metadata if missing in existing
+        if (!existing.publication_date && item.publication_date) existing.publication_date = item.publication_date;
+        if (!existing.issue_number && item.issue_number) existing.issue_number = item.issue_number;
+        if (!existing.page_number && item.page_number) existing.page_number = item.page_number;
+      }
+    });
+
+    // Sort by date desc
+    return Array.from(map.values()).sort((a, b) => {
+      const da = new Date(a.publication_date || a.created_at || 0).getTime();
+      const db = new Date(b.publication_date || b.created_at || 0).getTime();
+      return db - da;
+    });
+  }, [data?.announcements]);
+
   const company: any = data?.company ?? null;
   const personsCount = Array.isArray(data?.persons) ? data!.persons.length : 0;
-  const annCount = Array.isArray(data?.announcements) ? data!.announcements.length : 0;
+  const annCount = uniqueAnnouncements.length; // Use unique count
   const histCount = Array.isArray((data as any)?.history) ? (data as any).history.length : 0;
   const printRef = useRef<HTMLDivElement | null>(null);
   const [printMode, setPrintMode] = useState(false);
@@ -247,7 +301,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
     try {
       const title = (latestAnnTitle || company?.firma_unvani || company?.unvan || 'Şirket Detayı') as string;
       const oldNames = Array.isArray(oldNamesAll) ? oldNamesAll : [];
-      const anns: any[] = Array.isArray((data as any)?.announcements) ? (data as any).announcements : [];
+      const anns: any[] = uniqueAnnouncements; // Use deduplicated list
       const persons: any[] = Array.isArray((data as any)?.persons) ? (data as any).persons : [];
       const oldAddrs: any[] = Array.isArray((data as any)?.old_addresses) ? (data as any).old_addresses : [];
       const sameAddr: any[] = Array.isArray((data as any)?.same_address_companies) ? (data as any).same_address_companies : [];
@@ -316,32 +370,43 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
       ${anns.length ? `
       <div class="section">
         <h2>İlanlar</h2>
-        ${anns.map(a => `
-          <div class="row"><strong>${esc(a?.title || a?.announcement_type || 'İlan')}</strong></div>
-          <div class="row muted">Tarih: ${esc(fmtDate(a?.publication_date || a?.created_at))}${a?.newspaper_name ? ` • Gazete: ${esc(a.newspaper_name)}` : ''}${a?.issue_number ? ` • Sayı: ${esc(a.issue_number)}` : ''}${a?.page_number ? ` • Sayfa: ${esc(a.page_number)}` : ''}</div>
+        ${anns.map(a => {
+        const hRaw = a?.hususlar;
+        let displayTitle = '';
+        if (typeof hRaw === 'string') displayTitle = hRaw.trim();
+        else if (Array.isArray(hRaw)) displayTitle = hRaw.join(', ');
+
+        // Fallback to extractHusus if available in scope, otherwise type
+        if (!displayTitle) displayTitle = extractHusus(a?.original_text) || a?.announcement_type || 'İlan';
+
+        return `
+          <div class="row"><strong>${esc(displayTitle)}</strong></div>
+          <div class="row muted">Tarih: ${esc(fmtDate(a?.publication_date || a?.created_at))}${a?.issue_number ? ` • Sayı: ${esc(a.issue_number)}` : ''}${a?.page_number ? ` • Sayfa: ${esc(a.page_number)}` : ''}</div>
           ${a?.original_text ? `<pre>${esc(a.original_text)}</pre>` : ''}
-        `).join('')}
+        `}).join('')}
       </div>` : ''}
 
+      /*
       <div class="section">
         <h2>Konum ve Yakın Şirketler</h2>
         <div class="row">Yarıçap: ${esc(String(radiusKM))} km</div>
         ${centerLatLon ? (nearbyList.length ? `<ul>${nearbyList.map(c => `<li><div><strong>${esc(c.unvan || c.title || 'Şirket')}</strong></div><div class="muted">${esc(c.address || '-')}</div></li>`).join('')}</ul>` : `<div class="row muted">${esc(isNearbyFetching ? 'Yakın şirketler yükleniyor...' : 'Yakında şirket bulunamadı.')}</div>`) : `<div class="row muted">Harita için koordinat bulunamadı.</div>`}
       </div>
+      */
 
       ${persons.length ? `
       <div class="section">
         <h2>Kişiler</h2>
         <ul>
           ${persons.map((p: any) => {
-        const nameRaw = p.full_name || `${p.first_name || ''} ${p.last_name || ''}`.trim();
-        const name = nameRaw && nameRaw.length > 0 ? nameRaw : 'Ad Bilinmiyor';
-        const roleRaw = p.relation_type || p.position || '';
-        const role = (roleRaw === 'MASKELI_KIMLIK' || roleRaw === 'OCR') ? '' : roleRaw;
-        const status = p.is_current === false ? 'Geçmiş' : 'Aktif';
-        const mids: string[] = Array.isArray(p.masked_ids) ? p.masked_ids : [];
-        return `<li><span><strong>${esc(maskUiName(name))}</strong></span>${role ? ` • ${esc(role)}` : ''} • ${esc(status)}${mids.length ? ` • ${mids.map(m => `Kimlik: ${esc(m)}`).join(' • ')}` : ''}</li>`;
-      }).join('')}
+          const nameRaw = p.full_name || `${p.first_name || ''} ${p.last_name || ''}`.trim();
+          const name = nameRaw && nameRaw.length > 0 ? nameRaw : 'Ad Bilinmiyor';
+          const roleRaw = p.relation_type || p.position || '';
+          const role = (roleRaw === 'MASKELI_KIMLIK' || roleRaw === 'OCR') ? '' : roleRaw;
+          const status = p.is_current === false ? 'Geçmiş' : 'Aktif';
+          const mids: string[] = Array.isArray(p.masked_ids) ? p.masked_ids : [];
+          return `<li><span><strong>${esc(maskUiName(name))}</strong></span>${role ? ` • ${esc(role)}` : ''} • ${esc(status)}${mids.length ? ` • ${mids.map(m => `Kimlik: ${esc(m)}`).join(' • ')}` : ''}</li>`;
+        }).join('')}
         </ul>
       </div>` : ''}
 
@@ -464,6 +529,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
     } catch { }
   }, [radiusKM]);
 
+  /* Nearby feature disabled
   const { data: nearby, isFetching: isNearbyFetching } = useNearbyCompanies(companyId, {
     enabled: nearbyEnabled && !!open && !!companyId && !!centerLatLon,
     max_km: radiusKM,
@@ -474,6 +540,10 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
   useEffect(() => {
     if (!open) setNearbyEnabled(false);
   }, [open]);
+  */
+  // Dummy values to prevent errors in render
+  const nearby: any[] = [];
+  const isNearbyFetching = false;
 
   // Başlıkta kullanılmak üzere "Tescil Edilen Hususlar" metnini çıkar
   const extractHusus = (text?: string | null): string | null => {
@@ -521,20 +591,21 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
   }, [open, isFetching, isError, (data as any)?.company?.id]);
 
   // Debug logging to help identify data issues
-  useEffect(() => {
-    if (data && open && !isFetching) {
-      console.log('[CompanyDetailModal] Data loaded:', {
-        companyId: data.company?.id,
-        companyName: data.company?.firma_unvani,
-        personsCount: Array.isArray(data.persons) ? data.persons.length : 0,
-        announcementsCount: Array.isArray(data.announcements) ? data.announcements.length : 0,
-        koordinatType: data.company?.koordinat ? typeof data.company.koordinat : 'null',
-        koordinatValue: data.company?.koordinat,
-        hasNearby: !!nearby,
-        nearbyCount: Array.isArray(nearby) ? nearby.length : 0,
-      });
-    }
-  }, [data, open, isFetching, nearby]);
+  // Debug logging disabled
+  // useEffect(() => {
+  //   if (data && open && !isFetching) {
+  //     console.log('[CompanyDetailModal] Data loaded:', {
+  //       companyId: data.company?.id,
+  //       companyName: data.company?.firma_unvani,
+  //       personsCount: Array.isArray(data.persons) ? data.persons.length : 0,
+  //       announcementsCount: Array.isArray(data.announcements) ? data.announcements.length : 0,
+  //       koordinatType: data.company?.koordinat ? typeof data.company.koordinat : 'null',
+  //       koordinatValue: data.company?.koordinat,
+  //       hasNearby: !!nearby,
+  //       nearbyCount: Array.isArray(nearby) ? nearby.length : 0,
+  //     });
+  //   }
+  // }, [data, open, isFetching, nearby]);
 
   // Günlük limit aşıldığında (429), modal'ı kapat ve üst bileşeni bilgilendir
   useEffect(() => {
@@ -622,7 +693,8 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
     } catch { }
     try {
       // İlan metinlerinden de "Eski Unvan:" yakala
-      const anns: any[] = Array.isArray((data as any)?.announcements) ? (data as any).announcements : [];
+      // Use unique announcements for scanning
+      const anns: any[] = uniqueAnnouncements;
       const reLine = /(Eski\s*(Ticaret\s*)?Unvan[ıiİI]\s*[:\-]\s*)(.+)$/i;
       for (const a of anns) {
         const txt = (a?.original_text || '') as string;
@@ -634,10 +706,9 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
       }
     } catch { }
     return out.slice(0, 5); // güvenlik: en fazla 5 tanesini göster
-  }, [data, company]);
+  }, [data, company, uniqueAnnouncements]);
 
   // PERFORMANCE: Removed announcement prefetch - announcements will load on-demand when user expands them
-  // This reduces initial modal load time significantly (~30% improvement)
   const [oldNamesPrefetched] = useState<string[]>([]);
 
   // Başlıkta kullanılmak üzere eski unvanların birleşimi (company + prefetch)
@@ -648,14 +719,10 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
 
   // Başlıkta en güncel unvan: ilanlar varsa en son ilan başlığını kullan
   const latestAnnTitle = useMemo(() => {
-    const anns: any[] = Array.isArray(data?.announcements) ? data!.announcements : [];
+    // Use unique announcements
+    const anns: any[] = uniqueAnnouncements;
     if (!anns.length) return null;
-    const sorted = [...anns].sort((a, b) => {
-      const da = new Date(a?.publication_date || a?.created_at || 0).getTime();
-      const db = new Date(b?.publication_date || b?.created_at || 0).getTime();
-      return db - da;
-    });
-    const cand = sorted[0];
+    const cand = anns[0]; // Already sorted desc
     const rawT = cand?.title || cand?.company_title || cand?.company_name;
     const t = typeof rawT === 'string' ? rawT : (rawT ? String(rawT) : '');
     const tt = t.trim();
@@ -664,7 +731,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
     const isOffice = /ticaret\s*sicil.*m[üu]d[üu]rl[üu][ğg][üu]/i.test(tt)
       || (/m[üu]d[üu]rl[üu][ğg][üu]/i.test(tt) && tt.toLowerCase().includes('ticaret'));
     return isOffice ? null : tt;
-  }, [data?.announcements]);
+  }, [uniqueAnnouncements]);
   const headerTitle = company?.firma_unvani || company?.unvan || latestAnnTitle || 'Şirket Detayı';
 
   return (
@@ -755,11 +822,11 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
               </div>
             </section>
             {/* İlanlar */}
-            {Array.isArray(data?.announcements) && (
+            {uniqueAnnouncements.length > 0 && (
               <section className="text-left">
                 <div className="flex items-center justify-between text-left">
                   <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">İlanlar</h3>
-                  {Array.isArray(data.announcements) && data.announcements.length > 5 ? (
+                  {uniqueAnnouncements.length > 5 ? (
                     <Button type="button" size="sm" variant="outline" className="h-auto px-2 py-1"
                       onClick={() => setAnnOpenAll(v => !v)}
                       aria-pressed={annOpenAll}
@@ -768,9 +835,9 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
                     </Button>
                   ) : null}
                 </div>
-                {data.announcements.length ? (
+                {uniqueAnnouncements.length ? (
                   <ul className="mt-2 space-y-2 text-sm max-h-60 overflow-auto pr-1 text-left print-unclamp">
-                    {(annOpenAll || printMode ? data.announcements : data.announcements.slice(0, 5)).map((a: any) => (
+                    {(annOpenAll || printMode ? uniqueAnnouncements : uniqueAnnouncements.slice(0, 5)).map((a: any) => (
                       <AnnouncementItem key={a.id} ann={a} extractHususFn={extractHusus} forceOpenOnPrint={printMode} />
                     ))}
                   </ul>
@@ -786,10 +853,10 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
             )}
 
             {/* Konkordato */}
-            {/* Konum & Yakın Şirketler */}
-            <section onClick={() => !nearbyEnabled && setNearbyEnabled(true)}>
+            {/* Konum & Aynı Adresteki Firmalar - TEMPORARILY DISABLED
+            <section>
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2"><MapPin size={16} /> Konum ve Yakın Şirketler</h3>
+                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2"><MapPin size={16} /> Konum ve Aynı Adresteki Firmalar</h3>
                 {centerLatLon ? (
                   <a
                     href={`https://www.openstreetmap.org/?mlat=${centerLatLon.lat}&mlon=${centerLatLon.lon}#map=14/${centerLatLon.lat}/${centerLatLon.lon}`}
@@ -802,39 +869,15 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
                   </a>
                 ) : null}
               </div>
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-slate-500 dark:text-slate-400">Yarıçap:</span>
-                {[1, 5, 10].map(v => (
-                  <Button
-                    key={v}
-                    type="button"
-                    size="sm"
-                    variant={radiusKM === v ? 'default' : 'outline'}
-                    className={`h-6 px-2 text-xs ${radiusKM === v ? 'bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setRadiusKM(v);
-                    }}
-                  >
-                    {v} km
-                  </Button>
-                ))}
-              </div>
               <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   {centerLatLon ? (
                     <div data-testid="company-minimap">
                       <MiniMap
                         center={centerLatLon}
-                        pins={(nearby || []).filter(n => n.koordinat && typeof n.koordinat.lat === 'number' && typeof n.koordinat.lon === 'number').map(n => ({
-                          id: n.id,
-                          lat: n.koordinat!.lat,
-                          lon: n.koordinat!.lon,
-                          label: n.unvan || n.title || 'Şirket',
-                          distance_km: n.distance_km,
-                        }))}
+                        pins={[]}
                         height={260}
-                        zoom={13}
+                        zoom={15}
                       />
                     </div>
                   ) : (
@@ -844,42 +887,49 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
                   )}
                 </div>
                 <div>
-                  {centerLatLon ? (
-                    Array.isArray(nearby) && nearby.length > 0 ? (
-                      <ul className="space-y-2 text-sm max-h-[260px] overflow-auto pr-1" data-testid="nearby-list">
-                        {nearby.map((c: any) => {
-                          const title = c.unvan || c.title || 'Şirket';
-                          const dist = typeof c.distance_km === 'number' ? `${c.distance_km.toFixed(2)} km` : '';
-                          const click = () => { if (onOpenCompany && c.id) onOpenCompany(c.id); };
-                          return (
-                            <li
-                              key={c.id}
-                              className="border rounded p-2 bg-white dark:bg-slate-900 dark:border-slate-700 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-                              role="button"
-                              onClick={click}
-                            >
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <div className="font-medium truncate max-w-[16rem]" title={title}>{title}</div>
-                                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate max-w-[18rem]">
-                                    {c.address || '-'}
-                                  </div>
+                  {(() => {
+                    const sameAddrList: any[] = Array.isArray((data as any)?.same_address_companies) ? (data as any).same_address_companies : [];
+                    if (sameAddrList.length > 0) {
+                      return (
+                        <ul className="space-y-2 text-sm max-h-[260px] overflow-auto pr-1" data-testid="same-address-list">
+                          {sameAddrList.map((c: any) => {
+                            const title = c.firma_unvani || c.unvan || 'Şirket';
+                            const mersis = c.mersis_number || c.mersis_number_ocr || '';
+                            const click = () => { if (onOpenCompany && c.id) onOpenCompany(c.id); };
+                            return (
+                              <li
+                                key={c.id}
+                                className="border rounded p-2 bg-white dark:bg-slate-900 dark:border-slate-700 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                                role="button"
+                                onClick={click}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <div className="font-medium truncate max-w-[16rem]" title={title}>{title}</div>
+                                    {mersis && (
+                                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                        MERSİS: {mersis}
+                                      </div>
+                                    )}
+                                   </div>
+                                  <Badge variant="outline" className="shrink-0 dark:border-slate-700 dark:text-slate-300">Aynı Adres</Badge>
                                 </div>
-                                <Badge variant="outline" className="shrink-0 dark:border-slate-700 dark:text-slate-300">{dist}</Badge>
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    ) : (
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      );
+                    }
+                    return (
                       <div className="text-xs text-muted-foreground dark:text-slate-400 border rounded p-3">
-                        {isNearbyFetching ? 'Yakın şirketler yükleniyor...' : 'Yakında şirket bulunamadı.'}
+                        Bu adreste başka firma bulunamadı.
                       </div>
-                    )
-                  ) : null}
+                    );
+                  })()}
                 </div>
               </div>
             </section>
+            */}
 
             <section>
               <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Kişiler</h3>
@@ -1051,7 +1101,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
                       <div key={`po-ann-${a?.id || Math.random()}`}>
                         <div className="font-medium">{title}</div>
                         <div className="text-[12px] text-slate-700">
-                          Tarih: {dateText}{gazette ? ` • Gazete: ${gazette}` : ''}{issue ? ` • Sayı: ${issue}` : ''}{page ? ` • Sayfa: ${page}` : ''}
+                          Tarih: {dateText}{gazette ? ` • Bülten: ${gazette}` : ''}{issue ? ` • Sayı: ${issue}` : ''}{page ? ` • Sayfa: ${page}` : ''}
                         </div>
                         {a?.original_text ? (
                           <div className="mt-1 whitespace-pre-wrap text-[12px]">{a.original_text}</div>
@@ -1063,9 +1113,9 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
               </div>
             )}
 
+            {/* Konum ve Aynı Adresteki Firmalar - TEMPORARILY DISABLED
             <div className="mt-4">
-              <div className="text-base font-semibold">Konum ve Yakın Şirketler</div>
-              <div className="text-sm mt-1">Yarıçap: {radiusKM} km</div>
+              <div className="text-base font-semibold">Konum ve Aynı Adresteki Firmalar</div>
               {centerLatLon ? (
                 Array.isArray(nearby) && nearby.length > 0 ? (
                   <div className="mt-1 text-sm space-y-1">
@@ -1083,6 +1133,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
                 <div className="mt-1 text-sm text-slate-700">Harita için koordinat bulunamadı.</div>
               )}
             </div>
+            */}
 
             {Array.isArray((data as any)?.persons) && (data as any).persons.length > 0 && (
               <div className="mt-4">

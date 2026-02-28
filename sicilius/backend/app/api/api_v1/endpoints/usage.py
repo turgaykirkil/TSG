@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 import os
 from datetime import datetime
 
@@ -51,7 +52,7 @@ def _minio_usage(bucket: str) -> dict:
         }
 
 
-def _safe_count_rows(db: Session, schema: str, table: str) -> int | None:
+def _safe_count_rows(db: Session, schema: str, table: str) -> Optional[int]:
     try:
         result = db.execute(text(f'SELECT COUNT(*) FROM "{schema}"."{table}"')).scalar()
         return int(result or 0)
@@ -65,21 +66,32 @@ def my_usage(
     db: Session = Depends(deps.get_db),
     current_user: models.User = Depends(deps.get_current_active_user),
 ):
-    today = datetime.utcnow().date()
-    usage = (
-        db.query(models.DailyUsage)
-        .filter(models.DailyUsage.user_id == current_user.id, models.DailyUsage.day == today)
-        .first()
-    )
-    limit = _limit_from_env()
-    count = usage.count if usage else 0
-    remaining = max(0, limit - count)
-    return {
-        "date": str(today),
-        "count": int(count),
-        "limit": int(limit),
-        "remaining": int(remaining),
-    }
+    try:
+        today = datetime.utcnow().date()
+        # Debug print
+        import sys
+        print(f"DEBUG: usage/me for user_id={current_user.id}", file=sys.stderr)
+        
+        usage = (
+            db.query(models.DailyUsage)
+            .filter(models.DailyUsage.user_id == current_user.id, models.DailyUsage.day == today)
+            .first()
+        )
+        limit = _limit_from_env()
+        count = usage.count if usage else 0
+        remaining = max(0, limit - count)
+        return {
+            "date": str(today),
+            "count": int(count),
+            "limit": int(limit),
+            "remaining": int(remaining),
+        }
+    except Exception as e:
+        import traceback
+        import sys
+        print(f"CRITICAL ERROR in usage/me: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        raise HTTPException(status_code=500, detail=f"Internal Server Error in usage/me: {e}")
 
 
 @router.post("/reset-me", summary="Reset today's usage counter for current user")
@@ -154,7 +166,9 @@ def usage_overview(
                     schema = r.get("schema") or "public"
                     table_name = r.get("table")
                     approx = int(r.get("approx_rows") or 0)
-                    row_count = _safe_count_rows(db, schema, table_name) if table_name else None
+                    # Use approx count from metadata instead of expensive COUNT(*)
+                    # row_count = _safe_count_rows(db, schema, table_name) if table_name else None
+                    row_count = approx
                     tables.append({
                         "schema": schema,
                         "table": table_name,
@@ -168,10 +182,30 @@ def usage_overview(
             logger.warning("Failed to list tables: %s", exc)
             tables = []
 
-        storage_usage = {
-            "gazette_pdfs": _minio_usage(settings.minio_bucket_gazette_pdfs),
-            "company_gazettes": _minio_usage(settings.minio_bucket_company_gazettes),
-        }
+        storage_usage = {}
+        try:
+            # Use fast DB counter for gazette-pdfs
+            from app.utils.stats_helper import get_storage_file_count
+            fast_count = get_storage_file_count(db)
+            
+            # For company-gazettes, keep using MinIO check but safely
+            comp_usage = {"bucket": settings.minio_bucket_company_gazettes, "total_files": 0, "total_bytes": 0, "status": "unknown"}
+            try:
+                 comp_usage = _minio_usage(settings.minio_bucket_company_gazettes)
+            except Exception:
+                 pass
+
+            storage_usage["gazette_pdfs"] = {
+                "bucket": settings.minio_bucket_gazette_pdfs,
+                "total_files": fast_count, 
+                "total_bytes": 0, # Cannot track bytes easily without extra column, user prioritized count
+                "status": "available_db"
+            }
+            storage_usage["company_gazettes"] = comp_usage
+            
+        except Exception as e:
+            logger.warning("Storage stats error: %s", e)
+            storage_usage["gazette_pdfs"] = {"status": "unavailable", "err": str(e)}
 
         return {
             "db": {
@@ -183,5 +217,12 @@ def usage_overview(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("usage_overview failed: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error("usage_overview failed with handled exception: %s", exc, exc_info=True)
+        # Return partial data that matches the expected schema to prevent frontend crash
+        return {
+            "db": {"database_size_bytes": 0, "tables": [], "error": str(exc)},
+            "storage": {
+                "gazette_pdfs": {"bucket": "default", "total_files": 0, "total_bytes": 0, "status": "unavailable"},
+                "company_gazettes": {"bucket": "default", "total_files": 0, "total_bytes": 0, "status": "unavailable"},
+            }
+        }

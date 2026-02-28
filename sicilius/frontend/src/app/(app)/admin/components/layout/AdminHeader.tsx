@@ -24,12 +24,15 @@ import {
 
 
 
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { AppSidebar } from './AdminSidebar';
+
 export function AppHeader() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const pathname = usePathname();
   const router = useRouter();
-    const { session, logout } = useAuth();
+  const { session, logout } = useAuth();
   const user = session?.user;
   const { theme, setTheme } = useTheme();
 
@@ -52,15 +55,21 @@ export function AppHeader() {
     <header className="sticky top-0 z-10 flex-shrink-0 flex h-16 bg-background border-b">
       <div className="flex-1 px-4 flex justify-between">
         <div className="flex items-center">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden"
-          >
-            <span className="sr-only">Menüyü aç</span>
-            <Menu className="h-6 w-6" aria-hidden="true" />
-          </Button>
+          <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+            <SheetTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="md:hidden"
+              >
+                <span className="sr-only">Menüyü aç</span>
+                <Menu className="h-6 w-6" aria-hidden="true" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="p-0 w-72">
+              <AppSidebar onLinkClick={() => setMobileMenuOpen(false)} />
+            </SheetContent>
+          </Sheet>
         </div>
 
 
@@ -89,31 +98,6 @@ export function AppHeader() {
           </Button>
         </div>
       </div>
-
-      {/* Mobile menu */}
-      {mobileMenuOpen && (
-        <div className="md:hidden">
-          <div className="pt-2 pb-3 space-y-1">
-            {navigation.map((item) => {
-              const isActive = pathname === item.href;
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className={`block pl-3 pr-4 py-2 border-l-4 text-base font-medium ${
-                    isActive
-                      ? 'bg-indigo-50 border-indigo-500 text-indigo-700'
-                      : 'border-transparent text-gray-600 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-800'
-                  }`}
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  {item.name}
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </header>
   );
 }

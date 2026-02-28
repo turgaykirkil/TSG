@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 import sys
 import json
 import uuid
@@ -55,7 +56,7 @@ def to_ts(v):
 # --- importers using ORM metadata + ON CONFLICT ---
 
 
-def _normalize_company_name(name: str | None) -> str | None:
+def _normalize_company_name(name: Optional[str]) -> Optional[str]:
     if not name:
         return None
     normalized = unicodedata.normalize("NFKC", name)

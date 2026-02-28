@@ -1,5 +1,13 @@
-from sklearn.ensemble import IsolationForest
-import numpy as np
+try:
+    from sklearn.ensemble import IsolationForest
+    import numpy as np
+    HAS_ML = True
+except (ImportError, RuntimeError):
+    # RuntimeError catches "NumPy was built with baseline optimizations..."
+    HAS_ML = False
+    IsolationForest = None
+    np = None
+
 from typing import List, Dict
 
 class NexusAnomalyDetector:
@@ -8,15 +16,16 @@ class NexusAnomalyDetector:
         :param contamination: Expected proportion of outliers (default 10%)
         """
         self.contamination = contamination
-        self.model = IsolationForest(contamination=contamination, random_state=42)
+        self.enabled = HAS_ML
+        self.model = IsolationForest(contamination=contamination, random_state=42) if HAS_ML else None
 
     def detect_anomalies(self, nodes_data: List[Dict]) -> Dict[str, float]:
         """
         Detects anomalies in the provided list of company nodes.
         Feature vector per node: [log(capital), density, global_degree, title_len]
         """
-        if not nodes_data or len(nodes_data) < 5:
-            # Not enough data for meaningful ML
+        if not self.enabled or not nodes_data or len(nodes_data) < 5:
+            # Not enough data for meaningful ML or ML disabled
             return {node['id']: 0.0 for node in nodes_data}
             
         # 1. Prepare Feature Matrix

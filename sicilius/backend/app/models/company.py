@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Text, func, Date, Integer, Boolean, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, String, DateTime, Text, func, Date, Integer, Boolean, ForeignKey, UniqueConstraint, Computed
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from geoalchemy2 import Geometry
@@ -15,6 +15,7 @@ class Company(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     unvan = Column(String(500), index=True)
+    unvan_unaccent = Column(Text, Computed("tr_normalize(unvan)"), index=True)
     mersis_number = Column(String(50), unique=True, index=True, nullable=True)
     sicil_no = Column(String(50), index=True)
     sicil_mudurluk = Column(String(255), nullable=True)

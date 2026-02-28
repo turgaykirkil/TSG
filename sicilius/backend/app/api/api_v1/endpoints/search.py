@@ -1051,7 +1051,7 @@ def search_all_related(query: str, db: Session) -> SearchResult:
         q_digits = re.sub(r"\D+", "", q_raw)
 
         text_fields = [
-            Company.unvan,
+            Company.unvan_unaccent,
             Company.address,
             Company.city,
             Company.district,
@@ -1135,20 +1135,23 @@ def search_all_related(query: str, db: Session) -> SearchResult:
                         ocr_scores[cid] = max(ocr_scores.get(cid, 0), 95)
 
         # 3. Persons in OCR JSON (Fallback)
-        if search_token_pairs:
-            ocr_person_query = db.query(OcrResult.company_id)
-            person_filters = []
-            for raw_t, norm_t in search_token_pairs:
-                # Check both raw and norm in JSON text
-                person_filters.append(
-                    or_(
-                        cast(OcrResult.persons, Text).ilike(f"%{raw_t}%"),
-                        cast(OcrResult.persons, Text).ilike(f"%{norm_t}%")
-                    )
-                )
-            ocr_person_matches = ocr_person_query.filter(and_(*person_filters)).limit(50).all()
-            for (cid,) in ocr_person_matches:
-                ocr_scores[cid] = max(ocr_scores.get(cid, 0), 85)
+        # PERFORMANCE FIX: Disabling this block as it causes DB crashes due to 
+        # heavy CAST(persons AS TEXT) operations on large datasets.
+        # TODO: Implement a proper GIN index or dedicated text column for this search.
+        # if search_token_pairs:
+        #     ocr_person_query = db.query(OcrResult.company_id)
+        #     person_filters = []
+        #     for raw_t, norm_t in search_token_pairs:
+        #         # Check both raw and norm in JSON text
+        #         person_filters.append(
+        #             or_(
+        #                 cast(OcrResult.persons, Text).ilike(f"%{raw_t}%"),
+        #                 cast(OcrResult.persons, Text).ilike(f"%{norm_t}%")
+        #             )
+        #         )
+        #     ocr_person_matches = ocr_person_query.filter(and_(*person_filters)).limit(50).all()
+        #     for (cid,) in ocr_person_matches:
+        #         ocr_scores[cid] = max(ocr_scores.get(cid, 0), 85)
 
     # Merge OCR results
     if ocr_scores:

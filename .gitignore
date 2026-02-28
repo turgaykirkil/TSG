@@ -8,6 +8,7 @@ docker-compose.yml
 links.md
 keys.txt
 tsg-platform-13d58-firebase-adminsdk-fbsvc-75ccd98f95.json
+.antigravityrules
 
 # Python
 __pycache__/

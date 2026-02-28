@@ -1,8 +1,15 @@
-import Image from 'next/image';
+
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import Reveal from '@/components/ui/reveal';
 import { Building2, Users, BarChart, Shield, Zap, Lightbulb, Handshake, Award } from 'lucide-react';
+import { Metadata } from 'next';
+import AboutHeroImage from './AboutHeroImage';
+
+export const metadata: Metadata = {
+  title: 'Hakkımızda | Sicilius',
+  description: 'Sicilius hakkında daha fazla bilgi edinin. Vizyonumuz, misyonumuz ve halka açık kurumsal kayıtları modernize etme amacımız.',
+};
 // Görseller public klasöründe: /LightTema.png ve /DarkTema.png
 
 // Hakkımızda sayfasını yalın ve doğru bilgi verecek şekilde sadeleştirdik.
@@ -74,7 +81,7 @@ export default function AboutPage() {
               <h1 className="mt-10 text-4xl font-bold tracking-tight text-foreground sm:text-6xl">Hakkımızda</h1>
             </Reveal>
             <Reveal delayMs={120}>
-              <p className="mt-6 text-lg leading-8 text-foreground/70">
+              <p className="mt-6 text-lg leading-8 text-foreground/90">
                 Sicilius, <strong>tamamen açık kaynak</strong> ve <strong>ücretsiz</strong> bir projedir.
                 Bu platform, Türkiye'deki şirket verilerinin daha erişilebilir olması ve araştırmacıların işini
                 kolaylaştırmak amacıyla <strong>hobi projesi</strong> olarak geliştirilmiştir. Herhangi bir ticari
@@ -93,27 +100,33 @@ export default function AboutPage() {
             <div className="mx-auto mt-16 flex max-w-2xl sm:mt-24 lg:ml-10 lg:mr-0 lg:mt-0 lg:max-w-none lg:flex-none xl:ml-32">
               <div className="max-w-3xl flex-none sm:max-w-5xl lg:max-w-none">
                 <div className="-m-2 rounded-xl bg-gray-900/5 dark:bg-white/5 p-2 ring-1 ring-inset ring-gray-900/10 dark:ring-white/10 lg:-m-4 lg:rounded-2xl lg:p-4">
-                  <div className="relative w-full max-w-2xl mx-auto overflow-hidden rounded-md">
+                  <div className="relative w-full max-w-2xl mx-auto overflow-hidden rounded-md shadow-2xl ring-1 ring-inset ring-gray-900/10 dark:ring-white/10">
                     {/* Light tema görseli */}
-                    <Image
-                      src="/LightTema.png"
-                      alt="Sicilius Ekibi — Light Tema"
-                      className="block w-full h-auto rounded-md shadow-2xl ring-1 ring-inset ring-gray-900/10 transition-opacity dark:opacity-0"
-                      width={832}
-                      height={468}
-                      sizes="(min-width: 1280px) 832px, (min-width: 1024px) 672px, (min-width: 768px) 640px, 100vw"
-                      priority
-                    />
+                    <div className="dark:hidden block">
+                      <AboutHeroImage
+                        src="/LightTema.png"
+                        alt="Sicilius Ekibi — Light Tema"
+                        containerClassName="aspect-video w-full"
+                        imageClassName="object-cover"
+                        width={832}
+                        height={468}
+                        sizes="(min-width: 1280px) 832px, (min-width: 1024px) 672px, (min-width: 768px) 640px, 100vw"
+                        priority
+                      />
+                    </div>
                     {/* Dark tema görseli */}
-                    <Image
-                      src="/DarkTema.png"
-                      alt="Sicilius Ekibi — Dark Tema"
-                      className="absolute inset-0 w-full h-full object-cover rounded-md shadow-2xl ring-1 ring-inset ring-white/10 opacity-0 dark:opacity-100 transition-opacity"
-                      width={832}
-                      height={468}
-                      sizes="(min-width: 1280px) 832px, (min-width: 1024px) 672px, (min-width: 768px) 640px, 100vw"
-                      aria-hidden
-                    />
+                    <div className="hidden dark:block">
+                      <AboutHeroImage
+                        src="/DarkTema.png"
+                        alt="Sicilius Ekibi — Dark Tema"
+                        containerClassName="aspect-video w-full"
+                        imageClassName="object-cover"
+                        width={832}
+                        height={468}
+                        sizes="(min-width: 1280px) 832px, (min-width: 1024px) 672px, (min-width: 768px) 640px, 100vw"
+                        priority // Since they are hero images, keep priority
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -130,10 +143,10 @@ export default function AboutPage() {
               <h2 className="text-base font-semibold leading-7 text-primary">Neden Bizi Tercih Etmelisiniz?</h2>
             </Reveal>
             <Reveal delayMs={120}>
-              <p className="mt-2 text-3xl font-bold tracking-tight text-foreground sm:text-4xl">İşinizi büyütmenize yardımcı olacak araçlar</p>
+              <p className="mt-2 text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Kurumsal Veri Analizinde Sicilius Farkı</p>
             </Reveal>
             <Reveal delayMs={220}>
-              <p className="mt-6 text-lg leading-8 text-foreground/70">Sicilius olarak, şirket bilgilerine erişim sürecinizi basitleştiriyor ve hızlandırıyoruz.</p>
+              <p className="mt-6 text-lg leading-8 text-foreground/90">Modern teknolojilerle donatılmış Sicilius, şirket verilerine erişim sürecinizi basitleştirir, hızlandırır ve anlam kazandırır.</p>
             </Reveal>
           </div>
           <div className="mx-auto mt-16 max-w-2xl sm:mt-20 lg:mt-24 lg:max-w-4xl">
@@ -146,7 +159,7 @@ export default function AboutPage() {
                     </div>
                     {feature.name}
                   </dt>
-                  <dd className="mt-2 text-base leading-7 text-foreground/70">{feature.description}</dd>
+                  <dd className="mt-2 text-base leading-7 text-foreground/90">{feature.description}</dd>
                 </Reveal>
               ))}
             </dl>
@@ -162,12 +175,12 @@ export default function AboutPage() {
               <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Amaçlarımız</h2>
             </Reveal>
             <Reveal delayMs={120}>
-              <p className="mt-6 text-lg leading-8 text-foreground/70">
+              <p className="mt-6 text-lg leading-8 text-foreground/90">
                 Açık kaynak ve ücretsiz bir platform olarak, bu temel amaçlar doğrultusunda çalışıyoruz:
               </p>
             </Reveal>
           </div>
-          <dl className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 text-base leading-7 text-foreground/70 sm:grid-cols-2 lg:mx-0 lg:max-w-none lg:gap-x-16">
+          <dl className="mx-auto mt-16 grid max-w-2xl grid-cols-1 gap-8 text-base leading-7 text-foreground/90 sm:grid-cols-2 lg:mx-0 lg:max-w-none lg:gap-x-16">
             {values.map((value, idx) => (
               <Reveal key={value.name} delayMs={idx * 120} className="relative pl-9">
                 <dt className="inline font-semibold text-foreground">
@@ -191,9 +204,9 @@ export default function AboutPage() {
               </h2>
             </Reveal>
             <Reveal delayMs={120}>
-              <p className="mx-auto mt-6 max-w-xl text-lg leading-8 text-foreground/80">
+              <p className="mx-auto mt-6 max-w-xl text-lg leading-8 text-foreground/90">
                 Gönüllü geliştiriciler tarafından hobi amaçlı geliştirilmektedir. Herhangi bir kar amacı
-                güdülmemektedir ve SaaS/ticari bir ürün değildir. Davet bağlantınızla hemen katılın.
+                güdülmemektedir ve SaaS/ticari bir product değildir. Davet bağlantınızla hemen katılın.
               </p>
             </Reveal>
             <Reveal delayMs={220}>

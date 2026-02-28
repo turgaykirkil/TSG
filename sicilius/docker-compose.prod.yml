@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  # -------------------------------------------------------------------------
+  # Frontend (Next.js)
+  # -------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://${DOMAIN_NAME:-localhost}
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=https://${DOMAIN_NAME:-localhost}
+    depends_on:
+      - backend
+
+  # -------------------------------------------------------------------------
+  # Backend (FastAPI - API Only)
+  # -------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-sicilius}
+    volumes:
+      - backend_uploads:/app/data/uploads
+    depends_on:
+      - db
+
+  # -------------------------------------------------------------------------
+  # Database (PostgreSQL)
+  # -------------------------------------------------------------------------
+  db:
+    image: postgis/postgis:15-3.4-alpine
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-sicilius}
+
+  # -------------------------------------------------------------------------
+  # Caddy (Reverse Proxy & SSL)
+  # -------------------------------------------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - backend
+
+volumes:
+  postgres_data:
+  backend_uploads:
+  caddy_data:
+  caddy_config:

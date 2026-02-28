@@ -1,14 +1,22 @@
 from PIL import Image
 from typing import List, Dict, Tuple
-from pdf2image import convert_from_bytes
+try:
+    from pdf2image import convert_from_bytes
+    import pytesseract
+    from pytesseract import Output
+    HAS_OCR_LIBS = True
+except ImportError:
+    HAS_OCR_LIBS = False
+    convert_from_bytes = None
+    pytesseract = None
+    Output = None
+
 from app.schemas.ocr_preview_response import OcrPreviewResponse, OcrPagePreview, OcrTextLine
 from io import BytesIO
 import base64
 import logging
 import os
 from pathlib import Path
-import pytesseract
-from pytesseract import Output
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +34,11 @@ def get_surya_ocr_preview(pdf_content: bytes, file_name: str) -> OcrPreviewRespo
     Tesseract tabanlı hızlı OCR önizlemesi.
     Surya/torch bağımlılığı olmadan çalışır ve her satır için yaklaşık bbox döndürür.
     """
+    if not HAS_OCR_LIBS:
+        logger.warning("OCR libraries (pdf2image/pytesseract) not found. Skipping OCR.")
+        # Return empty or dummy response
+        return OcrPreviewResponse(pages=[])
+
     logger.info(f"Processing PDF preview via Tesseract for file: {file_name}")
     try:
         # DEBUG çıktı klasörü

@@ -18,31 +18,50 @@ const checkHealth = async (host: string, port: number) => {
 
 // Proxy endpoint to start scraping via backend service
 export async function POST(req: Request) {
-  const primaryHost = '127.0.0.1';
+  const primaryHost = 'localhost';
   const primaryPort = 5002;
 
-  const secondaryHost = '127.0.0.1';
+  const secondaryHost = 'localhost';
   const secondaryPort = 5001;
 
   const cookie = req.headers.get('cookie') || '';
 
   // 1. Determine Target Backend
+  // 1. Determine Target Backend
+  const body = await req.json().catch(() => ({}));
+  const workerSource = body.worker_source; // 'local' | 'remote' | undefined
+
   let targetHost: string | null = null;
   let targetPort: number | null = null;
 
-  // Check Primary (Remote 5002)
-  console.log(`[api/scraping/start] Checking health of Primary ${primaryHost}:${primaryPort}...`);
-  if (await checkHealth(primaryHost, primaryPort)) {
+  console.log(`[api/scraping/start] Worker Source Request: ${workerSource || 'AUTO'}`);
+
+  if (workerSource === 'remote') {
+    // Force Remote (Old Mac via Tunnel)
     targetHost = primaryHost;
     targetPort = primaryPort;
-    console.log(`[api/scraping/start] Primary ${primaryHost}:${primaryPort} is HEALTHY. Using Primary.`);
+    console.log(`[api/scraping/start] Forcing REMOTE worker (${targetHost}:${targetPort})`);
+  } else if (workerSource === 'local') {
+    // Force Local (Docker)
+    targetHost = secondaryHost;
+    targetPort = secondaryPort;
+    console.log(`[api/scraping/start] Forcing LOCAL worker (${targetHost}:${targetPort})`);
   } else {
-    console.warn(`[api/scraping/start] Primary ${primaryHost}:${primaryPort} is UNREACHABLE. Checking Secondary...`);
-    // Check Secondary (Local 5001)
-    if (await checkHealth(secondaryHost, secondaryPort)) {
-      targetHost = secondaryHost;
-      targetPort = secondaryPort;
-      console.log(`[api/scraping/start] Secondary ${secondaryHost}:${secondaryPort} is HEALTHY. Using Secondary.`);
+    // Default: Auto Failover (Priority: Remote > Local)
+    // Check Primary (Remote 5002)
+    console.log(`[api/scraping/start] Checking health of Primary ${primaryHost}:${primaryPort}...`);
+    if (await checkHealth(primaryHost, primaryPort)) {
+      targetHost = primaryHost;
+      targetPort = primaryPort;
+      console.log(`[api/scraping/start] Primary ${primaryHost}:${primaryPort} is HEALTHY. Using Primary.`);
+    } else {
+      console.warn(`[api/scraping/start] Primary ${primaryHost}:${primaryPort} is UNREACHABLE. Checking Secondary...`);
+      // Check Secondary (Local 5001)
+      if (await checkHealth(secondaryHost, secondaryPort)) {
+        targetHost = secondaryHost;
+        targetPort = secondaryPort;
+        console.log(`[api/scraping/start] Secondary ${secondaryHost}:${secondaryPort} is HEALTHY. Using Secondary.`);
+      }
     }
   }
 
@@ -61,7 +80,8 @@ export async function POST(req: Request) {
 
   try {
     console.log(`[api/scraping/start] Sending request to ${targetUrl}...`);
-    const body = await req.json().catch(() => ({}));
+    // body is already parsed above
+
 
     const res = await fetch(targetUrl, {
       method: 'POST',

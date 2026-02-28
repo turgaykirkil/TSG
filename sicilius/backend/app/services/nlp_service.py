@@ -14,7 +14,7 @@ except Exception:  # transformers yoksa da çalışabilsin
     hf_pipeline = None  # type: ignore
 
 import json
-from typing import Any, Optional
+from typing import Any, Optional, List, Dict, Set, Tuple
 try:
     import httpx  # type: ignore
 except Exception:
@@ -189,7 +189,7 @@ NOISE_TOKENS = {
     "TICARETI","TİCARETİ","MADENI","MADENİ","YAG","YAĞ","ANTIFRIZ","ANTİFRİZ",
 }
 # --- Yardımcı: kişi–maskeli kimlik eşlemesi (minimal çıktı zenginleştirme) ---
-def _pair_masked_ids_to_persons(text: str, persons: list[dict], masked_ids: list[str]) -> list[dict]:
+def _pair_masked_ids_to_persons(text: str, persons: List[dict], masked_ids: List[str]) -> List[dict]:
     """
     Verilen ilân metni içinde, PER* kişileri en yakın maskeli kimlikle (aynı satır veya takip eden 1-3 satır
     penceresinde adı geçiyorsa) eşler ve her eşleşen kişiye 'masked_ids' alanını (string) ekler.
@@ -200,7 +200,7 @@ def _pair_masked_ids_to_persons(text: str, persons: list[dict], masked_ids: list
             return persons
         lines = text.splitlines()
         # Maskeli kimliklerin geçtiği satır indekslerini bul
-        id_positions: list[tuple[str, int]] = []
+        id_positions: List[Tuple[str, int]] = []
         # Yalnızca maske paternine uyan kimlikleri dikkate al.
         # OCR toleransı: '5' sıklıkla '$' olarak gelebilir; (\d|\$) kabul edilir.
         # Opsiyonel tek harf önekini (örn. 'N********9') destekle.
@@ -234,12 +234,12 @@ def _pair_masked_ids_to_persons(text: str, persons: list[dict], masked_ids: list
         if not id_positions:
             return persons
 
-        enriched: list[dict] = []
-        assigned_person_idxs: set[int] = set()
-        used_id_indexes: set[int] = set()
+        enriched: List[dict] = []
+        assigned_person_idxs: Set[int] = set()
+        used_id_indexes: Set[int] = set()
         # Aynı ismin birden çok maskeye aşırı yayılmasını engellemek için ilk atandığı satır ve id
-        assigned_name_first_line: dict[str, int] = {}
-        assigned_name_to_id: dict[str, str] = {}
+        assigned_name_first_line: Dict[str, int] = {}
+        assigned_name_to_id: Dict[str, str] = {}
 
         # Yardımcılar: konu/başlık gürültüsü ve sondaki tek küçük harf düzeltmesi
         TOPIC_NOISE_TOKENS = {
@@ -271,7 +271,7 @@ def _pair_masked_ids_to_persons(text: str, persons: list[dict], masked_ids: list
             return s
 
         # Kişi adlarının ilk göründüğü satır indeksini önceden hesapla
-        person_first_line_idx: dict[int, int] = {}
+        person_first_line_idx: Dict[int, int] = {}
         lower_lines = [ln.lower() for ln in lines]
         for pi, p in enumerate(persons):
             name = (p.get("text") or "").strip().lower()
@@ -385,7 +385,7 @@ def _pair_masked_ids_to_persons(text: str, persons: list[dict], masked_ids: list
                         toks = [t for t in re.split(r"[\s,;:()\[\]{}<>|\/\\\-]+", cand_raw.strip()) if t]
                         slash_near = "/" in (cand_raw[:120] or "")
                         STOP_HEAD = {"TURKIYE","TÜRKİYE","UYRUK","UYRUKLU","ADRESINDE","ADRESINDEKI","IKAMET","IKAMETEN"}
-                        name_toks: list[str] = []
+                        name_toks: List[str] = []
                         started = False
                         seen_lower_after_slash = False
                         def _upper_token_ok(t: str) -> bool:
@@ -432,8 +432,8 @@ def _pair_masked_ids_to_persons(text: str, persons: list[dict], masked_ids: list
                             if len(name_toks) >= 4:
                                 break
                         # Parçalı soyadı birleştirme (ör. BA + YRAM -> BAYRAM, BA + YRAKTAR -> BAYRAKTAR)
-                        def _merge_split_upper(ts: list[str]) -> list[str]:
-                            out: list[str] = []
+                        def _merge_split_upper(ts: List[str]) -> List[str]:
+                            out: List[str] = []
                             j = 0
                             while j < len(ts):
                                 cur = ts[j]
@@ -487,7 +487,7 @@ def _pair_masked_ids_to_persons(text: str, persons: list[dict], masked_ids: list
                         ctx += " " + lines[i + 2]
                     slash_near = "/" in ctx[:120]
                     toks = [t for t in re.split(r"[\s,;:()\[\]{}<>|\/\\\-]+", ctx.strip()) if t]
-                    name_toks: list[str] = []
+                    name_toks: List[str] = []
                     started = False
                     seen_lower_after_slash = False
                     for tok in toks:
@@ -532,8 +532,8 @@ def _pair_masked_ids_to_persons(text: str, persons: list[dict], masked_ids: list
                         if len(name_toks) >= 4:
                             break
                     # Parçalı soyadı birleştirme
-                    def _merge_split_upper(ts: list[str]) -> list[str]:
-                        out: list[str] = []
+                    def _merge_split_upper(ts: List[str]) -> List[str]:
+                        out: List[str] = []
                         j = 0
                         while j < len(ts):
                             cur = ts[j]
@@ -603,7 +603,7 @@ def _pair_masked_ids_to_persons(text: str, persons: list[dict], masked_ids: list
         # 2) Geri-düş: atanamayanlar için mesafe tabanlı açgözlü eşleştirme
         #    (kişi ilk göründüğü satır ile kimlik satırı arasındaki mutlak fark)
         remaining_ids = [(j, mid, i) for j, (mid, i) in enumerate(id_positions) if j not in used_id_indexes]
-        candidates: list[tuple[int, int, int, str]] = []  # (dist, id_order, pi, mid)
+        candidates: List[Tuple[int, int, int, str]] = []  # (dist, id_order, pi, mid)
         for id_order, mid, i in remaining_ids:
             for pi, p in enumerate(persons):
                 if pi in assigned_person_idxs:
@@ -617,7 +617,7 @@ def _pair_masked_ids_to_persons(text: str, persons: list[dict], masked_ids: list
                 dist = abs(pli - i)
                 candidates.append((dist, id_order, pi, mid))
         candidates.sort(key=lambda x: (x[0], x[1]))
-        used_id_indexes2: set[int] = set()
+        used_id_indexes2: Set[int] = set()
         for dist, id_order, pi, mid in candidates:
             if id_order in used_id_indexes or id_order in used_id_indexes2:
                 continue
@@ -700,7 +700,7 @@ def _pair_masked_ids_to_persons(text: str, persons: list[dict], masked_ids: list
     except Exception:
         return persons
 
-def _clean_persons_for_minimal(items: list[dict]) -> list[dict]:
+def _clean_persons_for_minimal(items: List[dict]) -> List[dict]:
     """Minimal çıktı için kişi listesini sadeleştirir.
     - Yalnızca 'PER' ve 'PER_MASKED' etiketlerini korur (PER_REGEX vb. gürültüleri eler).
     - Aynı masked_ids değerine sahip kişilerden en uzun ismi tercih ederek tekilleştirir.
@@ -860,7 +860,7 @@ def _clean_persons_for_minimal(items: list[dict]) -> list[dict]:
     filtered = [p for p in filtered if _looks_like_name(p.get("text"))]
 
     # 2) masked_ids'e göre en uzun isimli kişiyi koru
-    by_mid: dict[str, dict] = {}
+    by_mid: Dict[str, dict] = {}
     for p in filtered:
         mid = (p.get("masked_ids") or "").strip()
         if not mid:
@@ -889,7 +889,7 @@ def _clean_persons_for_minimal(items: list[dict]) -> list[dict]:
     # 3) Aynı isim tekrarlarını TEMİZLEME: aynı isim için birden çok kayıt varsa
     #    - masked_ids'i olanı tercih et (PER_MASKED lehine)
     #    - eşitlik halinde daha uzun metni koru
-    name_best: dict[str, dict] = {}
+    name_best: Dict[str, dict] = {}
     for p in by_mid.values():
         key = (p.get("text") or "").strip().upper()
         if not key:
@@ -1099,7 +1099,7 @@ def load_hf_ner():
         return None
 
     # Model kimliğini ortam değişkeninden oku; yoksa makul bir varsayılan dene
-    candidates: list[str] = []
+    candidates: List[str] = []
     env_model = os.getenv("HF_NER_MODEL", "").strip()
     if env_model:
         candidates.append(env_model)
@@ -1133,12 +1133,12 @@ def load_hf_ner():
 
 
 # --- Aksiyon ve Anahtar Kelime Tabanlı Ek Çıkarım Yardımcıları ---
-def extract_money_spans(text: str) -> list[str]:
+def extract_money_spans(text: str) -> List[str]:
     """Metinden TL tutarlarını yakalar (ör. 2.775.000,00 TL)."""
     amts = re.findall(r"\b\d{1,3}(?:\.\d{3})*(?:,\d{2})?\s*(?:TL|Türk Lirasi|Türk Lirası)\b", text, flags=re.IGNORECASE)
     # Benzersiz sırayı koru
-    out: list[str] = []
-    seen: set[str] = set()
+    out: List[str] = []
+    seen: Set[str] = set()
     for a in amts:
         k = a.strip()
         kl = k.lower()
@@ -1147,7 +1147,7 @@ def extract_money_spans(text: str) -> list[str]:
             out.append(k)
     return out
 
-def extract_persons_from_keywords(text: str) -> list[dict]:
+def extract_persons_from_keywords(text: str) -> List[dict]:
     """
     'Kimlik Numaralı <AD SOYAD>' kalıplarından kişi çıkarımı yapar.
     HF NER'i tamamlayıcı amaçlıdır.
@@ -1155,16 +1155,16 @@ def extract_persons_from_keywords(text: str) -> list[dict]:
     # OCR normalizasyonu: birleşik aksanları birleştir ve I-acute varyantlarını düzelt
     text = unicodedata.normalize('NFC', text)
     text = text.replace("Í", "İ").replace("Í", "İ").replace("Ì", "İ")
-    persons: list[dict] = []
-    assigned_by_name: dict[str, str] = {}
-    used_ids: set[str] = set()
-    used_ids: set[str] = set()
-    used_ids: set[str] = set()
+    persons: List[dict] = []
+    assigned_by_name: Dict[str, str] = {}
+    used_ids: Set[str] = set()
+    used_ids: Set[str] = set()
+    used_ids: Set[str] = set()
     # Kural 3: Aynı masked_id için yalnızca ilk kişi alınmalı
-    used_ids: set[str] = set()
-    assigned_by_name: dict[str, str] = {}
+    used_ids: Set[str] = set()
+    assigned_by_name: Dict[str, str] = {}
     # Aynı ismin birden fazla maskeye bağlanmasını engelle
-    assigned_by_name: dict[str, str] = {}
+    assigned_by_name: Dict[str, str] = {}
     # İsim kalıbı (2-4 kelime), satır atlamasın diye sadece boşluk/tabne izin ver
     name_pat = r"([A-ZÇĞİÖŞÜ'][A-ZÇĞİÖŞÜ']+(?:[ \t]+[A-ZÇĞİÖŞÜ'][A-ZÇĞİÖŞÜ']+){1,3})"
 
@@ -1287,7 +1287,7 @@ def extract_persons_from_keywords(text: str) -> list[dict]:
     # Dedup
     return _dedup_entity_dicts(persons)
 
-def extract_persons_near_masked_ids(text: str) -> list[dict]:
+def extract_persons_near_masked_ids(text: str) -> List[dict]:
     """
     Maskeli kimlik (örn. 1***34, 179******34) içeren satırların yakınından kişi ismi çıkarır.
     Kurallar:
@@ -1295,9 +1295,9 @@ def extract_persons_near_masked_ids(text: str) -> list[dict]:
       - Takip eden 1-3 satır: "ikamet eden <AD SOYAD>" veya yalın isim satırı
     Gürültü azaltmak için adres benzeri satırlar ve sayılı içerikler elenir.
     """
-    persons: list[dict] = []
-    assigned_by_name: dict[str, str] = {}
-    used_ids: set[str] = set()
+    persons: List[dict] = []
+    assigned_by_name: Dict[str, str] = {}
+    used_ids: Set[str] = set()
 
     # İsim kalıbı (2-4 kelime), büyük harf yoğunluklu
     name_pat = r"([A-ZÇĞİÖŞÜ'][A-ZÇĞİÖŞÜ']+(?:[ \t]+[A-ZÇĞİÖŞÜ'][A-ZÇĞİÖŞÜ']+){1,3})"
@@ -1350,7 +1350,7 @@ def extract_persons_near_masked_ids(text: str) -> list[dict]:
 
     def _merge_split_upper_tokens(nm: str) -> str:
         toks = [t for t in re.split(r"\s+", nm.strip()) if t]
-        out: list[str] = []
+        out: List[str] = []
         j = 0
         while j < len(toks):
             cur = toks[j]
@@ -1640,7 +1640,7 @@ def extract_persons_near_masked_ids(text: str) -> list[dict]:
                 slash_near = "/" in tail_ctx[:120]
                 # Tokenlere böl (boşluk ve yaygın ayırıcılar)
                 raw_toks = re.split(r"[\s,;:()\[\]{}<>|\/\\\-]+", tail_ctx.strip())
-                name_toks: list[str] = []
+                name_toks: List[str] = []
                 found = False
                 started = False
                 seen_lower_after_slash = False
@@ -1780,7 +1780,7 @@ def extract_persons_near_masked_ids(text: str) -> list[dict]:
 
             # 1e) Geri tarama: önceki 1-12 satırda 2-4 büyük harfli kelime dizisi
             try:
-                back_candidates: list[tuple[int,str]] = []
+                back_candidates: List[Tuple[int,str]] = []
                 for k in range(1, 13):
                     if i - k < 0:
                         break
@@ -1789,8 +1789,8 @@ def extract_persons_near_masked_ids(text: str) -> list[dict]:
                         continue
                     slash_line = "/" in prev
                     toks = re.split(r"[\s,;:()\[\]{}<>|\/\\\-]+", prev)
-                    cur: list[str] = []
-                    best: list[str] = []
+                    cur: List[str] = []
+                    best: List[str] = []
                     for tok in toks:
                         if not tok:
                             continue
@@ -1896,7 +1896,7 @@ def extract_persons_near_masked_ids(text: str) -> list[dict]:
 
     return _dedup_entity_dicts(persons)
 
-def extract_actions(text: str) -> list[dict]:
+def extract_actions(text: str) -> List[dict]:
     """
     İlan metninden temel aksiyonları tespit eder.
     Şu kalıplar desteklenir:
@@ -1904,12 +1904,12 @@ def extract_actions(text: str) -> list[dict]:
       - Amaç ve Konu (değişikliği)
       - Birleşme/İnfisah (devrolunan/devralan)
     """
-    actions: list[dict] = []
+    actions: List[dict] = []
 
     norm = text
     # PAY DEVRI
     if re.search(r"\bPay\s+Devri\b", norm, flags=re.IGNORECASE) or re.search(r"Tescil\s*Harici\s*Ilan\s*:.*Pay\s+Devri", norm, flags=re.IGNORECASE):
-        details_lines: list[str] = []
+        details_lines: List[str] = []
         # İlgili bölümden kısa bir özet almak için 6-8 satıra kadar bağlam al
         lines = [ln.strip() for ln in norm.splitlines()]
         for i, ln in enumerate(lines):
@@ -1917,7 +1917,7 @@ def extract_actions(text: str) -> list[dict]:
                 ctx = " ".join([l for l in lines[i:i+12] if l])
                 details_lines.append(ctx[:800])
                 break
-        parties: list[str] = []
+        parties: List[str] = []
         # Kimlik Numaralı <AD SOYAD>
         for m in re.finditer(r"Kimlik\s*Numara(?:l[ıi])?\s*([A-ZÇĞİÖŞÜ'][A-ZÇĞİÖŞÜ']+(?:\s+[A-ZÇĞİÖŞÜ'][A-ZÇĞİÖŞÜ']+){1,3})", norm, flags=re.IGNORECASE):
             parties.append(m.group(1).strip())
@@ -1961,7 +1961,7 @@ def extract_actions(text: str) -> list[dict]:
 
 
 # --- Tescil Bölümleri Çıkarımı ---
-def extract_tescil_sections(text: str) -> tuple[list[str], Optional[str]]:
+def extract_tescil_sections(text: str) -> Tuple[List[str], Optional[str]]:
     """
     "Tescil Edilen Hususlar:" satırını ve onu izleyen "Tescile Delil Olan Belgeler:" satırını ayrıştırır.
 
@@ -2029,7 +2029,7 @@ def extract_tescil_sections(text: str) -> tuple[list[str], Optional[str]]:
 
     # Hususlar için basit OCR normalizasyonları (ör. Artinmi -> Artırımı, Degisimi -> Değişimi)
     if hususlar:
-        normed: list[str] = []
+        normed: List[str] = []
         for h in hususlar:
             t = h
             # 'Sermaye' OCR düzeltmesi (sermave -> Sermaye)
@@ -2098,10 +2098,10 @@ def extract_tescil_sections(text: str) -> tuple[list[str], Optional[str]]:
 
     return (hususlar, belgeler_text)
 
-def _dedup_entity_dicts(items: list[dict]) -> list[dict]:
+def _dedup_entity_dicts(items: List[dict]) -> List[dict]:
     """'text' anahtarına göre küçük harf normalize ederek deduplikasyon yapar."""
-    seen: set[str] = set()
-    out: list[dict] = []
+    seen: Set[str] = set()
+    out: List[dict] = []
     for it in items:
         t = (it.get("text") or "").strip().lower()
         if not t:
@@ -2112,12 +2112,12 @@ def _dedup_entity_dicts(items: list[dict]) -> list[dict]:
         out.append(it)
     return out
 
-def _dedup_persons_pref_masked(items: list[dict]) -> list[dict]:
+def _dedup_persons_pref_masked(items: List[dict]) -> List[dict]:
     """Aynı kişiyi (text) tekilleştirirken PER_MASKED etiketi varsa onu tercih eder.
     Aksi halde ilk görüleni korur.
     """
-    chosen: dict[str, dict] = {}
-    order: list[str] = []
+    chosen: Dict[str, dict] = {}
+    order: List[str] = []
     for it in items or []:
         key = (it.get("text") or "").strip().lower()
         if not key:
@@ -2132,7 +2132,7 @@ def _dedup_persons_pref_masked(items: list[dict]) -> list[dict]:
                 chosen[key] = it
     return [chosen[k] for k in order]
 
-def _http_post_json(url: str, payload: dict, headers: Optional[dict] = None, timeout: float = 30.0) -> dict | None:
+def _http_post_json(url: str, payload: dict, headers: Optional[dict] = None, timeout: float = 30.0) -> Optional[dict]:
     """Basit HTTP POST JSON. httpx/requests mevcutsa onları, değilse urllib kullanır."""
     hdrs = {"Content-Type": "application/json"}
     if headers:
@@ -2169,7 +2169,7 @@ def _http_post_json(url: str, payload: dict, headers: Optional[dict] = None, tim
         logger.warning("LLM urllib post hatası: %s", e)
         return None
 
-def _llm_extract_entities(text: str) -> Optional[dict[str, Any]]:
+def _llm_extract_entities(text: str) -> Optional[Dict[str, Any]]:
     """
     LM Studio/OpenAI uyumlu chat.completions ile varlık çıkarımı.
     Beklenen anahtarlar: persons[str[]], organizations[str[]], addresses[str[]],
@@ -2427,8 +2427,8 @@ def parse_announcement_text(text: str) -> dict:
         # Sade blok taraması: 'Ticaret Unvanı' ve 'Eski Ticaret Unvanı' başlıkları
         lines_b = [ln.strip() for ln in tn_block.splitlines()]
 
-        def _collect_after(idx: int, lines: list[str], initial: str = "") -> str:
-            cand: list[str] = ([] if not initial else [initial])
+        def _collect_after(idx: int, lines: List[str], initial: str = "") -> str:
+            cand: List[str] = ([] if not initial else [initial])
             stop_line = re.compile(
                 r"^(?:Eski\s*(?:Ticaret\s*)?Unva[nm](?:[ıiİI])?(?:t)?|(?:Ticaret\s*)?Unva[nm](?:[ıiİI])?(?:t)?|Adres|(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida)|Tescil|Tescile|MERS[İI]S|Ticaret\s*Sicil|Telefon|İlan\s*Sira\s*No|Ilan\s*Sira\s*No|Sira\s*No)\b",
                 re.IGNORECASE,
@@ -2510,7 +2510,7 @@ def parse_announcement_text(text: str) -> dict:
                             idx = i
                             break
                     if idx is not None:
-                        cand_lines2: list[str] = []
+                        cand_lines2: List[str] = []
                         stop_line_pat2 = re.compile(r"^(Adres|(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida)|Tescil|Tescile|MERS[İI]S|Ticaret\s*Sicil|Eski\s+Adres|Telefon|İlan\s*Sira\s*No|Ilan\s*Sira\s*No|Sira\s*No|Madde)\b", re.IGNORECASE)
                         addressish2 = re.compile(r"\b(MAH\.?|MAHALLES[İI]|CAD\.?|CADDES[İI]|CD\.?|SOK\.?|SOKA[ĞG][ıi]|SK\.?|BLV\.?|BULVAR[ıi]?|NO\b|KAT\b|DA[İI]RE\b|APT\.?|S[İI]TE|OSB|İÇ\s*KAP[İI]|DIŞ\s*KAP[İI]|BLOK)\b|[A-ZÇĞİÖŞÜ]{2,}\s*/\s*[A-ZÇĞİÖŞÜ]{2,}", re.IGNORECASE)
                         for j in range(idx + 1, min(idx + 5, len(lines))):
@@ -2586,7 +2586,7 @@ def parse_announcement_text(text: str) -> dict:
                 for i, ln in enumerate(lines):
                     if re.search(r"^\s*Ticaret\s*Unva[nmı]?\s*[:：]*\s$", ln, flags=re.IGNORECASE):
                         # Sonraki 1-4 satırdan aday oluştur, durdurucularla kes
-                        cand_lines: list[str] = []
+                        cand_lines: List[str] = []
                         addressish3 = re.compile(r"\b(MAH\.?|MAHALLES[İI]|CAD\.?|CADDES[İI]|CD\.?|SOK\.?|SOKA[ĞG][ıi]|SK\.?|BLV\.?|BULVAR[ıi]?|NO\b|KAT\b|DA[İI]RE\b|APT\.?|S[İI]TE|OSB|İÇ\s*KAP[İI]|DIŞ\s*KAP[İI]|BLOK)\b|[A-ZÇĞİÖŞÜ]{2,}\s*/\s*[A-ZÇĞİÖŞÜ]{2,}", re.IGNORECASE)
                         for j in range(i + 1, min(i + 5, len(lines))):
                             nxt = lines[j].strip(" -*–·•\t").strip()
@@ -2726,7 +2726,7 @@ def parse_announcement_text(text: str) -> dict:
         # Çok kısa ya da boşsa yazma; değilse listeye koy
         entities["addresses"] = [a2] if (a2 and len(a2) >= 8) else []
         # Eski Adres(ler) için bağımsız tarama (başlık tabanlı ve tek satırlı)
-        old_addresses: list[str] = []
+        old_addresses: List[str] = []
         lines_list = norm.splitlines()
         stop_line_pat = re.compile(r"^(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida|Tescil|Tescile|MERS[İI]S|Ticaret\s*Sicil|Telefon|İlan\s*Sira\s*No|Ilan\s*Sira\s*No|Sira\s*No|Gündem|Gundem|Genel\s+Kurul|Vekaletname)\b", re.IGNORECASE)
         # Başlık yeniden başlıyorsa (Yeni Adres, Adres vb.) da durdur
@@ -2790,7 +2790,7 @@ def parse_announcement_text(text: str) -> dict:
                     old_addresses.append(val)
         if old_addresses:
             # Temizle ve dedup et
-            cleaned_old: list[str] = []
+            cleaned_old: List[str] = []
             stop_pat_addr = re.compile(r"\b(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida|Tescil|Tescile|MERS[İI]S|Ticaret\s*Sicil|Telefon|Tel|GSM|Faks|İlan\s*Sira\s*No|Ilan\s*Sira\s*No|Sira\s*No|Madde|Gündem|Gundem|Genel\s+Kurul|Vekaletname\b|Yeni\s*Ticaret\s*Sicil[iı]\s*M[üu]d[üu]rl[üu]g[üu][üu]?|Yeni\s*Sicil\s*No|Yeni\s*Adres)\b", re.IGNORECASE)
             for a in old_addresses:
                 a = re.sub(r"\s+", " ", a).strip()
@@ -2803,7 +2803,7 @@ def parse_announcement_text(text: str) -> dict:
                     cleaned_old.append(a if len(a) <= 300 else a[:300].rstrip())
             if cleaned_old:
                 # substring bazlı deduplikasyon: kısa (alt string) olanı at, daha kapsamlı olanı koru
-                dedup_old: list[str] = []
+                dedup_old: List[str] = []
                 for i, ai in enumerate(cleaned_old):
                     ai_l = ai.lower()
                     keep = True
@@ -2824,8 +2824,8 @@ def parse_announcement_text(text: str) -> dict:
                 entities["old_addresses"] = unique_list(dedup_old if dedup_old else cleaned_old)
     else:
         # Fallback: başlık tespiti + çok satır birleştirme + gürültü filtresi
-        addresses: list[str] = []
-        old_addresses: list[str] = []
+        addresses: List[str] = []
+        old_addresses: List[str] = []
         lines_list = norm.splitlines()
         header_pat = re.compile(r"^(?:Adres|Eski\s*Adres|Eski\s*Adresi|Önceki\s*Adres|Önceki\s*Adresi|Yeni\s*Adres|Merkez(?:i)?\s*:|Şube\s*Adresi|İkametg[aâ]h\s*Adresi|Şirket\s*Merkezi|İşletmenin\s*Merkezi)\s*[:.]?\s*(.*)$", re.IGNORECASE)
         stop_line_pat = re.compile(r"^(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida|Tescil|Tescile|MERS[İI]S|Ticaret\s*Sicil|Telefon|Tel|GSM|Faks|İlan\s*Sira\s*No|Ilan\s*Sira\s*No|Sira\s*No|Madde|Gündem|Gundem|Genel\s+Kurul|Vekaletname\b)", re.IGNORECASE)
@@ -2986,7 +2986,7 @@ def parse_announcement_text(text: str) -> dict:
         # 5b) Toplantı davet metinlerinde geçen '"<ADRES>" adresinde/ adresindeki' kalıbından adres çıkarımı
         #     (ör. "Macun Mahallesi, 177.Cadde No.15/202 ..." adresinde/ adresindeki ...)
         try:
-            meet_addrs: list[str] = []
+            meet_addrs: List[str] = []
             # Öncelik: tırnak içindeki adres + 'adresinde/ adresindeki'
             patt = re.compile(r'["“](?P<addr>[^"”]{8,220})["”]\s+adresind(?:e|eki)\b', re.IGNORECASE)
             for m in patt.finditer(norm):
@@ -3012,7 +3012,7 @@ def parse_announcement_text(text: str) -> dict:
                 base = entities.get("addresses") or []
                 merged = unique_list(meet_addrs + base)
                 stop_pat_inline = re.compile(r"\b(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida|Tescil|Tescile|MERS[İI]S|Ticaret\s*Sicil|Telefon|Tel|GSM|Faks|İlan\s*Sira\s*No|Ilan\s*Sira\s*No|Sira\s*No|Madde|Gündem|Gundem|Genel\s+Kurul|Vekaletname\b)\b", re.IGNORECASE)
-                cleaned2: list[str] = []
+                cleaned2: List[str] = []
                 for a in merged:
                     a2 = re.sub(r"\s+", " ", (a or "")).strip()
                     if not a2 or negative_in_line.search(a2):
@@ -3257,8 +3257,8 @@ def parse_announcement_text(text: str) -> dict:
         # WordPiece benzeri parçalar: '##' içerenleri at
         return bool(s) and ("##" in s)
 
-    def _clean_list_dicts(lst: list[dict]) -> list[dict]:
-        cleaned: list[dict] = []
+    def _clean_list_dicts(lst: List[dict]) -> List[dict]:
+        cleaned: List[dict] = []
         for it in lst or []:
             t = (it.get("text") or "").strip()
             if not t:
@@ -3272,8 +3272,8 @@ def parse_announcement_text(text: str) -> dict:
         return _dedup_entity_dicts(cleaned)
 
     # Kişiler: önce temizle (dedup yapmadan), ardından PER_MASKED'i tercih eden dedup uygula
-    def _clean_list_dicts_no_dedup(lst: list[dict]) -> list[dict]:
-        cleaned: list[dict] = []
+    def _clean_list_dicts_no_dedup(lst: List[dict]) -> List[dict]:
+        cleaned: List[dict] = []
         for it in lst or []:
             t = (it.get("text") or "").strip()
             if not t:
@@ -3288,9 +3288,9 @@ def parse_announcement_text(text: str) -> dict:
     entities["persons"] = _dedup_persons_pref_masked(_clean_list_dicts_no_dedup(entities.get("persons") or []))
 
     # 2b) Aynı isim için birden çok PER_MASKED atanmasını engelle (bir isme tek maske)
-    def _one_mask_per_name(persons: list[dict]) -> list[dict]:
-        seen: dict[str, dict] = {}
-        out: list[dict] = []
+    def _one_mask_per_name(persons: List[dict]) -> List[dict]:
+        seen: Dict[str, dict] = {}
+        out: List[dict] = []
         for p in persons:
             name_key = (p.get("text") or "").strip().upper()
             if not name_key:
@@ -3363,7 +3363,7 @@ def parse_announcement_text(text: str) -> dict:
 
     orgs0 = entities.get("organizations") or []
     tname_key = _norm_for_org(entities.get("trade_name", "") or "")
-    orgs1: list[dict] = []
+    orgs1: List[dict] = []
     for o in orgs0:
         txt = o.get("text", "")
         key = _norm_for_org(txt)
@@ -3376,8 +3376,8 @@ def parse_announcement_text(text: str) -> dict:
         orgs1.append(o)
     # Substring bazlı güçlü dedup: önce uzunları koru
     orgs_sorted = sorted(orgs1, key=lambda o: len(_norm_for_org(o.get("text", ""))), reverse=True)
-    kept: list[dict] = []
-    keys: list[str] = []
+    kept: List[dict] = []
+    keys: List[str] = []
     for o in orgs_sorted:
         key = _norm_for_org(o.get("text", ""))
         if not key:
@@ -3472,7 +3472,7 @@ def _normalize_tr_for_header(s: str) -> str:
     out = re.sub(r"\s+", " ", out)
     return out.upper().strip()
 
-def _find_header_matches_robust(text: str) -> list[re.Match]:
+def _find_header_matches_robust(text: str) -> List[re.Match]:
     """
     Başlıkları yakalamak için daha toleranslı kalıplar:
       1) 'loose' regex: T(I)CARET ... SICIL ... MUDUR/MEMURL ... N?DEN/NDAN satır sonu
@@ -3480,7 +3480,7 @@ def _find_header_matches_robust(text: str) -> list[re.Match]:
          ve sonda NDEN/NDAN görünen satırları başlık kabul et.
     Dönüş: re.Match benzeri nesneler listesi (span'ları satır başlangıcına oturur).
     """
-    matches: list[re.Match] = []
+    matches: List[re.Match] = []
 
     # 1) Loose regex doğrudan ham metin üzerinde (diakritik varyasyonları kapsar)
     # Harf aralarına boşlukların girdiği (T I C A R E T vb.) OCR bozulmalarını da destekle
@@ -3506,7 +3506,7 @@ def _find_header_matches_robust(text: str) -> list[re.Match]:
 
     # 2) Token bazlı: satır satır gez, normalize edip anahtarları ara (LOOSE'a ek)
     #    Bulunan satırın başlangıç konumu üzerinden sahte Match üret; mevcut başlangıçları atla.
-    existing_starts: set[int] = set()
+    existing_starts: Set[int] = set()
     try:
         existing_starts = {m.start() for m in matches}
     except Exception:
@@ -3541,7 +3541,7 @@ def _find_header_matches_robust(text: str) -> list[re.Match]:
 
     return matches  # boş olabilir
 
-def _find_court_header_matches(text: str) -> list[re.Match]:
+def _find_court_header_matches(text: str) -> List[re.Match]:
     """
     Mahkeme başlıklarını yakalamak için toleranslı tarama.
     Heuristik: Satır normalize edildiğinde 'MAHKEME' içeriyorsa ve
@@ -3552,7 +3552,7 @@ def _find_court_header_matches(text: str) -> list[re.Match]:
 
     Dönüş: re.Match benzeri nesneler listesi (span'ları satır başlangıcına oturur).
     """
-    matches: list[re.Match] = []
+    matches: List[re.Match] = []
     line_start = 0
     for ln in text.splitlines(True):  # keepends=True
         raw = ln.rstrip("\n\r")
@@ -3578,7 +3578,7 @@ def _find_court_header_matches(text: str) -> list[re.Match]:
         line_start += len(ln)
     return matches
 
-def _detect_headers(text: str) -> list[int]:
+def _detect_headers(text: str) -> List[int]:
     """
     Başlık başlangıçlarını (karakter ofseti) tespit eder.
     Kaynaklar: sıkı regex, fallback regex ve _find_header_matches_robust birleştirilir.
@@ -3605,7 +3605,7 @@ def _detect_headers(text: str) -> list[int]:
         re.IGNORECASE | re.MULTILINE,
     )
 
-    cands: list[tuple[int, int]] = []
+    cands: List[Tuple[int, int]] = []
     strict_ms = list(strict_re.finditer(text))
     fallback_ms = list(fallback_re.finditer(text))
     robust_ms = list(_find_header_matches_robust(text))
@@ -3630,7 +3630,7 @@ def _detect_headers(text: str) -> list[int]:
             logger.info("DEBUG_NLP headers: strict=%d fallback=%d robust=%d total_cands=%d", len(strict_ms), len(fallback_ms), len(robust_ms), len(cands))
             print("DEBUG_NLP headers counts:", len(strict_ms), len(fallback_ms), len(robust_ms), len(cands))
             # Eşleşen satırları yazdır
-            def _line_span(pos: int) -> tuple[int, int]:
+            def _line_span(pos: int) -> Tuple[int, int]:
                 ls = text.rfind("\n", 0, pos)
                 ls = 0 if ls < 0 else ls + 1
                 le = text.find("\n", pos)
@@ -3646,14 +3646,14 @@ def _detect_headers(text: str) -> list[int]:
     if not cands:
         return []
 
-    def line_bounds(pos: int) -> tuple[int, int]:
+    def line_bounds(pos: int) -> Tuple[int, int]:
         ls = text.rfind("\n", 0, pos)
         ls = 0 if ls < 0 else ls + 1
         le = text.find("\n", pos)
         le = len(text) if le < 0 else le
         return ls, le
 
-    def score_span(s: int, e: int) -> tuple[int, bool]:
+    def score_span(s: int, e: int) -> Tuple[int, bool]:
         ls, le = line_bounds(s)
         line = text[ls:le]
         look = text[le: min(len(text), le + HEADER_LOOKAHEAD_CHARS)]
@@ -3683,13 +3683,13 @@ def _detect_headers(text: str) -> list[int]:
 
     # Adayları satır başlangıcına göre grupla; aynı satırdaki alternatif match'ler tek başlıktır
     cands_sorted = sorted(cands, key=lambda x: x[0])
-    by_line: dict[int, list[tuple[int, int, int, bool]]] = {}
+    by_line: Dict[int, List[Tuple[int, int, int, bool]]] = {}
     for s, e in cands_sorted:
         sc, has_ilan = score_span(s, e)
         ls, le = line_bounds(s)
         by_line.setdefault(ls, []).append((s, e, sc, has_ilan))
 
-    picks: list[int] = []
+    picks: List[int] = []
     for ls in sorted(by_line.keys()):
         grp = by_line[ls]
         # en yüksek puanı seç; eşitlikte ILAN içereni, yine eşitlikte daha ileri başlangıcı seç
@@ -3730,7 +3730,7 @@ def _detect_headers(text: str) -> list[int]:
             pass
     return res
 
-def split_announcements(text: str) -> list[str]:
+def split_announcements(text: str) -> List[str]:
     """
     OCR metnini ilân segmentlerine böler.
     Bölme ölçütü: "Ticaret Sicili Müdürlüğü'nden" veya "Ticaret Sicili Memurluğu'ndan"
@@ -3796,7 +3796,7 @@ def split_announcements(text: str) -> list[str]:
             logger.info("DEBUG_NLP split_announcements no headers segments=%d", len(segs))
         return segs
 
-    segments: list[str] = []
+    segments: List[str] = []
     for i, start in enumerate(starts):
         end = starts[i + 1] if i + 1 < len(starts) else len(text)
         seg = text[start:end].strip()
@@ -3818,7 +3818,7 @@ def split_announcements(text: str) -> list[str]:
             break
         return False
     if len(segments) >= 2 and MIN_SPLIT_SEG_LEN > 0:
-        merged: list[str] = []
+        merged: List[str] = []
         i = 0
         while i < len(segments):
             cur = segments[i]
@@ -3842,7 +3842,7 @@ def split_announcements(text: str) -> list[str]:
         )
     return segments
 
-def split_announcements_with_offsets(text: str) -> list[dict]:
+def split_announcements_with_offsets(text: str) -> List[dict]:
     """
     OCR metnini ilân segmentlerine böler ve her segment için orijinal metin
     üzerindeki başlangıç/bitiş karakter ofsetlerini de döner.
@@ -3889,7 +3889,7 @@ def split_announcements_with_offsets(text: str) -> list[dict]:
         out = re.sub(r"\n{3,}", "\n\n", out)
         return out.strip()
 
-    def _trim_trailing_artifacts(raw: str) -> tuple[str, int]:
+    def _trim_trailing_artifacts(raw: str) -> Tuple[str, int]:
         """
         Segment sonundaki sayfa/artifact satırlarını kırpar ve kaç karakter
         çıkarıldığını döner. Ofset uyumu için end ofseti bu miktarda azaltılmalıdır.
@@ -3906,7 +3906,7 @@ def split_announcements_with_offsets(text: str) -> list[dict]:
             s = s[:-1]
             removed += 1
 
-        def _pop_last_line(buf: str) -> tuple[str, str, int]:
+        def _pop_last_line(buf: str) -> Tuple[str, str, int]:
             # Son satırı (öncesindeki \n ile birlikte) güvenli biçimde ayır.
             if not buf:
                 return "", "", 0
@@ -3959,7 +3959,7 @@ def split_announcements_with_offsets(text: str) -> list[dict]:
             logger.info("DEBUG_NLP split_announcements_with_offsets no headers segments=%d", len(res))
         return res
 
-    out: list[dict] = []
+    out: List[dict] = []
     for i, start in enumerate(starts):
         end = starts[i + 1] if i + 1 < len(starts) else len(text)
         # Orijinal metni aynen al, fakat segment SONUNDAKİ sayfa/artifact satırlarını kırp
@@ -3987,7 +3987,7 @@ def split_announcements_with_offsets(text: str) -> list[dict]:
             break
         return False
     if len(out) >= 2 and MIN_SPLIT_SEG_LEN > 0:
-        merged: list[dict] = []
+        merged: List[dict] = []
         i = 0
         while i < len(out):
             cur = out[i]
@@ -4014,7 +4014,7 @@ def split_announcements_with_offsets(text: str) -> list[dict]:
         out = merged
     return out
 
-def _autosave_results_to_ocr_ciktilari(results: list[dict], original_text: Optional[str] = None) -> Optional[str]:
+def _autosave_results_to_ocr_ciktilari(results: List[dict], original_text: Optional[str] = None) -> Optional[str]:
     """
     'sicilius/ocr_ciktilari/' klasörüne JSON çıktısı olarak kaydeder.
     Dosya adı: parsed_ocr_{YYYYMMDD_HHMMSS_mmmmmm}_{sha1[:10]}.json
@@ -4076,7 +4076,7 @@ def _autosave_results_to_ocr_ciktilari(results: list[dict], original_text: Optio
             return existing_path
 
         # Autosave için sonuçlarda tepe seviye 'masked_ids' alanını çıkart
-        save_results: list[dict] = []
+        save_results: List[dict] = []
         for r in results:
             if isinstance(r, dict):
                 r2 = {k: v for k, v in r.items() if k != "masked_ids"}
@@ -4084,7 +4084,7 @@ def _autosave_results_to_ocr_ciktilari(results: list[dict], original_text: Optio
             else:
                 save_results.append(r)
 
-        payload: dict[str, Any] = {
+        payload: Dict[str, Any] = {
             "created_at": datetime.now().isoformat(),
             "auto_save_ocr": True,
             "item_count": len(results),
@@ -4104,7 +4104,7 @@ def _autosave_results_to_ocr_ciktilari(results: list[dict], original_text: Optio
         logger.warning("AUTO_SAVE_OCR kaydetme hatası: %s", e)
         return None
 
-def parse_multiple_announcements(text: str) -> list[dict]:
+def parse_multiple_announcements(text: str) -> List[dict]:
     """
     Metni ilânlara böler ve her ilânı `parse_announcement_text` ile işler.
     ÇIKTIYI SADELEŞTİRİR (minimal):
@@ -4117,7 +4117,7 @@ def parse_multiple_announcements(text: str) -> list[dict]:
     t_all = time.perf_counter() if DEBUG_NLP else 0.0
     if DEBUG_NLP:
         logger.info("DEBUG_NLP parse_multiple_announcements start len=%d", len(text or ""))
-    out: list[dict] = []
+    out: List[dict] = []
     segments = split_announcements_with_offsets(text)
     if DEBUG_NLP:
         logger.info("DEBUG_NLP parse_multiple_announcements segmented count=%d", len(segments))
@@ -4128,7 +4128,7 @@ def parse_multiple_announcements(text: str) -> list[dict]:
         return any(("MAHKEME" in nt) for nt in norm_top if nt)
 
     def _pick_court_header_line(preferred_text: str, alt_text: str) -> str:
-        def _scan(lines: list[str]) -> str:
+        def _scan(lines: List[str]) -> str:
             cand_lines = [ln.strip() for ln in lines if ln.strip()]
             top = cand_lines[:8]
             for ln in top:
@@ -4233,7 +4233,7 @@ def parse_multiple_announcements(text: str) -> list[dict]:
 
             Önce preferred_text (temizlenmiş seg), sonra alt_text (raw_text) üzerinde dener.
             """
-            def _scan(lines: list[str]) -> str:
+            def _scan(lines: List[str]) -> str:
                 # Ortak ön koşullar
                 core_re = re.compile(r"TICARET.*SICIL.*(M[ÜU]D[ÜU]R|MEMURL)", re.IGNORECASE)
                 nden_re = re.compile(r"N'?D[EA]N\s*$", re.IGNORECASE)
@@ -4384,7 +4384,7 @@ def parse_multiple_announcements(text: str) -> list[dict]:
                     start_pos = m_old_addr_line.end()
                     line1 = (m_old_addr_line.group(1) or "").strip()
                     rest = txt[start_pos:]
-                    cont2: list[str] = []
+                    cont2: List[str] = []
                     for ln2 in rest.splitlines():
                         s = (ln2 or "").strip()
                         if not s:

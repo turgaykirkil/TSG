@@ -39,7 +39,7 @@ export default function Reveal({ children, delayMs = 0, className }: Props) {
         (visible
           ? "opacity-100 translate-y-0 blur-0"
           : "opacity-0 translate-y-4 blur-[2px]") +
-        " transition-all duration-700 ease-out"
+        " transition-[opacity,transform,filter] duration-700 ease-out"
       }
     >
       {children}

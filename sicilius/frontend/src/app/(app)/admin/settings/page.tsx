@@ -4,6 +4,7 @@ import React from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import EmailSettingsForm from '@/app/(app)/admin/components/settings/EmailSettingsForm';
 import UserSettingsForm from '@/app/(app)/admin/components/settings/UserSettingsForm';
+import GeneralSettingsForm from '@/app/(app)/admin/components/settings/GeneralSettingsForm';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 export default function SettingsPage() {
@@ -11,7 +12,7 @@ export default function SettingsPage() {
   const pathname = usePathname();
   const params = useSearchParams();
   const tabParam = (params.get('tab') || 'general').toLowerCase();
-  const [value, setValue] = React.useState<string>(['general','email','users','security','integrations'].includes(tabParam) ? tabParam : 'general');
+  const [value, setValue] = React.useState<string>(['general', 'email', 'users', 'security', 'integrations'].includes(tabParam) ? tabParam : 'general');
 
   const setTab = (v: string) => {
     setValue(v);
@@ -35,7 +36,7 @@ export default function SettingsPage() {
         </TabsList>
 
         <TabsContent value="general">
-          <div className="text-sm text-muted-foreground">Genel ayarlar yakında.</div>
+          <GeneralSettingsForm />
         </TabsContent>
 
         <TabsContent value="email">

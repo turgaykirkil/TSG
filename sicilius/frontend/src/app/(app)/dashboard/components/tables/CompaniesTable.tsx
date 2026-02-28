@@ -27,10 +27,10 @@ export default function CompaniesTable({ companies = [], onSelectCompany }: Comp
   // Eşleşme kuvveti varsa skoruna göre azalan sırada göster
   const rows = Array.isArray(companies)
     ? [...companies].sort((a: any, b: any) => {
-        const sa = typeof a?.match_strength === 'number' ? a.match_strength : -1;
-        const sb = typeof b?.match_strength === 'number' ? b.match_strength : -1;
-        return sb - sa;
-      })
+      const sa = typeof a?.match_strength === 'number' ? a.match_strength : -1;
+      const sb = typeof b?.match_strength === 'number' ? b.match_strength : -1;
+      return sb - sa;
+    })
     : [];
 
   return (
@@ -59,14 +59,14 @@ export default function CompaniesTable({ companies = [], onSelectCompany }: Comp
                 data-testid={`company-row-${idx}`}
                 onClick={() => {
                   if (onSelectCompany && typeof id === 'string' && id) onSelectCompany(id);
-                  else console.log('Şirket detayına git (id yok):', registryNo || title);
+                  // else console.log('Şirket detayına git (id yok):', registryNo || title);
                 }}
                 tabIndex={0}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
                     if (onSelectCompany && typeof id === 'string' && id) onSelectCompany(id);
-                    else console.log('Şirket detayına git (id yok):', registryNo || title);
+                    // else console.log('Şirket detayına git (id yok):', registryNo || title);
                   }
                 }}
                 aria-label={`Şirket: ${title}, Şehir: ${city}`}

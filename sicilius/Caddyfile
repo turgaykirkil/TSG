@@ -1,0 +1,30 @@
+{
+    # Global options
+    email admin@example.com
+}
+
+# Domain block (Will wait for DOMAIN_NAME var, or fallback to :80 if just IP)
+# Replace :80 with your domain (e.g., example.com) to enable Auto HTTPS
+:80 {
+    # Backend API (Strip /api prefix if needed, or keeping it)
+    # Assuming FastAPI mounts at / and Next.js calls /api/... 
+    # But usually backend is independent. Let's proxy /api/* to backend.
+    
+    handle /api/* {
+        uri strip_prefix /api
+        reverse_proxy backend:5001
+    }
+
+    handle /docs {
+        reverse_proxy backend:5001
+    }
+
+    handle /openapi.json {
+        reverse_proxy backend:5001
+    }
+
+    # Frontend (Next.js) - Everything else
+    handle {
+        reverse_proxy frontend:3000
+    }
+}

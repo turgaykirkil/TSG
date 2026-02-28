@@ -3,7 +3,7 @@ Authentication endpoints
 """
 from datetime import timedelta
 import logging
-from typing import Any
+from typing import Any, Optional
 from datetime import datetime
 import secrets
 
@@ -39,7 +39,7 @@ def _get_user_settings(db: Session) -> dict:
 def _get_security_settings(db: Session) -> dict:
     return _get_app_settings(db, "security_settings")
 
-def _validate_password_policy(new_password: str, policy: dict | None) -> None:
+def _validate_password_policy(new_password: str, policy: Optional[dict]) -> None:
     if not policy:
         return
     # Minimum length
@@ -203,19 +203,33 @@ def require_admin(
     Logs the user's email and role in all cases for debugging.
     """
     try:
-        role = getattr(current_user.role, "value", str(current_user.role))
-    except Exception:
-        role = str(getattr(current_user, "role", None))
-    is_admin = bool(crud.user.is_superuser(current_user))
-    logger.warning(
-        "[require-admin] user=%s role=%s is_admin=%s",
-        (current_user.email or "").lower(),
-        role,
-        is_admin,
-    )
-    if not is_admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not admin")
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+        import sys
+        print(f"DEBUG: require-admin entered for {current_user.email}", file=sys.stderr)
+        try:
+            role = getattr(current_user.role, "value", str(current_user.role))
+        except Exception:
+            role = str(getattr(current_user, "role", None))
+        
+        is_admin = bool(crud.user.is_superuser(current_user))
+        print(f"DEBUG: require-admin check: is_admin={is_admin}", file=sys.stderr)
+        
+        logger.warning(
+            "[require-admin] user=%s role=%s is_admin=%s",
+            (current_user.email or "").lower(),
+            role,
+            is_admin,
+        )
+        if not is_admin:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not admin")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        import sys
+        print(f"CRITICAL ERROR in require-admin: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        raise HTTPException(status_code=500, detail=f"Internal Server Error in require-admin: {e}")
 
 
 @router.post("/login/test-token", response_model=user_schema.User)
@@ -619,7 +633,7 @@ def invite_revoke(
 class SignupProxyRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=128)
-    full_name: str | None = None
+    full_name: Optional[str] = None
     auto_login: bool = True
 
 

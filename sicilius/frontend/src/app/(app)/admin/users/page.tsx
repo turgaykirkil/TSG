@@ -114,21 +114,21 @@ export default function AdminUsersPage() {
       <h1 className="text-2xl font-bold mb-1">Kullanıcılar</h1>
       <p className="text-sm text-muted-foreground mb-4">Kullanıcıları görüntüleyin, rollerini değiştirin ve erişimlerini yönetin.</p>
 
-      <div className="flex items-center gap-3 mb-4">
-        <div className="grid gap-1">
+      <div className="flex flex-col md:flex-row md:items-center gap-3 mb-4">
+        <div className="grid gap-1 w-full md:w-auto">
           <Label htmlFor="q">Ara</Label>
           <Input id="q" placeholder="İsim ya da e-posta" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
-        <div className="mt-6">
+        <div className="flex mt-6 md:mt-6 gap-2">
           <Button variant="outline" onClick={load} disabled={loading}>{loading ? "Yükleniyor..." : "Yenile"}</Button>
         </div>
-        <div className="mt-6 ml-auto">
-          <Button onClick={() => { setInviteOpen(true); setInviteLink(null); }}>Kullanıcı Davet Et</Button>
+        <div className="mt-2 md:mt-6 md:ml-auto w-full md:w-auto">
+          <Button className="w-full md:w-auto" onClick={() => { setInviteOpen(true); setInviteLink(null); }}>Kullanıcı Davet Et</Button>
         </div>
       </div>
 
-      <div className="rounded border">
-        <Table>
+      <div className="rounded border overflow-x-auto">
+        <Table className="min-w-[800px]">
           <TableHeader>
             <TableRow>
               <TableHead>E-posta</TableHead>

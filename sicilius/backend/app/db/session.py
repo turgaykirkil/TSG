@@ -36,9 +36,9 @@ if is_supabase:
 else:
     # Regular pooling for local/managed Postgres
     engine_kwargs.update({
-        "pool_recycle": 120,  # Lower recycle time (2 mins) to avoid stale remote connections
-        "pool_size": 10,
-        "max_overflow": 20,
+        "pool_recycle": 60,  # Recycle fast (1 min) to avoid stale remote tunnel connections
+        "pool_size": 5,
+        "max_overflow": 10,
     })
 
 # Add TCP Keepalive for Postgres to detect dead connections faster

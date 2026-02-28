@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class StorageObject(BaseModel):
     object_name: str
     size: int
-    last_modified: datetime | None
+    last_modified: Optional[datetime]
 
 
 class PresignedUrlResponse(BaseModel):
@@ -28,19 +28,19 @@ class PresignedUrlResponse(BaseModel):
 
 @router.get("/announcements", response_model=List[StorageObject])
 def list_announcement_files(
-    prefix: str | None = Query(default=None, description="Alt klasör filtrelemesi"),
+    prefix: Optional[str] = Query(default=None, description="Alt klasör filtrelemesi"),
     limit: int = Query(default=500, ge=1, le=5000, description="Döndürülecek maksimum kayıt sayısı"),
     _: models.User = Depends(deps.get_current_active_superuser),
 ):
     """MinIO üzerindeki gazete PDF’lerini listeler."""
     try:
-        objects = list_objects(settings.minio_bucket_gazette_pdfs, prefix=prefix)
+        objects = list_objects(settings.minio_bucket_gazette_pdfs, prefix=prefix, limit=limit)
     except Exception as exc:  # pragma: no cover - ağ/erişim hatası
         logger.error("MinIO list_objects failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to list files from storage: {exc}")
 
     serialized: List[StorageObject] = []
-    for entry in objects[:limit]:
+    for entry in objects:
         try:
             last_modified = (
                 datetime.fromisoformat(entry["last_modified"]) if entry.get("last_modified") else None

@@ -1,5 +1,8 @@
 User-agent: *
+Allow: /
 Disallow: /admin
+Disallow: /dashboard
+Disallow: /profile
+Disallow: /api
 
-# Optional: point to sitemap if available
 Sitemap: https://sicilius.com.tr/sitemap.xml

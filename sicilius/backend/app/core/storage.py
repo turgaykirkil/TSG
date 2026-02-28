@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import io
+import urllib3
 from functools import lru_cache
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Union
 
 from minio import Minio
 from minio.deleteobjects import DeleteObject
@@ -15,10 +16,14 @@ from app.core.config import settings
 def get_minio_client() -> Minio:
     """Return a singleton MinIO client configured from settings."""
     return Minio(
-        settings.minio_endpoint,
-        access_key=settings.minio_access_key,
-        secret_key=settings.minio_secret_key,
-        secure=settings.minio_secure,
+        settings.MINIO_ENDPOINT,
+        access_key=settings.MINIO_ACCESS_KEY,
+        secret_key=settings.MINIO_SECRET_KEY,
+        secure=settings.MINIO_SECURE,
+        http_client=urllib3.PoolManager(
+            timeout=urllib3.Timeout(connect=5.0, read=30.0),
+            retries=urllib3.Retry(3, backoff_factor=0.2)
+        ),
         region=settings.minio_region,
     )
 
@@ -70,13 +75,15 @@ def upload_stream(
     return object_name
 
 
-def list_objects(bucket_name: str, prefix: Optional[str] = None) -> List[dict]:
+def list_objects(bucket_name: str, prefix: Optional[str] = None, limit: Optional[int] = None) -> List[dict]:
     """List objects in a bucket (recursively)."""
     client = get_minio_client()
     if not client.bucket_exists(bucket_name):
         return []
     objects = client.list_objects(bucket_name, prefix=prefix, recursive=True)
     results: List[dict] = []
+    
+    count = 0
     for obj in objects:
         results.append(
             {
@@ -86,10 +93,14 @@ def list_objects(bucket_name: str, prefix: Optional[str] = None) -> List[dict]:
                 "is_dir": obj.is_dir,
             }
         )
+        count += 1
+        if limit is not None and count >= limit:
+            break
+            
     return results
 
 
-def get_presigned_url(bucket_name: str, object_name: str, expires: int | float = 3600) -> str:
+def get_presigned_url(bucket_name: str, object_name: str, expires: Union[int, float] = 3600) -> str:
     """Return a presigned GET url for an object.
 
     MinIO istemcisi `datetime.timedelta` beklediğinden, saniye cinsinden gelen değerleri

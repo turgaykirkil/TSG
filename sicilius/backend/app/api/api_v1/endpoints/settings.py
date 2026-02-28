@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
-from typing import Any
+from typing import Any, Optional
 import smtplib
 from email.message import EmailMessage
 
@@ -15,7 +15,7 @@ SETTINGS_EMAIL_KEY = "email_settings"
 SETTINGS_USER_KEY = "user_settings"
 
 
-def _get_email_settings(db: Session) -> dict | None:
+def _get_email_settings(db: Session) -> Optional[dict]:
     row = db.query(AppSetting).filter(AppSetting.key == SETTINGS_EMAIL_KEY).first()
     return row.value if row else None
 
@@ -31,7 +31,7 @@ def _set_email_settings(db: Session, data: dict) -> None:
     db.commit()
 
 
-def _get_user_settings(db: Session) -> dict | None:
+def _get_user_settings(db: Session) -> Optional[dict]:
     row = db.query(AppSetting).filter(AppSetting.key == SETTINGS_USER_KEY).first()
     return row.value if row else None
 

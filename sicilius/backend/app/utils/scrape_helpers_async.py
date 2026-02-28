@@ -372,10 +372,16 @@ async def handle_pdf_popup(parent_page: Page, popup: Page) -> Tuple[Optional[byt
         return (None, False)
 
     for round_idx in range(1, 4):
-        had_captcha_before = (await popup.query_selector('#CaptchaImg')) is not None or (await popup.query_selector('#FormGuvenlikKodu')) is not None
-        await ensure_captcha(popup)
-        had_captcha_after = (await popup.query_selector('#CaptchaImg')) is not None or (await popup.query_selector('#FormGuvenlikKodu')) is not None
-        captcha_solved = had_captcha_before and (not had_captcha_after)
+        try:
+            had_captcha_before = (await popup.query_selector('#CaptchaImg')) is not None or (await popup.query_selector('#FormGuvenlikKodu')) is not None
+            await ensure_captcha(popup)
+            had_captcha_after = (await popup.query_selector('#CaptchaImg')) is not None or (await popup.query_selector('#FormGuvenlikKodu')) is not None
+            captcha_solved = had_captcha_before and (not had_captcha_after)
+        except Exception as e:
+            if "Target crashed" in str(e):
+                print(f"[WARN] Popup hedefi çöktü (Target crashed): {e}")
+                return (None, False)
+            raise e
 
         # Viewer içeriğini tetiklemek için hafif scroll
         try:

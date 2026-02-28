@@ -7,7 +7,14 @@ from urllib.parse import urlparse
 from email.utils import make_msgid
 from urllib.request import urlopen
 from urllib.error import URLError, HTTPError
-from cairosvg import svg2png
+
+# Cairo SVG is optional - if not available, logo embedding will be skipped
+try:
+    from cairosvg import svg2png
+    HAS_CAIRO = True
+except (ImportError, OSError):
+    HAS_CAIRO = False
+    svg2png = None
 
 from app.models.app_setting import AppSetting
 
@@ -114,18 +121,23 @@ def send_invite_email(db: Session, to: str, token: str) -> None:
     # Prefer a built-in inline SVG rasterized to PNG (no network dependency)
     logo_bytes: Optional[bytes] = None
     logo_subtype = "png"
-    try:
-        inline_svg = (
-            "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='112' height='112' "
-            "fill='none' stroke='#0ea5e9' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
-            "<path d='M15.6 12.8c-1.2 1.2-2.8 2-4.6 2s-3.4-.8-4.6-2c-1.2-1.2-2-2.8-2-4.6s.8-3.4 2-4.6c1.2-1.2 2.8-2 4.6-2s3.4.8 4.6 2'></path>"
-            "<path d='M8.4 11.2c1.2-1.2 2.8-2 4.6-2s3.4.8 4.6 2c1.2 1.2 2 2.8 2 4.6s-.8 3.4-2 4.6c-1.2 1.2-2.8 2-4.6 2s-3.4-.8-4.6-2'></path>"
-            "</svg>"
-        )
-        logo_bytes = svg2png(bytestring=inline_svg.encode('utf-8'))
-        logo_subtype = "png"
-    except Exception:
-        # Fallback: try to fetch explicit override PNG/JPEG if provided
+    if HAS_CAIRO:
+        try:
+            inline_svg = (
+                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='112' height='112' "
+                "fill='none' stroke='#0ea5e9' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
+                "<path d='M15.6 12.8c-1.2 1.2-2.8 2-4.6 2s-3.4-.8-4.6-2c-1.2-1.2-2-2.8-2-4.6s.8-3.4 2-4.6c1.2-1.2 2.8-2 4.6-2s3.4.8 4.6 2'></path>"
+                "<path d='M8.4 11.2c1.2-1.2 2.8-2 4.6-2s3.4.8 4.6 2c1.2 1.2 2 2.8 2 4.6s-.8 3.4-2 4.6c-1.2 1.2-2.8 2-4.6 2s-3.4-.8-4.6-2'></path>"
+                "</svg>"
+            )
+            logo_bytes = svg2png(bytestring=inline_svg.encode('utf-8'))
+            logo_subtype = "png"
+        except Exception as e:
+            logger.warning(f"SVG to PNG conversion failed: {e}")
+            logo_bytes = None
+    
+    # Fallback: try to fetch explicit override PNG/JPEG if Cairo not available or failed
+    if logo_bytes is None:
         try:
             if not brand_logo_url:
                 raise RuntimeError("brand_logo_url not configured")

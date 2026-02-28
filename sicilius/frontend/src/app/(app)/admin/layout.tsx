@@ -23,7 +23,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         return;
       }
       try {
-        const res = await fetch('/api/v1/auth/require-admin', { method: 'GET', credentials: 'include', cache: 'no-store' });
+        const baseUrl = process.env.NEXT_PUBLIC_API_URL || '';
+        const res = await fetch(`${baseUrl}/api/v1/auth/require-admin`, { method: 'GET', credentials: 'include', cache: 'no-store' });
         if (res.status !== 204) {
           router.replace('/dashboard');
           return;
@@ -48,7 +49,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-screen bg-background text-foreground">
-      <AppSidebar />
+      <div className="hidden md:flex w-64 flex-col border-r bg-background">
+        <AppSidebar />
+      </div>
       <div className="flex flex-col flex-1 overflow-hidden">
         <AppHeader />
         <main className="flex-1 overflow-y-auto p-6">

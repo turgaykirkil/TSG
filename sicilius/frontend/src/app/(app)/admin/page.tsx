@@ -12,13 +12,15 @@ import OCRProcessing from './components/ocr-processing';
 import JobHistory from './components/job-history';
 import CoordinatesDashboard from './components/coordinates-dashboard';
 import { useAuth } from '@/contexts/AuthContext';
-import { StatCard } from './components/StatCard';
-import { useRealtimeStats } from '@/hooks/useRealtimeStats';
+// import { StatCard } from './components/StatCard';
+// import { useRealtimeStats } from '@/hooks/useRealtimeStats';
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/contexts/ThemeContext';
 
+import { AdminStats } from '@/app/(app)/admin/components/dashboard/AdminStats';
+
 const AdminPage = () => {
-  const { stats, error } = useRealtimeStats();
+  // const { stats, error } = useRealtimeStats(); // Removed by User Request
   const { session } = useAuth();
   const user = session?.user;
   const { theme, setTheme } = useTheme();
@@ -41,8 +43,10 @@ const AdminPage = () => {
         </Button>
       </div>
 
+      <AdminStats />
+
       <Tabs defaultValue="fileUpload" className="w-full">
-        <TabsList className="grid grid-cols-5 w-full max-w-3xl mb-6">
+        <TabsList className="grid grid-cols-2 md:grid-cols-5 w-full max-w-3xl mb-6 h-auto">
           <TabsTrigger value="fileUpload">
             <Icons.upload className="mr-2 h-4 w-4" /> Dosya Yükleme
           </TabsTrigger>
@@ -52,11 +56,9 @@ const AdminPage = () => {
           <TabsTrigger value="scraping">
             <Icons.layoutDashboard className="mr-2 h-4 w-4" /> Web Scraping
           </TabsTrigger>
-          <TabsTrigger value="ocr">
-            <Icons.fileText className="mr-2 h-4 w-4" /> OCR İşlemleri
-          </TabsTrigger>
+
           <TabsTrigger value="history">
-            <Icons.history className="mr-2 h-4 w-4" /> İş Geçmişi
+            <Icons.history className="mr-2 h-4 w-4" /> Geçmiş
           </TabsTrigger>
         </TabsList>
 
@@ -69,56 +71,16 @@ const AdminPage = () => {
         <TabsContent value="scraping">
           <ScrapingDashboard />
         </TabsContent>
-        <TabsContent value="ocr">
-          <OCRProcessing />
-        </TabsContent>
+
         <TabsContent value="history">
           <JobHistory />
         </TabsContent>
       </Tabs>
 
-      {error && <div className="text-red-500 text-center my-4 p-4 border border-red-500 rounded-md">{error}</div>}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5 mt-8">
-        <StatCard
-          title="Toplam Şirket"
-          value={stats?.total_companies?.toLocaleString('tr-TR') || '0'}
-          icon={Building2}
-          change=""
-          isLoading={!stats && !error}
-        />
-        <StatCard
-          title="Taranan Şirket"
-          value={stats?.scraped_companies?.toLocaleString('tr-TR') || '0'}
-          icon={FileSearch}
-          change=""
-          isLoading={!stats && !error}
-        />
-        <StatCard
-          title="Toplam İlan"
-          value={stats?.total_announcements?.toLocaleString('tr-TR') || '0'}
-          icon={Activity}
-          change=""
-          isLoading={!stats && !error}
-        />
-        <StatCard
-          title="Bugün Eklenen Şirket"
-          value={stats?.new_companies_today?.toLocaleString('tr-TR') || '0'}
-          icon={MapPin}
-          change=""
-          isLoading={!stats && !error}
-        />
-        <StatCard
-          title="Storage Toplam Dosya"
-          value={
-            stats?.storage_total_files != null
-              ? stats.storage_total_files.toLocaleString('tr-TR')
-              : '0'
-          }
-          icon={FileSearch}
-          change=""
-          isLoading={!stats && !error}
-        />
-      </div>
+      {/* Stats Section Removed by User Request */}
+      {/* <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5 mt-8">
+        ... (Stats Removed) ...
+      </div> */}
     </div>
   );
 };

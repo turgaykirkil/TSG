@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from typing import Iterable, List, Set
+from typing import Iterable, List, Set, Optional
 
 
-def tr_normalize_py(s: str | None) -> str:
+def tr_normalize_py(s: Optional[str]) -> str:
     """
     Türkçe aksan ve noktalı I/ı duyarsız normalize edici.
     - 'İ' -> 'I', 'ı' -> 'i'
@@ -21,14 +21,14 @@ def tr_normalize_py(s: str | None) -> str:
     return s.lower().strip()
 
 
-def tr_letters_digits(s: str | None) -> str:
+def tr_letters_digits(s: Optional[str]) -> str:
     """Normalize et ve harf/rakam dışını çıkar."""
     if not s:
         return ""
     return re.sub(r"[^a-z0-9]+", "", tr_normalize_py(s))
 
 
-def tokenize_for_search(text: str | None, *, min_len: int = 2, max_tokens: int = 20) -> List[str]:
+def tokenize_for_search(text: Optional[str], *, min_len: int = 2, max_tokens: int = 20) -> List[str]:
     """
     Basit arama token'ları üretir:
     - Türkçe normalize (unaccent + lower + I/ı düzeltmesi)

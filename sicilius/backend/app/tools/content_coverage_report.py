@@ -58,7 +58,7 @@ def normalize_action(a) -> str:
     return str(a)
 
 
-def build_report(input_dir: str, limit: int | None = None) -> Dict[str, Any]:
+def build_report(input_dir: str, limit: Optional[int] = None) -> Dict[str, Any]:
     files_processed = 0
     announcements_total = 0
 

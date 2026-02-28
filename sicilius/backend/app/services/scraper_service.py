@@ -1,10 +1,11 @@
 import asyncio
+from typing import Optional
 from playwright.async_api import async_playwright
 from sqlalchemy.orm import Session
 from app import crud, models
 from app.utils.office_normalization import normalize_office_freeform, VALID_SICIL_OFFICES
 
-def normalize_city_name(db_city_name: str) -> str | None:
+def normalize_city_name(db_city_name: str) -> Optional[str]:
     if not db_city_name:
         return None
     official = normalize_office_freeform(db_city_name)

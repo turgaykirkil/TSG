@@ -60,40 +60,40 @@ def create_company(
         )
 
 
-@router.get("/{company_id}/nearby", response_model=List[schemas.NearbyCompany])
-def read_nearby_companies(
-    *,
-    db: Session = Depends(deps.get_db),
-    company_id: str,
-    max_km: float = Query(5.0, ge=0.1, le=200.0),
-    limit: int = Query(10, ge=1, le=100),
-    current_user: models.User = Depends(deps.get_current_active_user),
-) -> Any:
-    """
-    Verilen şirketin koordinatına göre yakın şirketleri getirir.
-    Koordinatı olmayan referans şirketlerde 400 döner.
-    """
-    ref = crud.company.get(db, id=company_id)
-    if not ref:
-        raise HTTPException(status_code=404, detail="Şirket bulunamadı")
-    if getattr(ref, 'koordinat', None) is None:
-        raise HTTPException(status_code=400, detail="Referans şirketin koordinatı yok")
-
-    items = crud.company.get_nearby_by_id(db, company_id=company_id, max_km=max_km, limit=limit)
-    # Pydantic NearbyCompany ile uyumlu alanları döner
-    return [
-        {
-            "id": it["id"],
-            "unvan": it.get("unvan"),
-            "title": it.get("unvan"),
-            "trade_name": None,
-            "address": it.get("address"),
-            "city": it.get("city"),
-            "distance_km": it.get("distance_km", 0.0),
-            "koordinat": it.get("koordinat"),
-        }
-        for it in items
-    ]
+# @router.get("/{company_id}/nearby", response_model=List[schemas.NearbyCompany])
+# def read_nearby_companies(
+#     *,
+#     db: Session = Depends(deps.get_db),
+#     company_id: str,
+#     max_km: float = Query(5.0, ge=0.1, le=200.0),
+#     limit: int = Query(10, ge=1, le=100),
+#     current_user: models.User = Depends(deps.get_current_active_user),
+# ) -> Any:
+#     """
+#     Verilen şirketin koordinatına göre yakın şirketleri getirir.
+#     Koordinatı olmayan referans şirketlerde 400 döner.
+#     """
+#     ref = crud.company.get(db, id=company_id)
+#     if not ref:
+#         raise HTTPException(status_code=404, detail="Şirket bulunamadı")
+#     if getattr(ref, 'koordinat', None) is None:
+#         raise HTTPException(status_code=400, detail="Referans şirketin koordinatı yok")
+# 
+#     items = crud.company.get_nearby_by_id(db, company_id=company_id, max_km=max_km, limit=limit)
+#     # Pydantic NearbyCompany ile uyumlu alanları döner
+#     return [
+#         {
+#             "id": it["id"],
+#             "unvan": it.get("unvan"),
+#             "title": it.get("unvan"),
+#             "trade_name": None,
+#             "address": it.get("address"),
+#             "city": it.get("city"),
+#             "distance_km": it.get("distance_km", 0.0),
+#             "koordinat": it.get("koordinat"),
+#         }
+#         for it in items
+#     ]
 
 @router.get("/search/", response_model=List[schemas.Company])
 def search_companies(

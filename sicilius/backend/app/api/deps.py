@@ -156,4 +156,10 @@ def enforce_daily_limit(
 
     usage.count += 1
     db.add(usage)
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        # DB failure during limit update shouldn't block the request, 
+        # but we should log it.
+        logging.error(f"Failed to update daily usage: {e}")
+        db.rollback()

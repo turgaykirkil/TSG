@@ -29,21 +29,22 @@ export function PublicHeader() {
   ];
 
   return (
-    <header 
+    <header
       data-testid="public-header"
       className={cn(
         'fixed top-0 left-0 right-0 z-50 transition-all duration-300',
-        isScrolled 
-          ? 'bg-background/80 backdrop-blur-md border-b border-border/50 shadow-sm' 
+        isScrolled
+          ? 'bg-background/80 backdrop-blur-md border-b border-border/50 shadow-sm'
           : 'bg-transparent border-b border-transparent'
       )}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16 md:h-20">
           <div className="flex items-center">
-            <Link 
-              href="/" 
+            <Link
+              href="/"
               className="flex items-center space-x-2 group"
+              title="Sicilius - Kurumsal Veri Analizi ve Sorgulama Platformu Anasayfası"
             >
               <Logo className="h-7 w-auto text-primary" />
               <span className="text-2xl font-bold gradient-text">Sicilius</span>
@@ -56,6 +57,7 @@ export function PublicHeader() {
               <Link
                 key={item.href}
                 href={item.href}
+                title={`${item.name} Sayfasına Git`}
                 className={cn(
                   'px-4 py-2 text-sm font-medium rounded-lg transition-colors',
                   'text-foreground/80 hover:text-foreground hover:bg-gray-100 dark:hover:bg-slate-800',
@@ -85,7 +87,7 @@ export function PublicHeader() {
               aria-expanded="false"
             >
               <span className="sr-only">Menüyü aç</span>
-              {isScrolled ? 
+              {isScrolled ?
                 (isMenuOpen ? <X size={24} /> : <Menu size={24} />) :
                 (isMenuOpen ? <X size={24} className="text-white" /> : <Menu size={24} className="text-white" />)}
             </button>

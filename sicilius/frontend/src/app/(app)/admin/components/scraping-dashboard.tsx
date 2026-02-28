@@ -13,6 +13,7 @@ export default function ScrapingDashboard() {
   const [scrapeCount, setScrapeCount] = useState<number>(10);
   const [status, setStatus] = useState<any | null>(null);
   const [selectedCity, setSelectedCity] = useState<'İSTANBUL' | 'ANKARA' | 'İZMİR' | null>(null);
+  const [workerSource, setWorkerSource] = useState<'local' | 'remote'>('remote'); // Default to Old Mac
 
   const getApiUrl = useCallback(() => `/api/v1`, []);
 
@@ -30,7 +31,7 @@ export default function ScrapingDashboard() {
       const response = await fetch(`/api/scraping/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ count: scrapeCount }),
+        body: JSON.stringify({ count: scrapeCount, worker_source: workerSource }),
         credentials: 'include',
       });
 
@@ -63,7 +64,7 @@ export default function ScrapingDashboard() {
       const response = await fetch(`/api/scraping/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ count: scrapeCount, mode: 'city_fill', city }),
+        body: JSON.stringify({ count: scrapeCount, mode: 'city_fill', city, worker_source: workerSource }),
         credentials: 'include',
       });
       if (!response.ok) {
@@ -149,6 +150,31 @@ export default function ScrapingDashboard() {
               <Button variant={selectedCity === 'İZMİR' ? 'default' : 'outline'} disabled={isLoading || scrapeCount <= 0} onClick={() => handleStartCityFill('İZMİR')}>
                 İzmir
               </Button>
+            </div>
+
+            {/* Worker Source Selection */}
+            <div className="mt-4 flex items-center gap-4 p-3 border rounded-md bg-white dark:bg-black/40">
+              <span className="text-sm font-medium">Kaynak:</span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={workerSource === 'local' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setWorkerSource('local')}
+                  className={workerSource === 'local' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : ''}
+                >
+                  <Icons.laptop className="mr-2 h-4 w-4" />
+                  Bu Bilgisayar (5001)
+                </Button>
+                <Button
+                  variant={workerSource === 'remote' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={() => setWorkerSource('remote')}
+                  className={workerSource === 'remote' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : ''}
+                >
+                  <Icons.server className="mr-2 h-4 w-4" />
+                  Eski Mac (5002)
+                </Button>
+              </div>
             </div>
             {/* Status panel */}
             <div className="mt-4 rounded-md border bg-white/50 dark:bg-black/20 p-3 text-sm">

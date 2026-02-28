@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+export const dynamic = 'force-dynamic';
 
 // Proxy endpoint to check session status from scraping backend
 export async function GET(req: Request) {

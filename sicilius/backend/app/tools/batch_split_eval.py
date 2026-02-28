@@ -48,7 +48,7 @@ def iter_txt_files(input_dir: str):
         yield os.path.join(input_dir, name)
 
 
-def evaluate_dir(input_dir: str, limit: int | None = None) -> Dict[str, Any]:
+def evaluate_dir(input_dir: str, limit: Optional[int] = None) -> Dict[str, Any]:
     docs: List[DocEval] = []
     total = 0
     for fp in iter_txt_files(input_dir):

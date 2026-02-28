@@ -1,6 +1,6 @@
 import logging
 import re
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional, Set
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -17,13 +17,13 @@ logger = logging.getLogger(__name__)
 
 # --- Helpers ---
 
-def _normalize_whitespace(s: str | None) -> str:
+def _normalize_whitespace(s: Optional[str]) -> str:
     if not s:
         return ""
     return re.sub(r"\s+", " ", s).strip()
 
 
-def _normalize_sicil_no(s: str | None) -> str:
+def _normalize_sicil_no(s: Optional[str]) -> str:
     if not s:
         return ""
     s = s.strip()
@@ -32,7 +32,7 @@ def _normalize_sicil_no(s: str | None) -> str:
     return s.upper()
 
 
-def _canonical_sicil_root(s: str | None) -> str:
+def _canonical_sicil_root(s: Optional[str]) -> str:
     """
     Sicil numarasının kök kısmını çıkarır: yalnızca baştaki rakamları alır.
     Örn: "315543-5" -> "315543", "315543/5" -> "315543".
@@ -44,7 +44,7 @@ def _canonical_sicil_root(s: str | None) -> str:
     return m.group(1) if m else ""
 
 
-def _extract_office_from_header(header: str | None) -> str:
+def _extract_office_from_header(header: Optional[str]) -> str:
     """
     Başlıktan (sicil_office_header) sadece İLK KELİMEYİ döner.
     Örn: "İZMİR TİCARET SİCİLİ MÜDÜRLÜĞÜ'NDEN" -> "İZMİR"
@@ -78,12 +78,12 @@ def _extract_office_from_header(header: str | None) -> str:
     return ""
 
 
-def _pick_address(addresses: List[str] | None) -> str | None:
+def _pick_address(addresses: Optional[List[str]]) -> Optional[str]:
     if not addresses:
         return None
 
 
-def _split_person_name(full_name: str) -> Tuple[str, str | None, str] | None:
+def _split_person_name(full_name: str) -> Optional[Tuple[str, Optional[str], str]]:
     """
     Basit isim bölücü: son kelime soyadı, ilk kelime adı, aradakiler orta ad.
     Person modeli için first_name ve last_name zorunlu.
@@ -105,7 +105,7 @@ def _split_person_name(full_name: str) -> Tuple[str, str | None, str] | None:
     return first, (middle or None), last
 
 
-def _pick_address(addresses: List[str] | None) -> str | None:
+def _pick_address(addresses: Optional[List[str]]) -> Optional[str]:
     if not addresses:
         return None
     # İlk anlamlı adresi seç
@@ -116,7 +116,7 @@ def _pick_address(addresses: List[str] | None) -> str | None:
     return None
 
 
-def _first_word_office(s: str | None) -> str:
+def _first_word_office(s: Optional[str]) -> str:
     """
     Verilen ofis metninden yalnızca ilk anlamlı kelimeyi (üstteki kuralla) çıkarır.
     """
@@ -139,7 +139,7 @@ def _first_word_office(s: str | None) -> str:
 
 # --- Core ingest ---
 
-def build_company_payload_from_parsed(item: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any]] | None:
+def build_company_payload_from_parsed(item: Dict[str, Any]) -> Optional[Tuple[str, str, Dict[str, Any]]]:
     """
     Parse edilmiş tek ilan kaydından (nlp_service.parse_multiple_announcements çıktısı)
     Company için gerekli alanları üretir.
@@ -227,7 +227,7 @@ def upsert_companies(parsed_list: List[Dict[str, Any]], db: Session) -> Dict[str
                 Company.sicil_no == sicil_no,
                 Company.sicil_office_code == sicil_mudurluk,
             )
-            existing: Company | None = db.execute(stmt).scalars().first()
+            existing: Optional[Company] = db.execute(stmt).scalars().first()
             logger.debug("lookup primary key match sicil_no=%s office=%s found=%s", sicil_no, sicil_mudurluk, bool(existing))
 
             # Geçmişte TAM resmi ad ile kayıt edilmiş olma olasılığına karşı ikinci deneme
@@ -331,7 +331,7 @@ def ingest_companies_and_announcements(parsed_list: List[Dict[str, Any]], db: Se
     ocr_created = 0
     errors: List[str] = []
     links: List[Dict[str, Any]] = []
-    seen_relations: set[tuple[Any, Any]] = set()
+    seen_relations: Set[Tuple[Any, Any]] = set()
 
     logger.info("ingest_companies_and_announcements started count=%s", len(parsed_list))
     for item in parsed_list:
@@ -348,7 +348,7 @@ def ingest_companies_and_announcements(parsed_list: List[Dict[str, Any]], db: Se
                 Company.sicil_no == sicil_no,
                 Company.sicil_office_code == sicil_mudurluk,
             )
-            existing: Company | None = db.execute(stmt).scalars().first()
+            existing: Optional[Company] = db.execute(stmt).scalars().first()
 
             # Tam resmi ad ile geçmiş kayıt olma ihtimaline karşı ikinci deneme
             if not existing:
@@ -577,6 +577,7 @@ def ingest_companies_and_announcements(parsed_list: List[Dict[str, Any]], db: Se
             "ingest committed inserted=%s updated=%s skipped=%s office_mismatch=%s ann=%s ocr=%s",
             inserted, updated, skipped, office_mismatch, ann_created, ocr_created
         )
+        
     except Exception as e:
         logger.error("ingest commit failed: %s", e, exc_info=True)
         db.rollback()

@@ -15,12 +15,44 @@ export async function GET(
     || process.env.LOCATIONIQ_TOKEN
     || process.env.LOCATIONIQ_API_KEY;
 
+  // Fallback function for OSM
+  const serveOsm = async () => {
+    // OSM requires a valid User-Agent
+    const osmUpstream = `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+    console.log(`[TileProxy] Fallback to OSM: ${osmUpstream}`);
+    try {
+      const resp = await fetch(osmUpstream, {
+        cache: 'force-cache',
+        headers: {
+          'User-Agent': 'SiciliusPlatform/1.0 (internal-dev-proxy)',
+          'Accept': 'image/png',
+        },
+      });
+      if (!resp.ok) {
+        return NextResponse.json({ error: 'OSM tile fetch failed', status: resp.status }, { status: resp.status });
+      }
+      const b = Buffer.from(await resp.arrayBuffer());
+      return new NextResponse(b, {
+        headers: {
+          'Content-Type': 'image/png',
+          'Cache-Control': 'public, max-age=86400, s-maxage=86400, immutable',
+        },
+      });
+    } catch (e) {
+      return NextResponse.json({ error: 'OSM proxy error', detail: (e as Error).message }, { status: 502 });
+    }
+  };
+
   if (!token) {
-    return NextResponse.json({ error: 'Server-side LocationIQ token is not configured' }, { status: 500 });
+    console.warn('[TileProxy] No token configured, falling back to OSM directly.');
+    return serveOsm();
   }
 
   // LocationIQ raster tiles endpoint (PNG)
   const upstream = `https://tiles.locationiq.com/v3/streets/${encodeURIComponent(z)}/${encodeURIComponent(x)}/${encodeURIComponent(y)}.png?key=${encodeURIComponent(token)}`;
+
+  // Debug: Log the upstream URL
+  console.log(`[TileProxy] Requesting: ${upstream}`);
 
   try {
     const res = await fetch(upstream, {
@@ -33,7 +65,10 @@ export async function GET(
     });
 
     if (!res.ok) {
-      return NextResponse.json({ error: 'Upstream tile fetch failed', status: res.status }, { status: res.status });
+      const errText = await res.text();
+      console.error(`[TileProxy] Upstream failed: ${res.status} ${res.statusText}`, errText);
+      // Fallback to OSM on any error
+      return serveOsm();
     }
 
     const buff = Buffer.from(await res.arrayBuffer());
@@ -45,6 +80,7 @@ export async function GET(
       },
     });
   } catch (err) {
-    return NextResponse.json({ error: 'Tile proxy error', detail: (err as Error).message }, { status: 502 });
+    console.error(`[TileProxy] Catch error:`, err);
+    return serveOsm();
   }
 }

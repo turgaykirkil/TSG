@@ -33,10 +33,10 @@ const createIcon = (Icon: React.ForwardRefExoticComponent<Omit<LucideProps, 'ref
   const IconComponent = (props: IconProps) => (
     <Icon className={cn('h-5 w-5', props.className)} {...props} />
   );
-  
+
   // Add displayName for better debugging
   IconComponent.displayName = Icon.displayName || 'Icon';
-  
+
   return IconComponent;
 };
 
@@ -67,7 +67,7 @@ export const Icons = {
     HistoryIcon.displayName = 'History';
     return HistoryIcon;
   })(),
-  
+
   // Common icons
   home: createIcon(LucideIcons.Home),
   settings: createIcon(LucideIcons.Settings),
@@ -98,48 +98,48 @@ export const Icons = {
   arrowLeft: createIcon(LucideIcons.ArrowLeft),
   arrowUp: createIcon(LucideIcons.ArrowUp),
   arrowDown: createIcon(LucideIcons.ArrowDown),
-  
+
   // Dashboard icons
   layoutDashboard: createIcon(LucideIcons.LayoutDashboard),
   building2: createIcon(LucideIcons.Building2),
   newspaper: createIcon(LucideIcons.Newspaper),
-  
+
   // Status icons
   info: createIcon(LucideIcons.Info),
   alertCircle: createIcon(LucideIcons.AlertCircle),
   alertTriangle: createIcon(LucideIcons.AlertTriangle),
   checkCircle: createIcon(LucideIcons.CheckCircle2),
   xCircle: createIcon(LucideIcons.XCircle),
-  
+
   // Navigation
   arrowLeftCircle: createIcon(LucideIcons.ArrowLeftCircle),
   arrowRightCircle: createIcon(LucideIcons.ArrowRightCircle),
   fastForward: createIcon(LucideIcons.FastForward),
-  
+
   // Actions
   refreshCw: createIcon(LucideIcons.RefreshCw),
   rotateCw: createIcon(LucideIcons.RotateCw),
   copy: createIcon(LucideIcons.Copy),
   externalLink: createIcon(LucideIcons.ExternalLink),
   link: createIcon(LucideIcons.Link2),
-  
+
   // Media
   image: createIcon(LucideIcons.Image),
   fileImage: createIcon(LucideIcons.FileImage),
   filePdf: createIcon(LucideIcons.FileType),
   fileTextIcon: createIcon(LucideIcons.FileText),
-  
+
   // Social
   github: createIcon(LucideIcons.Github), // Note: GitHub is now exported as Github
   twitter: createIcon(LucideIcons.Twitter),
   linkedin: createIcon(LucideIcons.Linkedin),
   facebook: createIcon(LucideIcons.Facebook),
   instagram: createIcon(LucideIcons.Instagram),
-  
+
   // Toggle
   toggleLeft: createIcon(LucideIcons.ToggleLeft),
   toggleRight: createIcon(LucideIcons.ToggleRight),
-  
+
   // Other
   hash: createIcon(LucideIcons.Hash),
   calendar: createIcon(LucideIcons.Calendar),
@@ -149,6 +149,8 @@ export const Icons = {
   mapPin: createIcon(LucideIcons.MapPin),
   mapPinOff: createIcon(LucideIcons.MapPinOff),
   spinner: createIcon(LucideIcons.Loader2),
+  laptop: createIcon(LucideIcons.Laptop),
+  server: createIcon(LucideIcons.Server),
 };
 
 

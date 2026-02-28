@@ -45,13 +45,13 @@ class Settings(BaseSettings):
     supabase_key: Optional[str] = None  # Public anon key
     supabase_service_role_key: Optional[str] = None  # Service role key for admin operations
     # Supabase JWT secret for verifying access tokens locally (HS256). Optional fallback to auth.get_user if absent.
-    supabase_jwt_secret: str | None = None
+    supabase_jwt_secret: Optional[str] = None
 
     # MinIO / S3-compatible object storage
-    minio_endpoint: str = "minio:9000"
-    minio_access_key: str = "minioadmin"
-    minio_secret_key: str = "ChangeMe_12345"
-    minio_secure: bool = False
+    MINIO_ENDPOINT: str = "minio:9000"
+    MINIO_ACCESS_KEY: str = "minioadmin"
+    MINIO_SECRET_KEY: str = "ChangeMe_12345"
+    MINIO_SECURE: bool = False
     minio_region: Optional[str] = None
     minio_bucket_gazette_pdfs: str = "gazette-pdfs"
     minio_bucket_company_gazettes: str = "company-gazettes"
@@ -89,6 +89,16 @@ class Settings(BaseSettings):
     SECURE_COOKIE: Optional[bool] = None
     # Optional cookie domain to share auth cookie across subdomains (e.g. .sicilius.com.tr)
     COOKIE_DOMAIN: Optional[str] = None
+
+    @field_validator('COOKIE_DOMAIN', mode='before')
+    @classmethod
+    def assemble_cookie_domain(cls, v: Optional[str], info: ValidationInfo) -> Optional[str]:
+        if isinstance(v, str):
+            return v
+        # In production, share cookie across subdomains
+        if info.data.get("ENVIRONMENT", "development").lower() == "production":
+            return ".sicilius.com.tr"
+        return None
 
     @field_validator('SECURE_COOKIE', mode='before')
     @classmethod

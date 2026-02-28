@@ -9,7 +9,7 @@ export function QuickActions() {
       {/* Güvenlik/İlke: Kullanıcı tarafında veri yükleme yok; tüm sorgular backend API üzerinden yapılmalı. */}
       <Button
         className="bg-[#64FFDA] text-[#0A192F] hover:opacity-90"
-        onClick={() => console.log('Duyuru Ara')}
+        onClick={() => { /* Duyuru Ara */ }}
         aria-label="Duyuru Ara"
         title="Duyuru Ara"
       >
@@ -17,7 +17,7 @@ export function QuickActions() {
       </Button>
       <Button
         variant="ghost"
-        onClick={() => console.log('Şirketleri Keşfet')}
+        onClick={() => { /* Şirketleri Keşfet */ }}
         aria-label="Şirketleri Keşfet"
         title="Şirketleri Keşfet"
       >
@@ -25,7 +25,7 @@ export function QuickActions() {
       </Button>
       <Button
         variant="outline"
-        onClick={() => console.log('Trendler')}
+        onClick={() => { /* Trendler */ }}
         aria-label="Trendler"
         title="Trendler"
       >

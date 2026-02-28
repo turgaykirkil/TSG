@@ -28,7 +28,8 @@ export default function AdminContactMessagesPage() {
         setLoading(true);
         try {
             const unreadParam = filter === 'UNREAD' ? '?unread_only=true' : '';
-            const res = await fetch(`http://localhost:5001/api/v1/contact/${unreadParam}`, {
+            const baseUrl = process.env.NEXT_PUBLIC_API_URL || '';
+            const res = await fetch(`${baseUrl}/api/v1/contact/${unreadParam}`, {
                 credentials: 'include',
             });
 
@@ -55,7 +56,8 @@ export default function AdminContactMessagesPage() {
 
     const markAsRead = async (messageId: string) => {
         try {
-            const res = await fetch(`http://localhost:5001/api/v1/contact/${messageId}/read`, {
+            const baseUrl = process.env.NEXT_PUBLIC_API_URL || '';
+            const res = await fetch(`${baseUrl}/api/v1/contact/${messageId}/read`, {
                 method: 'PATCH',
                 credentials: 'include',
             });

@@ -1,9 +1,9 @@
-from __future__ import annotations
+
 
 import hashlib
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -42,7 +42,7 @@ class IngestStructuredPayload(BaseModel):
     delete_after_ingest: bool = False
 
 
-@dataclass(slots=True)
+@dataclass
 class IngestMeta:
     publication_date: Optional[str] = None
     issue_number: Optional[int] = None
@@ -186,7 +186,7 @@ def _resolve_announcement_from_filename(db: Session, name: Optional[str]) -> Opt
     return _resolve_announcement_by_file_name(db, clean)
 
 
-def _coerce_int(value: Optional[int | str]) -> Optional[int]:
+def _coerce_int(value: Optional[Union[int, str]]) -> Optional[int]:
     if value is None:
         return None
     try:
@@ -199,10 +199,10 @@ def _build_ingest_meta(
     db: Session,
     announcement_id: Optional[str],
     publication_date: Optional[str],
-    issue_number: Optional[int | str],
-    page_number: Optional[int | str],
+    issue_number: Optional[Union[int, str]],
+    page_number: Optional[Union[int, str]],
     pdf_url: Optional[str],
-    pdf_page_count: Optional[int | str],
+    pdf_page_count: Optional[Union[int, str]],
     pdf_file_name: Optional[str],
     original_text: Optional[str],
 ) -> IngestMeta:
@@ -287,11 +287,14 @@ def _ingest_locally(db: Session, parsed_items: List[Dict[str, Any]], meta: Inges
     return summary
 
 
-def _delete_source_file(source: Optional[SourceFilePayload]) -> None:
+from app.utils.stats_helper import increment_storage_file_count
+
+def _delete_source_file(db: Session, source: Optional[SourceFilePayload]) -> None:
     if not source:
         return
     try:
         storage_core.remove_objects(source.bucket, [source.path])
+        increment_storage_file_count(db, -1)
         logger.info("Source file deleted", extra={"bucket": source.bucket, "path": source.path})
     except Exception:
         logger.exception("Source file deletion failed", extra={"bucket": source.bucket, "path": source.path})
@@ -316,10 +319,10 @@ async def parse_text_multiple(
     skip_ingest: bool = Query(True, description="If true (default), do not persist; parse-only response."),
     announcement_id: Optional[str] = Query(None),
     publication_date: Optional[str] = Query(None),
-    issue_number: Optional[int | str] = Query(None),
-    page_number: Optional[int | str] = Query(None),
+    issue_number: Optional[Union[int, str]] = Query(None),
+    page_number: Optional[Union[int, str]] = Query(None),
     pdf_url: Optional[str] = Query(None),
-    pdf_page_count: Optional[int | str] = Query(None),
+    pdf_page_count: Optional[Union[int, str]] = Query(None),
     pdf_file_name: Optional[str] = Query(None),
 ):
     text = _parse_text_or_400(request_body)
@@ -451,7 +454,7 @@ async def ingest_structured(
         raise HTTPException(status_code=500, detail=f"Failed to ingest structured payload: {exc}")
 
     if payload.delete_after_ingest and source_file:
-        _delete_source_file(source_file)
+        _delete_source_file(db, source_file)
 
     response: Dict[str, Any] = {
         "parsed_count": len(masked_items),
