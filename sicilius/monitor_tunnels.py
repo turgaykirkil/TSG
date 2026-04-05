@@ -11,8 +11,8 @@ TUNNELS = [
     {"name": "MinIO", "local_port": 9000, "remote_target": "localhost:9000"},
     {"name": "MinIO Console", "local_port": 9001, "remote_target": "localhost:9001"},
 ]
-SSH_USER = "nalanmerci"
-SSH_HOST = "192.168.1.5"
+SSH_USER = "ubuntu"
+SSH_HOST = "89.252.153.102"
 
 def is_port_open(port):
     """Checks if a local port is listening."""

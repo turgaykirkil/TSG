@@ -12,6 +12,8 @@ from app.models.person import Person
 from app.models.relation import CompanyPersonRelation, RelationType
 from app.services import nlp_service
 from app.utils.office_normalization import normalize_office_from_header
+from app.core.search_tokens import tr_normalize_py
+from app.core.search_tokens import tr_normalize_py
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,48 @@ def _normalize_whitespace(s: Optional[str]) -> str:
     if not s:
         return ""
     return re.sub(r"\s+", " ", s).strip()
+
+
+def _clean_nexus_string(value: Optional[str]) -> Optional[str]:
+    """Unified cleaner for addresses and headers to prevent administrative noise leakage.
+    Uses recursive trimming to strip headers/footers containing TC., Müdürlüğü, etc.
+    """
+    if not value:
+        return None
+    
+    # 2. Identify noise tokens (Unified with NLP layer)
+    noise_pat = re.compile(
+        r"^([#\*\s\-\:：.,;]+|"
+        r"T\.?C\.?(\s|(?=[A-ZÇĞİÖŞÜ]))|"
+        r"TiCARET\s+SiCiL[İI](\s+MÜDÜRLÜĞÜ)?\s*[:：.\-]*|"
+        r"MERS[İI]S\s*No.*?\:|"
+        r"[İI]lan\s*S[ıi]ra\s*No.*?\:|"
+        r"S[ıi]ra\s*No.*?\:)"
+        r"|([#\*\s\-\:：.,;]+|"
+        r"MÜDÜRLÜĞÜ['’]NDEN\.?|"
+        r"MÜDÜRLÜĞÜNE\.?|"
+        r"(?<!\w)MÜDÜRLÜĞÜ\.?)$",
+        re.IGNORECASE
+    )
+    
+    s = value
+    iteration = 0
+    while iteration < 5:
+        prev = s
+        s = noise_pat.sub("", s).strip()
+        if s == prev: break
+        iteration += 1
+        
+    if not s or len(s.strip()) < 2:
+        return None
+        
+    return _normalize_whitespace(s.strip(":,.- "))
+
+def _clean_company_address(address: Optional[str]) -> Optional[str]:
+    cleaned = _clean_nexus_string(address)
+    if cleaned and len(cleaned) < 5: # Address usually longer than just a city name
+        return None
+    return cleaned
 
 
 def _normalize_sicil_no(s: Optional[str]) -> str:
@@ -78,9 +122,7 @@ def _extract_office_from_header(header: Optional[str]) -> str:
     return ""
 
 
-def _pick_address(addresses: Optional[List[str]]) -> Optional[str]:
-    if not addresses:
-        return None
+# Duplicate _pick_address removed
 
 
 def _split_person_name(full_name: str) -> Optional[Tuple[str, Optional[str], str]]:
@@ -108,12 +150,23 @@ def _split_person_name(full_name: str) -> Optional[Tuple[str, Optional[str], str
 def _pick_address(addresses: Optional[List[str]]) -> Optional[str]:
     if not addresses:
         return None
-    # İlk anlamlı adresi seç
+        
+    # Pick the longest one that looks like a real address and is clean
+    valid_addresses = []
     for a in addresses:
-        aa = _normalize_whitespace(a)
-        if aa:
-            return aa
-    return None
+        cleaned = _clean_company_address(a)
+        if cleaned and len(cleaned) > 10:
+            valid_addresses.append(cleaned)
+    
+    if not valid_addresses:
+        # Fallback to pure normalization if nothing passes the strict filter
+        for a in addresses:
+            aa = _normalize_whitespace(a)
+            if aa and len(aa) > 5:
+                return aa
+        return None
+        
+    return max(valid_addresses, key=len)
 
 
 def _first_word_office(s: Optional[str]) -> str:
@@ -135,6 +188,292 @@ def _first_word_office(s: Optional[str]) -> str:
             continue
         return t.upper()
     return ""
+
+
+def delete_company_person_relations(db: Session, company_id: Any):
+    """Deletes all person relations for a company. Used during entity splits to clear stale data."""
+    db.query(CompanyPersonRelation).filter(CompanyPersonRelation.company_id == company_id).delete()
+    db.flush()
+
+
+def _is_placeholder_unvan(unvan: Optional[str]) -> bool:
+    """Detects if a company name is a placeholder from previous ingestion errors."""
+    if not unvan:
+        return True
+    v = unvan.upper()
+    # Common OCR noise or generic placeholders
+    placeholders = [
+        "MADDE 3", "TİCARET SİCİL", "SİCİL MÜDÜRLÜĞÜ", "İLAN SIRA NO",
+        "SMRA", "SHEM GIDA", "ANKARA", "İSTANBUL", "KEP ADRESİ"
+    ]
+    # If the unvan is very short or contains major placeholder keywords
+    if len(v) < 15:
+        return True
+    for p in placeholders:
+        if p in v and len(v) < 40:
+            return True
+    return False
+
+
+def _find_or_create_company_by_nlp(db: Session, structured_data: Dict[str, Any], current_cid: Any) -> Any:
+    """
+    Verifies if current_cid is the correct legal entity. 
+    If not, finds or creates the correct one.
+    """
+    trade_name = structured_data.get("trade_name")
+    sicil_no = structured_data.get("sicil_no")
+    
+    if not trade_name and not sicil_no:
+        return current_cid
+
+    # 1. Check current company
+    current_company = db.query(Company).filter(Company.id == current_cid).first()
+    if current_company:
+        curr_unvan = (current_company.unvan or "").upper()
+        ext_unvan = (trade_name or "").upper()
+        
+        # If it's a placeholder or a match, keep original CID but update it
+        if _is_placeholder_unvan(current_company.unvan):
+            return current_cid
+        
+        # If name matches (partial), keep it
+        if ext_unvan and (ext_unvan in curr_unvan or curr_unvan in ext_unvan):
+            return current_cid
+            
+        # If sicil_no matches, keep it
+        if sicil_no and current_company.sicil_no == str(sicil_no):
+            return current_cid
+
+    # 2. Mismatch detected! Search for the correct entity
+    # A. Search by MERSIS (Strongest identifier if present)
+    mersis_no = structured_data.get("mersis_no") or structured_data.get("mersis")
+    if isinstance(mersis_no, list) and mersis_no:
+        mersis_no = mersis_no[0]
+    
+    if mersis_no:
+        mersis_val = _normalize_whitespace(str(mersis_no))
+        match = db.query(Company).filter(Company.mersis_number == mersis_val).first()
+        if match:
+            logger.info(f"Re-anchoring to existing company by MERSIS: {match.id}")
+            return match.id
+
+    # B. Search by Sicil No
+    s_no = sicil_no
+    if isinstance(s_no, list) and s_no:
+        s_no = s_no[0]
+        
+    if s_no:
+        match = db.query(Company).filter(Company.sicil_no == str(s_no)).first()
+        if match:
+            logger.info(f"Re-anchoring to existing company by Sicil No: {match.id}")
+            return match.id
+
+    # C. Search by Name (Normalized)
+    if trade_name:
+        t_name = trade_name
+        if isinstance(t_name, list) and t_name:
+            t_name = t_name[0]
+        norm_name = tr_normalize_py(str(t_name))
+        if len(norm_name) > 10:
+            match = db.query(Company).filter(Company.unvan_unaccent.ilike(f"%{norm_name}%")).first()
+            if match:
+                logger.info(f"Re-anchoring to existing company by Name: {match.id}")
+                return match.id
+
+    # 3. Create new company entry if we strongly believe it's a different entity
+    if trade_name:
+        new_comp = Company(
+            unvan=_clean_nexus_string(trade_name),
+            sicil_no=str(sicil_no) if sicil_no else None,
+            mersis_number=_normalize_whitespace(mersis_no) if mersis_no else None,
+            address=_clean_nexus_string(_pick_address(structured_data.get("addresses")))
+        )
+        db.add(new_comp)
+        try:
+            with db.begin_nested():
+                db.flush()
+            logger.info(f"Created NEW company for split entity: {new_comp.id} ({trade_name})")
+            return new_comp.id
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Failed to create new company entry: {e}")
+            # Final fallback: return the original CID if we can't even create a new one
+            return current_cid
+
+    return current_cid
+
+
+# --- Sync Helper for OCR Tasks ---
+
+def sync_relational_data_from_nlp(db: Session, company_id: Any, structured_data: Dict[str, Any]) -> Any:
+    """
+    Called by background OCR tasks to sync extracted data back to relational tables.
+    Returns the (potentially new/split) company_id.
+    """
+    # 1. Entity Re-Anchoring: Ensure we are using the correct company UUID
+    target_cid = _find_or_create_company_by_nlp(db, structured_data, company_id)
+    
+    # 2. Update company metadata
+    company = db.query(Company).filter(Company.id == target_cid).first()
+    if company:
+        changed = False
+        trade_name = structured_data.get("trade_name")
+        current_unvan = company.unvan
+        
+        # Overwrite if current unvan is empty OR a placeholder
+        if trade_name and (_is_placeholder_unvan(current_unvan) or not _normalize_whitespace(current_unvan)):
+            company.unvan = _clean_nexus_string(trade_name)
+            changed = True
+        
+        # Address update
+        address = _pick_address(structured_data.get("addresses"))
+        if address and not company.address:
+            # Also clean address before sinking
+            company.address = _clean_nexus_string(address)
+            changed = True
+            
+        # Mersis update if missing
+        mersis = structured_data.get("mersis_no")
+        if mersis and not company.mersis_number:
+            company.mersis_number = _normalize_whitespace(mersis)
+            changed = True
+            
+        if changed:
+            try:
+                # Use a nested transaction (savepoint) to prevent poisoning the whole session on IntegrityError
+                with db.begin_nested():
+                    db.flush()
+                logger.info(f"Updated metadata for company {company_id} from NLP")
+            except Exception as exc:
+                # If MERSIS is duplicate or other constraint fails, we skip this metadata update
+                db.rollback() 
+                logger.warning(f"Could not sync NLP metadata for company {company_id}: {exc}")
+
+    # 3. Ingest persons and relations
+    ingest_persons_and_relations(
+        db, target_cid, 
+        structured_data.get("persons"), 
+        structured_data.get("publication_date")
+    )
+    
+    return target_cid
+
+
+# --- Core ingest ---
+
+def ingest_persons_and_relations(
+    db: Session, 
+    company_id: Any, 
+    persons_data: Optional[List[Dict[str, Any]]],
+    pub_date: Optional[Any] = None
+):
+    """
+    Normalizes persons and creates CompanyPersonRelation records.
+    """
+    if not persons_data or not isinstance(persons_data, list):
+        return
+
+    seen_relations: Set[Tuple[Any, Any]] = set()
+    for person_item in persons_data:
+        if not isinstance(person_item, dict):
+            continue
+        
+        full_name = person_item.get("text") or person_item.get("full_name") or person_item.get("name")
+        masked_id = person_item.get("masked_ids") or person_item.get("masked_id")
+        if isinstance(masked_id, list) and masked_id:
+            masked_id = masked_id[0]
+        
+        address = person_item.get("address")
+        
+        if not full_name:
+            continue
+        
+        # Split name into first/last
+        name_parts = _split_person_name(full_name)
+        if not name_parts:
+            logger.debug(f"Could not split person name: {full_name}")
+            continue
+        
+        first_name, middle_name, last_name = name_parts
+        
+        # SEARCH FOR EXISTING PERSON (Disjunctive: Name + [ID OR Address])
+        # Find candidates with same name
+        candidates = db.query(Person).filter(
+            Person.first_name == first_name,
+            Person.last_name == last_name
+        ).all()
+        
+        existing_person = None
+        for cand in candidates:
+            # 1. Match by Masked ID (Strongest)
+            if masked_id and cand.masked_id == masked_id:
+                existing_person = cand
+                break
+            
+            # 2. Match by Address (Secondary)
+            if address and cand.address == address:
+                 existing_person = cand
+                 break
+            
+            # 3. Fallback: If both existing and new have NO ID and NO Address, 
+            # we assume it's the same person (Standard deduplication)
+            if not masked_id and not cand.masked_id and not address and not cand.address:
+                existing_person = cand
+                break
+
+        if not existing_person:
+            # Create new person
+            person_obj = Person(
+                first_name=first_name,
+                middle_name=middle_name,
+                last_name=last_name,
+                masked_id=masked_id,
+                address=address
+            )
+            db.add(person_obj)
+            db.flush()
+            logger.info(f"Created person: {full_name} (ID: {masked_id}, Address: {address})")
+        else:
+            person_obj = existing_person
+            # Update fields if they were missing
+            updated = False
+            if not person_obj.masked_id and masked_id:
+                person_obj.masked_id = masked_id
+                updated = True
+            if not person_obj.address and address:
+                person_obj.address = address
+                updated = True
+            
+            if updated:
+                logger.info(f"Updated person: {full_name} (ID: {person_obj.masked_id}, Address: {person_obj.address})")
+            else:
+                logger.debug(f"Matched existing person: {full_name}")
+        
+        # Create or update CompanyPersonRelation
+        rel_key = (company_id, person_obj.id)
+        if rel_key in seen_relations:
+            continue
+
+        existing_relation = db.query(CompanyPersonRelation).filter(
+            CompanyPersonRelation.company_id == company_id,
+            CompanyPersonRelation.person_id == person_obj.id
+        ).first()
+        
+        if not existing_relation:
+            relation = CompanyPersonRelation(
+                company_id=company_id,
+                person_id=person_obj.id,
+                relation_type=RelationType.SHAREHOLDER,
+                start_date=pub_date,
+                is_current=True,
+                source="NLP_EXTRACTION"
+            )
+            db.add(relation)
+            db.flush()
+            seen_relations.add(rel_key)
+            logger.debug(f"Created relation: {full_name} <-> company:{company_id}")
+        else:
+            seen_relations.add(rel_key)
 
 
 # --- Core ingest ---
@@ -245,7 +584,7 @@ def upsert_companies(parsed_list: List[Dict[str, Any]], db: Session) -> Dict[str
                 # Eğer sicil_mudurluk boş ve payload dolu ise set et
                 changed = False
                 if not existing.sicil_mudurluk and sicil_mudurluk:
-                    existing.sicil_mudurluk = sicil_mudurluk
+                    existing.sicil_mudurluk = _clean_nexus_string(sicil_mudurluk)
                     changed = True
                 # sicil_office_code eksikse doldur
                 if (not getattr(existing, "sicil_office_code", None)) and sicil_mudurluk:
@@ -386,7 +725,7 @@ def ingest_companies_and_announcements(parsed_list: List[Dict[str, Any]], db: Se
                 company_obj = existing
                 changed = False
                 if not existing.sicil_mudurluk and sicil_mudurluk:
-                    existing.sicil_mudurluk = sicil_mudurluk
+                    existing.sicil_mudurluk = _clean_nexus_string(sicil_mudurluk)
                     changed = True
                 if (not getattr(existing, "sicil_office_code", None)) and sicil_mudurluk:
                     existing.sicil_office_code = sicil_mudurluk
@@ -427,6 +766,7 @@ def ingest_companies_and_announcements(parsed_list: List[Dict[str, Any]], db: Se
                 trade_registry_number=sicil_no,
                 title=_normalize_whitespace(payload.get("unvan")) if payload.get("unvan") else None,
                 pdf_url=None,
+                content=item.get("original_text")
             )
             db.add(ann)
             db.flush()  # ann.id
@@ -469,93 +809,11 @@ def ingest_companies_and_announcements(parsed_list: List[Dict[str, Any]], db: Se
             ocr_created += 1
 
             # 4) Normalize persons from OCR JSON to Person and CompanyPersonRelation tables
-            persons_data = item.get("persons")
-            if persons_data and isinstance(persons_data, list):
-                for person_item in persons_data:
-                    if not isinstance(person_item, dict):
-                        continue
-                    
-                    full_name = person_item.get("text")
-                    masked_id = person_item.get("masked_ids")
-                    
-                    if not full_name:
-                        continue
-                    
-                    # Split name into first/last
-                    name_parts = _split_person_name(full_name)
-                    if not name_parts:
-                        logger.debug(f"Could not split person name: {full_name}")
-                        continue
-                    
-                    first_name, middle_name, last_name = name_parts
-                    
-                    # Check if person exists
-                    existing_person = None
-                    if masked_id:
-                        # Find candidates with same masked_id
-                        candidates = db.query(Person).filter(
-                            Person.masked_id == masked_id
-                        ).all()
-                        
-                        # Check name similarity to avoid collisions (e.g. different people with same masked ID)
-                        for candidate in candidates:
-                            # Simple check: first name match or high similarity
-                            # We normalize both names for comparison
-                            cand_first = _normalize_whitespace(candidate.first_name).lower()
-                            curr_first = _normalize_whitespace(first_name).lower()
-                            
-                            cand_last = _normalize_whitespace(candidate.last_name).lower()
-                            curr_last = _normalize_whitespace(last_name).lower()
-                            
-                            # If names are similar enough, assume it's the same person
-                            # At least last name should match, and first name should be contained or similar
-                            if cand_last == curr_last and (curr_first in cand_first or cand_first in curr_first):
-                                existing_person = candidate
-                                break
-                    
-                    if not existing_person:
-                        existing_person = db.query(Person).filter(
-                            Person.first_name == first_name,
-                            Person.last_name == last_name
-                        ).first()
-                    if not existing_person:
-                        # Create new person
-                        person_obj = Person(
-                            first_name=first_name,
-                            middle_name=middle_name,
-                            last_name=last_name,
-                            masked_id=masked_id
-                        )
-                        db.add(person_obj)
-                        db.flush()  # Get person_obj.id
-                        logger.debug(f"Created person: {full_name} (masked_id: {masked_id})")
-                    else:
-                        person_obj = existing_person
-                        logger.debug(f"Found existing person: {full_name}")
-                    
-                    # Create or update CompanyPersonRelation
-                    rel_key = (company_obj.id, person_obj.id)
-                    if rel_key in seen_relations:
-                        continue
-
-                    existing_relation = db.query(CompanyPersonRelation).filter(
-                        CompanyPersonRelation.company_id == company_obj.id,
-                        CompanyPersonRelation.person_id == person_obj.id
-                    ).first()
-                    
-                    if not existing_relation:
-                        relation = CompanyPersonRelation(
-                            company_id=company_obj.id,
-                            person_id=person_obj.id,
-                            relation_type=RelationType.SHAREHOLDER,  # Default, could be refined
-                            is_current=True
-                        )
-                        db.add(relation)
-                        db.flush()
-                        seen_relations.add(rel_key)
-                        logger.debug(f"Created relation: {full_name} <-> {sicil_no}")
-                    else:
-                        seen_relations.add(rel_key)
+            ingest_persons_and_relations(
+                db, company_obj.id, 
+                item.get("persons"), 
+                item.get("publication_date")
+            )
 
 
             links.append({

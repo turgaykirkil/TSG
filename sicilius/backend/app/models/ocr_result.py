@@ -1,5 +1,5 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, JSON, Boolean
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, Float, Integer, String, Text, ForeignKey, DateTime, JSON, Boolean
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -47,6 +47,10 @@ class OcrResult(Base):
     content_sha256 = Column(Text, nullable=True)
     
     status = Column(String, nullable=False, default='pending') # pending, processing, completed, failed
+    message = Column(Text, nullable=True)          # error or info message
+    markdown_content = Column(Text, nullable=True) # AI-extracted markdown from docling
+    json_payload = Column(JSONB, nullable=True)    # raw docling JSON output
+    processing_time = Column(Float, nullable=True) # seconds taken by docling
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

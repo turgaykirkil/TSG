@@ -4,8 +4,8 @@ import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { AppSidebar } from '@/app/(app)/admin/components/layout/AdminSidebar';
-import { AppHeader } from '@/app/(app)/admin/components/layout/AdminHeader';
+import { AppSidebar } from './components/layout/AdminSidebar';
+import { AppHeader } from './components/layout/AdminHeader';
 import { FullScreenLoader } from '@/components/ui/loading-spinner';
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
@@ -16,39 +16,35 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const [checkingRole, setCheckingRole] = useState(true);
 
   useEffect(() => {
-    const run = async () => {
+    const checkAdmin = async () => {
       if (loading) return;
+      
       if (!user) {
-        router.push(`/login?callbackUrl=${pathname}`);
+        router.push('/login');
         return;
       }
-      try {
-        const baseUrl = process.env.NEXT_PUBLIC_API_URL || '';
-        const res = await fetch(`${baseUrl}/api/v1/auth/require-admin`, { method: 'GET', credentials: 'include', cache: 'no-store' });
-        if (res.status !== 204) {
-          router.replace('/dashboard');
-          return;
-        }
-      } catch {
+
+      // Check if user has admin role (optional, adding for safety)
+      const role = (user as any)?.role;
+      const roleValue = typeof role === 'string' ? role : (role?.value || role?.name);
+      
+      if (roleValue !== 'admin') {
         router.replace('/dashboard');
         return;
-      } finally {
-        setCheckingRole(false);
       }
+      
+      setCheckingRole(false);
     };
-    run();
-  }, [user, loading, router, pathname]);
+
+    checkAdmin();
+  }, [user, loading, router]);
 
   if (loading || checkingRole) {
     return <FullScreenLoader />;
   }
 
-  if (!user) {
-    return null; // Yönlendirme useEffect içinde gerçekleşecek
-  }
-
   return (
-    <div className="flex h-screen bg-background text-foreground">
+    <div className="flex h-screen bg-background text-foreground overflow-hidden">
       <div className="hidden md:flex w-64 flex-col border-r bg-background">
         <AppSidebar />
       </div>

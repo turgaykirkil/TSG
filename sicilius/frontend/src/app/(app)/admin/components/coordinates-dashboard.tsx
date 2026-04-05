@@ -1,5 +1,4 @@
 'use client';
-
 import { useState, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -61,6 +60,7 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
       toast.error("Lütfen 0'dan büyük geçerli bir sayı girin.");
       return;
     }
+
     setIsProcessing(true);
     setProgress(0);
     setProcessingResult(null);
@@ -70,7 +70,6 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
       processedCount++;
       const newProgress = Math.min(100, (processedCount / fetchLimit) * 100);
       setProgress(newProgress);
-
       if (processedCount >= fetchLimit) {
         clearInterval(progressInterval);
       }
@@ -78,7 +77,10 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
 
     try {
       const response = await processingService.startCoordinateProcessing(fetchLimit);
-      setProcessingResult({ processed: response.processed_count, failed: response.failed_count });
+      setProcessingResult({
+        processed: response.processed_count,
+        failed: response.failed_count
+      });
       toast.success(response.message || 'Koordinat işleme tamamlandı.');
     } catch (error: any) {
       const errorMessage = error.response?.data?.detail || error.message || 'Bilinmeyen bir hata oluştu.';
@@ -90,7 +92,7 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
       setTimeout(() => {
         setIsProcessing(false);
         fetchStats();
-        setProgress(0); 
+        setProgress(0);
       }, 2000);
     }
   };
@@ -153,7 +155,6 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
                   {isProcessing ? 'İşleniyor...' : 'Koordinatları Getir'}
                 </Button>
               </div>
-              
               <AnimatePresence>
                 {isProcessing && (
                   <motion.div
@@ -167,10 +168,9 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
                   </motion.div>
                 )}
               </AnimatePresence>
-
               <AnimatePresence>
                 {processingResult && !isProcessing && (
-                   <motion.div
+                  <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="mt-4 p-4 border rounded-lg bg-gray-50 dark:bg-gray-800"
@@ -181,12 +181,9 @@ const CoordinatesDashboard = ({ onStatsUpdate }: CoordinatesDashboardProps) => {
                   </motion.div>
                 )}
               </AnimatePresence>
-
             </div>
           </div>
-
           <hr />
-
           <div>
             <h4 className="font-semibold mb-2">Çakışmaları Çöz</h4>
             <p className="text-sm text-muted-foreground mb-4">Aynı adrese veya koordinata sahip birden fazla şirketi bulur ve çözmek için işaretler.</p>

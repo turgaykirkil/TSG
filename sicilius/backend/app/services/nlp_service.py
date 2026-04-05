@@ -69,10 +69,11 @@ except Exception:
     AUTO_SAVE_OCR = False
 
 # --- NLP Debug Loglama ---
-try:
-    DEBUG_NLP = os.getenv("DEBUG_NLP", "0").strip() in ("1", "true", "True")
-except Exception:
-    DEBUG_NLP = False
+# try:
+#     DEBUG_NLP = os.getenv("DEBUG_NLP", "0").strip() in ("1", "true", "True")
+# except Exception:
+#     DEBUG_NLP = False
+DEBUG_NLP = False
 
 # --- OCR Normalizasyonu ve Yardımcı Regex Fonksiyonları ---
 TURKISH_MONTHS = (
@@ -88,6 +89,40 @@ def is_upper_heavy(s: str, ratio: float = 0.7) -> bool:
         return False
     upp = sum(1 for ch in letters if ch == ch.upper())
     return (upp / len(letters)) >= ratio
+
+def _nlp_collect_after(idx: int, lines: List[str], initial: str = "") -> str:
+    cand: List[str] = ([] if not initial else [initial])
+    # Markdown-aware stop_line: allow optional # at start
+    stop_line = re.compile(
+        r"^\s*#*\s*(?:Eski\s*(?:Ticaret\s*)?Unva[nm](?:[ıiİI])?(?:t)?|(?:Ticaret\s*)?Unva[nm](?:[ıiİI])?(?:t)?|Adres|(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida)|Tescil|Tescile|MERS[İIiı]S|Ticaret\s*Sicil|Telefon|[İI]?lan\s*S[ıiuü]ra\s*No|Sira\s*No|S[ıi]ra\s*No|Dosya|ibraz\s+edilen|Kurucu|Uyruk|Tasfiye|\|)\b",
+        re.IGNORECASE,
+    )
+    # Ekstra gürültü filtresi (herhangi bir yerde geçmesi yeterli)
+    noise_pat = re.compile(r"(\||\b(Uyruk|Kurucu|Dosya\s*No|ibraz\s+edilen|tasdikli|karar[ıi])\b)", re.IGNORECASE)
+    # Adres-benzeri içerik tespiti (satır içerik koruması)
+    addressish = re.compile(r"\b(MAH\.?|MAHALLES[İI]|CAD\.?|CADDES[İI]|CD\.?|SOK\.?|SOKA[ĞG][ıi]|SK\.?|BLV\.?|BULVAR[ıi]?|NO\b|KAT\b|DA[İI]RE\b|APT\.?|S[İI]TE|OSB|İÇ\s*KAP[İI]|DIŞ\s*KAP[İI]|BLOK)\b|[A-ZÇĞİÖŞÜ]{2,}\s*/\s*[A-ZÇĞİÖŞÜ]{2,}", re.IGNORECASE)
+    for j in range(idx + 1, min(idx + 5, len(lines))):
+        nxt = lines[j].strip(" -*–·•\t").strip()
+        if not nxt:
+            continue
+        # UNVAN/ADRES başlığı altında sık görülen "Madde 2-", "3. ILAN" benzeri gürültü satırlarını atla
+        noise_skip = re.compile(r"^(\s*#*\s*(\d+\s*\.?\s*[İI]LAN|İlan\s*S[ıi]ra\s*No.*?\:?|MERS[İI]S\s*No.*?\:?|S[ıi]ra\s*No.*?\:?|Madde\s*\d+\s*[-–—:]?)\s*)$", re.IGNORECASE)
+        if noise_skip.match(nxt):
+            continue
+        # "'dir." gibi tek başına hüküm cümlesini atla
+        if re.match(r"^['’]?(?:dir|dır|dur|dür)\.?$", nxt, flags=re.IGNORECASE):
+            continue
+        if DEBUG_NLP: print(f"DEBUG_NLP _nlp_collect_after inspecting: {nxt!r}")
+        if stop_line.search(nxt) or noise_pat.search(nxt):
+            if DEBUG_NLP: print(f"DEBUG_NLP _nlp_collect_after STOP due to noise/header: {nxt!r}")
+            break
+        # Adres-benzeri satırsa birleştirmeyi kes
+        if addressish.search(nxt):
+            break
+        cand.append(nxt)
+        if len(cand) >= 4:
+            break
+    return re.sub(r"\s+", " ", " ".join(cand)).strip() if cand else ""
 
 def normalize_text(text: str) -> str:
     """
@@ -167,7 +202,14 @@ LOCATION_TOKENS = {
     "ZEYTINBURNU","KAGITHANE","KAĞITHANE","PENDIK","PENDİK","BASAKSEHIR","BAŞAKŞEHİR",
     "IZMIT","İZMİT",
     "BAYRAMPASA","BAYRAMPAŞA","UMRANIYE","ÜMRANIYE","GOLBASI","GÖLBAŞI","ALTINDAG","ALTINDAĞ",
-    "CANKAYA","ÇANKAYA",
+    "CANKAYA","ÇANKAYA","ESENLER","BAGCILAR","BAĞCILAR","BAKIRKOY","BAKIRKÖY","BEŞİKTAŞ",
+    "BESIKTAS","KADIKOY","KADIKÖY","ŞİŞLİ","SISLI","MALTEPE","KARTAL","ÜSKÜDAR",
+    "USKUDAR","FATIH","FATİH","BEYOĞLU","BEYOGLU",
+    "SANCAKTEPE","SULTANBEYLI","SULTANBEYLİ","BEYLIKDUZU","BEYLİKDÜZÜ","ESENYURT",
+    "AVCILAR","KUCUKCEKMECE","KÜÇÜKÇEKMECE","BUYUKCEKMECE","BÜYÜKÇEKMECE",
+    "SARIYER","TUZLA","CEKMEKOY","ÇEKMEKÖY","GAZIOSMANPASA","GAZİOSMANPAŞA",
+    "SULTANGAZI","SULTANGAZİ","ARNAVUTKOY","ARNAVUTKÖY",
+    "TICARET","SICIL","MUDURLUGU","MÜDÜRLÜĞÜ","ODASI","BORSASI","BIRLIGI","BİRLİĞİ",
 }
 
 def _is_location_like(tok: str) -> bool:
@@ -183,10 +225,12 @@ def _is_location_like(tok: str) -> bool:
 
 # OCR gürültüsü/başlık benzeri tokenlar (büyük harf)
 NOISE_TOKENS = {
-    "TC","T.C","T","JU","KI","KU","IKID","ID","NO","MERSIS","UYRUK",
-    "CUMHURIYET","CUMHURIYETI","CUMHURIYETII","CUMHURIYETIN",
+    "CUMHURIYET","CUMHURIYETI","CUMHURIYETII","CUMHURIYETIN","UYRUKLU",
+    "UYRUĞU","ADINA","HAREKET","EDEN","MUDURU","MÜDÜRÜ","ORTAGI","ORTAĞI",
     # Sektör/konu kelimeleri (kişi adı değil)
     "TICARETI","TİCARETİ","MADENI","MADENİ","YAG","YAĞ","ANTIFRIZ","ANTİFRİZ",
+    "MUDURLUK","MÜDÜRLÜK","UNVAN","UNVANI","UNVANLI","SIRKETI","ŞİRKETİ","LTD","STI","ŞTİ",
+    "TASFIYE","HALINDE","MUDURLUGUNDEN","MÜDÜRLÜĞÜNDEN",
 }
 # --- Yardımcı: kişi–maskeli kimlik eşlemesi (minimal çıktı zenginleştirme) ---
 def _pair_masked_ids_to_persons(text: str, persons: List[dict], masked_ids: List[str]) -> List[dict]:
@@ -293,12 +337,15 @@ def _pair_masked_ids_to_persons(text: str, persons: List[dict], masked_ids: List
             window_text = "\n".join(lower_lines[s:e])
             window_orig = "\n".join(lines[s:e])
             matched = False
-            # ÖNCELİK: "adresinde ikamet eden <NAME>" bağlamı ile aday isim çıkar
+            # ÖNCELİK: "<ADDRESS> adresinde ikamet eden <NAME>" bağlamı ile aday isim çıkar
             try:
-                m = re.search(r"adresinde\s+ikamet\s+eden[,:]?\s+([A-ZÇĞİÖŞÜ$'’\-\s]{3,})", window_orig, flags=re.IGNORECASE)
+                # Capture address before the phrase and name after it
+                m = re.search(r"([A-ZÇĞİÖŞÜ0-9\.\s,/\-#]{5,150})\s+adresinde\s+ikamet\s+eden[,:]?\s+([A-ZÇĞİÖŞÜ$'’\-\s]{3,})", window_orig, flags=re.IGNORECASE)
                 cand = None
+                p_addr = None
                 if m:
-                    cand = m.group(1)
+                    p_addr = m.group(1).strip()
+                    cand = m.group(2)
                     # Satır sonu/durdurucu veya apostrof öncesinde kes
                     cand = re.split(r"[\n;:,’']", cand)[0]
                     # OCR normalizasyonu
@@ -315,6 +362,7 @@ def _pair_masked_ids_to_persons(text: str, persons: List[dict], masked_ids: List
                             "text": cand,
                             "label": "PER_MASKED",
                             "masked_ids": mid_out,
+                            "address": p_addr # Capture the address!
                         }
                         enriched.append(p2)
                         used_id_indexes.add(id_order)
@@ -342,6 +390,28 @@ def _pair_masked_ids_to_persons(text: str, persons: List[dict], masked_ids: List
                             used_id_indexes.add(id_order)
                 except Exception:
                     pass
+            if not matched:
+                # 0.0) Markdown Tablo Satırı: "Maskeli ID bir tablo satırındaysa (|), satırdaki BÜYÜK HARFLİ hücreyi kişi olarak ata"
+                if "|" in lines[i]:
+                    try:
+                        cells = [c.strip() for c in lines[i].split("|") if c.strip()]
+                        for cell in cells:
+                            if cell == mid or "Kimlik" in cell or "Uyruk" in cell or _is_location_like(cell):
+                                continue
+                            toks = cell.split()
+                            if 2 <= len(toks) <= 4 and all(re.fullmatch(r"[A-ZÇĞİÖŞÜ'’\-]+", t) for t in toks) and any(len(t) >= 3 for t in toks):
+                                cand = " ".join(toks)
+                                cand = _strip_trailing_single_lower(cand)
+                                if cand and not _is_topic_noise_name(cand):
+                                    enriched.append({"text": cand, "label": "PER_MASKED", "masked_ids": mid_out})
+                                    matched = True
+                                    used_id_indexes.add(id_order)
+                                    assigned_name_first_line.setdefault(cand.upper(), i)
+                                    assigned_name_to_id.setdefault(cand.upper(), mid)
+                                    break
+                    except Exception:
+                        pass
+
             if not matched:
                 # 0) Doğrudan bağlama: "<ID> Kimlik Numara... <AD SOYAD>" kalıbı
                 try:
@@ -476,15 +546,19 @@ def _pair_masked_ids_to_persons(text: str, persons: List[dict], masked_ids: List
             if not matched and not any((pp.get("label") or "").upper() == "PER" for pp in persons):
                 # 1) Basit tarama (yalnızca hiç PER bulunamadıysa):
                 #    Kimlikten sonra 2–4 BÜYÜK harfli token dizisi (satır + sonraki 1-2 satır)
+                #    YENİ: Eğer satır bir Markdown tablosu ise (| varsa), ismin ID'den önce gelme ihtimaline karşı tüm satırı tara.
                 try:
                     cur_line = lines[i]
                     pos = cur_line.find(mid)
-                    tail = cur_line[pos+len(mid):] if pos >= 0 else ""
-                    ctx = tail
-                    if i + 1 < len(lines):
-                        ctx += " " + lines[i + 1]
-                    if i + 2 < len(lines):
-                        ctx += " " + lines[i + 2]
+                    if "|" in cur_line:
+                        ctx = cur_line.replace(mid, " ")
+                    else:
+                        tail = cur_line[pos+len(mid):] if pos >= 0 else ""
+                        ctx = tail
+                        if i + 1 < len(lines):
+                            ctx += " " + lines[i + 1]
+                        if i + 2 < len(lines):
+                            ctx += " " + lines[i + 2]
                     slash_near = "/" in ctx[:120]
                     toks = [t for t in re.split(r"[\s,;:()\[\]{}<>|\/\\\-]+", ctx.strip()) if t]
                     name_toks: List[str] = []
@@ -969,12 +1043,16 @@ def extract_address_block_segment(raw_text: str) -> Optional[str]:
         r"^\s*Vergi\s*Dairesi\s*[:：]",
         r"^\s*Sermaye\b",
         r"^\s*Tasfiyeden\s+Dolay[ıi].*Alacak",
+        r"bir\s+veya\s+birka[çc]\s+m[üu]d[üu]r",
+        r"Aksi\s+Karar\s+Al[ıi]n[ıi]ncaya",
+        r"Kimlik\s+No",
+        r"T[üu]rkiye\s+Cumhuriyeti\s+Uyruklu",
     ]
     end_re = re.compile("|".join(end_patterns), re.IGNORECASE | re.MULTILINE)
     m_end = end_re.search(raw_text, start)
     if not m_end:
         # Genel durdurucu satırlara geri düş (Yukarıda OCR varyantları dahil)
-        stop_re = re.compile(r"^\s*(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida|Tescil|Tescile|MERS[İI]S|Ticaret\s*Sicil|Telefon|Tel|GSM|Faks|İlan\s*Sira\s*No|Ilan\s*Sira\s*No|Sira\s*No|Madde\b|.*GAZETE\S*|SAYI\s*:|Merkezin\s+Kay\w*\s+Oldu\w*\s+M[üu]d[üu]rl[üu](?:g[üu]|k)[’']?\s*:?|Vergi\s*Dairesi\s*:|Sermaye\b|Tasfiyeden\s+Dolay[ıi].*Alacak)", re.IGNORECASE | re.MULTILINE)
+        stop_re = re.compile(r"^\s*(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida|Tescil|Tescile|MERS[İI]S|Ticaret\s*Sicil|Telefon|Tel|GSM|Faks|İlan\s*Sira\s*No|Ilan\s*Sira\s*No|Sira\s*No|Madde\b|.*GAZETE\S*|SAYI\s*:|Merkezin\s+Kay\w*\s+Oldu\w*\s+M[üu]d[üu]rl[üu](?:g[üu]|k)[’']?\s*:?|Vergi\s*Dairesi\s*:|Sermaye\b|Tasfiyeden\s+Dolay[ıi].*Alacak|bir\s+veya\s+birka[çc]\s+m[üu]d[üu]r|Aksi\s+Karar|Kimlik\s+No|T[üu]rkiye\s+Cumhuriyeti)", re.IGNORECASE | re.MULTILINE)
         m_end = stop_re.search(raw_text, start)
     end = m_end.start() if m_end else len(raw_text)
 
@@ -1477,6 +1555,43 @@ def extract_persons_near_masked_ids(text: str) -> List[dict]:
             if mid in used_ids:
                 continue
 
+            # 0.0) Markdown Tablo Satırı: "Maskeli ID bir tablo satırındaysa (|), satırdaki BÜYÜK HARFLİ hücreyi kişi, diğerini adres olarak ata"
+            if "|" in ln:
+                cells = [c.strip() for c in ln.split("|") if c.strip()]
+                cand_name = None
+                cand_addr = None
+                for cell in cells:
+                    if cell == mid_out or cell == mid:
+                        continue
+                    # Look for name (Uppercase, 2-4 words)
+                    toks = cell.split()
+                    if 2 <= len(toks) <= 4 and all(re.fullmatch(r"[A-ZÇĞİÖŞÜ'’\-]+", t) for t in toks) and any(len(t) >= 3 for t in toks):
+                        if not _is_location_like(cell):
+                            cand_name = " ".join(toks)
+                    
+                    # Look for address (has addressish keywords)
+                    if addressish_nodigit.search(cell) or (len(cell) > 5 and _is_location_like(cell)):
+                         if cell != mid_out and cell != mid:
+                             cand_addr = cell
+
+                if cand_name and is_probable_person_name(cand_name):
+                    key = cand_name.upper().strip()
+                    if key not in assigned_by_name or assigned_by_name.get(key) == mid:
+                        rec = {
+                            "text": cand_name, 
+                            "label": "PER_MASKED", 
+                            "masked_ids": mid_out,
+                            "address": cand_addr
+                        }
+                        if pfx: rec["masked_id_prefix"] = pfx
+                        persons.append(rec)
+                        assigned_by_name.setdefault(key, mid)
+                        used_ids.add(mid)
+                        break
+            
+            if mid in used_ids:
+                continue
+
             # 1) Aynı satır: "Kimlik Numaralı <AD SOYAD>" (OCR toleranslı: I-acute -> İ)
             ln_norm = unicodedata.normalize('NFC', ln)
             ln_norm = ln_norm.replace("Í", "İ").replace("Í", "İ").replace("Ì", "İ")
@@ -1856,15 +1971,46 @@ def extract_persons_near_masked_ids(text: str) -> List[dict]:
                 nxt = lines[j].strip(" -*–·•\t").strip()
                 if not nxt:
                     break  # boş satırda dur
-                # adres benzeri satırları atla
+                # 1) Adres benzeri satırları yakala ama atlama (Kişi için sakla)
+                p_addr = None
                 if addressish.search(nxt):
-                    j += 1
-                    steps += 1
-                    continue
-                # "ikamet eden <AD SOYAD>"
-                m_ik = ikamet_re.search(nxt)
+                    # Eğer bu satırda 'ikamet eden' yoksa, bir sonraki satır için adres olarak sakla
+                    if not re.search(r"ikamet\s+eden", nxt, re.IGNORECASE):
+                        p_addr = nxt
+                        j += 1
+                        steps += 1
+                        # Bir sonraki satırda ikamet eden var mı bak
+                        if j < len(lines):
+                            nxt_next = lines[j].strip()
+                            m_ik_next = re.search(rf"ikamet\s+eden\s*[,:]?\s+{name_pat}", nxt_next, re.IGNORECASE)
+                            if m_ik_next and mid not in used_ids:
+                                nm = _clean_person_name(m_ik_next.group(1).strip())
+                                if nm and is_probable_person_name(nm):
+                                    rec = {"text": nm, "label": "PER_MASKED", "masked_ids": mid_out, "address": p_addr}
+                                    if pfx: rec["masked_id_prefix"] = pfx
+                                    persons.append(rec)
+                                    used_ids.add(mid)
+                                    break
+                        continue
+
+                # 2) "ikamet eden <AD SOYAD>" (AYNI SATIRDA ADRES)
+                # Regex'i adres yakalayacak şekilde genişlet:
+                m_ik = re.search(r"([A-ZÇĞİÖŞÜ0-9\.\s,/\-#]{5,150})\s+adresinde\s+ikamet\s+eden[,:]?\s+([A-ZÇĞİÖŞÜ$'’\-\s]{3,})", nxt, flags=re.IGNORECASE)
                 if m_ik and mid not in used_ids:
-                    nm = _clean_person_name(m_ik.group(1).strip())
+                    p_addr = m_ik.group(1).strip()
+                    nm = _clean_person_name(m_ik.group(2).strip())
+                    if nm and is_probable_person_name(nm):
+                        rec = {"text": nm, "label": "PER_MASKED", "masked_ids": mid_out, "address": p_addr}
+                        if pfx:
+                            rec["masked_id_prefix"] = pfx
+                        persons.append(rec)
+                        used_ids.add(mid)
+                        break
+                
+                # Fallback: Eski ikamet regex'i (eğer adres önünde yakalanamazsa)
+                m_ik_fallback = ikamet_re.search(nxt)
+                if m_ik_fallback and mid not in used_ids:
+                    nm = _clean_person_name(m_ik_fallback.group(1).strip())
                     if nm and is_probable_person_name(nm):
                         rec = {"text": nm, "label": "PER_MASKED", "masked_ids": mid_out}
                         if pfx:
@@ -2268,6 +2414,10 @@ def parse_announcement_text(text: str) -> dict:
 
     # Normalize et
     norm = normalize_text(text)
+    if DEBUG_NLP:
+        try:
+            print(f"DEBUG_NLP norm start: {norm[:500]!r}")
+        except: pass
 
     # HF NER (varsa) sonuçlarını topla; yoksa spaCy ile devam
     ner = load_hf_ner()
@@ -2416,205 +2566,165 @@ def parse_announcement_text(text: str) -> dict:
         if m:
             entities["registration_number"] = m.group(2).strip()
 
-    # 4) Ticaret Unvanı – blok tabanlı (Adres'e kadar) ve satır bazlı çıkarım
+    # --- 4) Ticaret Unvanı ---
     trade_name = None
     used_block_inference = False
-    tn_from_block_candidate: Optional[str] = None
     old_trade_name_block: Optional[str] = None
-    # Önce: Unvan başlığından ilk Adres'e kadar olan bloğu yakala
+
+    # Helper: Swift-style multiline extraction until next header
+    def _nlp_extract_multiline_unvan(base_text: str, is_old: bool = False) -> Optional[str]:
+        # Swift logic pattern: Capture until next known header (Adres, Tescil, Yukarida, Mudurler, etc.)
+        hdr_prefix = r"Eski\s*" if is_old else r"(?![ \t#]*Eski\b)"
+        # Regex matches 'Ticaret Unvani' (or variants) and stops at the next logical section
+        # Refined: Added optional leading noise ([ \t#*|]*) to handle Markdown headers in extraction.
+        pattern = (
+            r"(?i)" + hdr_prefix + r"[ \t#*|]*(?:Yeni\s*)?(?:Ticaret\s*)?Unva[nm](?:[ıiİI])?(?:t)?\s*[:.：]*\s*"
+            r"([\s\S]+?)"
+            r"(?=\bAdres\b|\bTescil\b|\bYuka[r|rn][ıi]da\b|\bM[üu]d[üu]rler\b|\bY[öo]netim\b|\bİşletme\s+Konusu\b|\bMERS[İI]S\b|\bTicaret\s*Sicil\b|\bIlan\s*Sira\b|$)"
+        )
+        m = re.search(pattern, base_text)
+        if m and m.group(1).strip():
+            val = m.group(1).strip()
+            # Clean noise from the block (Markdown markers, excessive spaces, stuck symbols)
+            val = re.sub(r"\s+", " ", val)
+            val = val.strip(" -*–·•\t|#")
+            # Emergency cleanup for OCR segmentation errors (if headers were stuck to the name)
+            surgical_tail = re.compile(r"\s*(?:##\s*)?(?:Adres|MERS[İI]S|Ticaret\s*Sicil|Ilan\s*Sira|Tescil).*$", re.IGNORECASE)
+            val = surgical_tail.sub("", val).strip()
+            return val if len(val) > 3 else None
+        return None
+
+    # 4.1) Swift-Style Block Extraction (Primary)
+    # First, try identifying the trade name within the Docling-extracted segment
     tn_block = extract_trade_name_block_segment(text)
     if tn_block:
-        # Sade blok taraması: 'Ticaret Unvanı' ve 'Eski Ticaret Unvanı' başlıkları
-        lines_b = [ln.strip() for ln in tn_block.splitlines()]
+        val = _nlp_extract_multiline_unvan(tn_block)
+        if val:
+            if DEBUG_NLP: print(f"DEBUG_NLP SWIFT BLOCK found: {val!r}")
+            trade_name = val
+            used_block_inference = True
+        
+        old_val = _nlp_extract_multiline_unvan(tn_block, is_old=True)
+        if old_val:
+            old_trade_name_block = old_val
 
-        def _collect_after(idx: int, lines: List[str], initial: str = "") -> str:
-            cand: List[str] = ([] if not initial else [initial])
-            stop_line = re.compile(
-                r"^(?:Eski\s*(?:Ticaret\s*)?Unva[nm](?:[ıiİI])?(?:t)?|(?:Ticaret\s*)?Unva[nm](?:[ıiİI])?(?:t)?|Adres|(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida)|Tescil|Tescile|MERS[İI]S|Ticaret\s*Sicil|Telefon|İlan\s*Sira\s*No|Ilan\s*Sira\s*No|Sira\s*No)\b",
-                re.IGNORECASE,
-            )
-            # Adres-benzeri içerik tespiti (satır içerik koruması)
-            addressish = re.compile(r"\b(MAH\.?|MAHALLES[İI]|CAD\.?|CADDES[İI]|CD\.?|SOK\.?|SOKA[ĞG][ıi]|SK\.?|BLV\.?|BULVAR[ıi]?|NO\b|KAT\b|DA[İI]RE\b|APT\.?|S[İI]TE|OSB|İÇ\s*KAP[İI]|DIŞ\s*KAP[İI]|BLOK)\b|[A-ZÇĞİÖŞÜ]{2,}\s*/\s*[A-ZÇĞİÖŞÜ]{2,}", re.IGNORECASE)
-            for j in range(idx + 1, min(idx + 5, len(lines))):
-                nxt = lines[j].strip(" -*–·•\t").strip()
-                if not nxt:
-                    continue
-                # UNVAN başlığı altında sık görülen "Madde 2-" gibi satırları atla
-                if re.match(r"^Madde\s*\d+\s*[-–—:]?\s*$", nxt, flags=re.IGNORECASE):
-                    continue
-                # "'dir." gibi tek başına hüküm cümlesini atla
-                if re.match(r"^['’]?(?:dir|dır|dur|dür)\.?$", nxt, flags=re.IGNORECASE):
-                    continue
-                if stop_line.search(nxt):
-                    break
-                # Adres-benzeri satırsa birleştirmeyi kes
-                if addressish.search(nxt):
-                    break
-                cand.append(nxt)
-                if len(cand) >= 4:
-                    break
-            return re.sub(r"\s+", " ", " ".join(cand)).strip() if cand else ""
-
-        # Yeni (mevcut) unvan: 'Eski' ile başlamayan 'Unvanı'
-        idx_new = None
-        new_hdr = re.compile(r"^\s*(?!Eski\b)(?:Ticaret\s*)?Unva[nm](?:[ıiİI])?(?:t)?\s*[:：]*\s*(.*)$", re.IGNORECASE)
-        new_initial = ""
-        for i, ln in enumerate(lines_b):
-            m = new_hdr.search(ln)
-            if m:
-                idx_new = i
-                new_initial = (m.group(1) or "").strip()
-                break
-        if idx_new is not None:
-            new_val = _collect_after(idx_new, lines_b, new_initial)
-            if new_val:
-                tn_from_block_candidate = new_val
-                trade_name = new_val
-                used_block_inference = True
-
-        # Eski unvan
-        idx_old = None
-        old_hdr = re.compile(r"^\s*Eski\s*(?:Ticaret\s*)?Unva[nm](?:[ıiİI])?(?:t)?\s*[:：]*\s*(.*)$", re.IGNORECASE)
-        old_initial = ""
-        for i, ln in enumerate(lines_b):
-            m = old_hdr.search(ln)
-            if m:
-                idx_old = i
-                old_initial = (m.group(1) or "").strip()
-                break
-        if idx_old is not None:
-            old_val = _collect_after(idx_old, lines_b, old_initial)
-            if old_val:
-                old_trade_name_block = old_val
-
-    # Blok tabanlı yöntem trade_name üretemediyse, mevcut satır bazlı sıralı heuristiklere dön
+    # 4.2) Fallback to full text if block extraction didn't yield a result
     if not trade_name:
-        # Öncelik: "Yeni (Ticaret) Unvanı"
-        m_new = re.search(r"^\s*Yeni\s*(?:Ticaret\s*)?Unva[nm](?:[ıiİI])?(?:t)?\s*[:.]?\s*(.+)$", norm, flags=re.IGNORECASE | re.MULTILINE)
-        if m_new and m_new.group(1).strip():
-            trade_name = m_new.group(1).strip()
-        else:
-            # Genel: başta (Ticaret) Unvanı
-            m_unvan = re.search(r"^\s*(?:Ticaret\s*)?Unva[nm](?:[ıiİI])?(?:t)?\s*[:.]?\s*(.*)$", norm, flags=re.IGNORECASE | re.MULTILINE)
-            if m_unvan:
-                after = m_unvan.group(1).strip()
-                if after:
-                    trade_name = after
-                else:
-                    # Başlık satırından sonra gelen 1-4 satırı, durdurucu başlıklara kadar birleştir
-                    lines = norm.splitlines()
-                    idx = None
-                    header_only_re2 = re.compile(r"^\s*(?:Ticaret\s*)?Unva[nm](?:[ıiİI])?(?:t)?\s*:?:?\s*$", re.IGNORECASE)
-                    for i, ln in enumerate(lines):
-                        if header_only_re2.search(ln):
-                            idx = i
-                            break
-                    if idx is not None:
-                        cand_lines2: List[str] = []
-                        stop_line_pat2 = re.compile(r"^(Adres|(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida)|Tescil|Tescile|MERS[İI]S|Ticaret\s*Sicil|Eski\s+Adres|Telefon|İlan\s*Sira\s*No|Ilan\s*Sira\s*No|Sira\s*No|Madde)\b", re.IGNORECASE)
-                        addressish2 = re.compile(r"\b(MAH\.?|MAHALLES[İI]|CAD\.?|CADDES[İI]|CD\.?|SOK\.?|SOKA[ĞG][ıi]|SK\.?|BLV\.?|BULVAR[ıi]?|NO\b|KAT\b|DA[İI]RE\b|APT\.?|S[İI]TE|OSB|İÇ\s*KAP[İI]|DIŞ\s*KAP[İI]|BLOK)\b|[A-ZÇĞİÖŞÜ]{2,}\s*/\s*[A-ZÇĞİÖŞÜ]{2,}", re.IGNORECASE)
-                        for j in range(idx + 1, min(idx + 5, len(lines))):
-                            nxt = lines[j].strip(" -*–·•\t").strip()
-                            if not nxt:
-                                continue
-                            if stop_line_pat2.search(nxt):
-                                break
-                            if addressish2.search(nxt):
-                                break
-                            cand_lines2.append(nxt)
-                            if len(cand_lines2) >= 4:
-                                break
-                        if cand_lines2:
-                            cand = " ".join(cand_lines2)
-                            # Satır içi durdurucu kelimelerle kes (örn. adına hareket, ikamet eden, temsilci)
-                            cut = re.search(r"\b(ad[ıi]na\s+hareket|ikamet\s+eden|temsilc|Y[öo]netim\s+Kurulu|Genel\s+M[üu]d[üu]r)\b", cand, flags=re.IGNORECASE)
-                            if cut:
-                                cand = cand[:cut.start()].strip()
-                            trade_name = re.sub(r"\s+", " ", cand).strip()
-    # Satır başı dışında geçen 'Unvanı/Ünvanı' kalıpları için fallback
-    if not trade_name:
-        m_unvan2 = (
-            re.search(r"Ticaret\s*[UÜ]nva[nm](?:[ıiİI])?(?:t)?\s*[:.]?\s*(.+)", norm, re.IGNORECASE)
-            or re.search(r"^\s*Unva[nm](?:[ıiİI])?(?:t)?\s*[:.]?\s*(.+)$", norm, flags=re.IGNORECASE | re.MULTILINE)
-        )
-        if m_unvan2 and m_unvan2.group(1).strip():
-            trade_name = m_unvan2.group(1).strip()
-    # Heuristik fallback: şirket tür/sonek içeren satır
-    if not trade_name:
-        comp_pat = re.compile(
-            r"\b("
-            r"A\s*\.?\s*Ş\s*\.?|"                           # AŞ, A.Ş., A Ş
-            r"LTD\.?\s*ŞT[İI]\.?.?|"                         # LTD. ŞTİ.
-            r"L[İI]M[İI]TED\s+Ş[İI]RKET[İI]|"                 # LİMİTED ŞİRKETİ
-            r"ANON[İI]M\s+Ş[İI]RKET[İI]|"                     # ANONİM ŞİRKETİ
-            r"SAN(?:\.?|AY[İI])?\s*VE\s*T[İI]C(?:\.?|ARET)?|" # SAN./SANAYİ VE TİC./TİCARET
-            r"KOLEKT[İI]F|"                                    # KOLEKTİF
-            r"KOMAND[İI]T|"                                    # KOMANDİT
-            r"KOOP(?:ERAT[İI]F)?|"                             # KOOP/KOOPERATİF
-            r"VAKFI|VAKF[İI]|"                                 # VAKFI
-            r"DERNE[GĞ][İI]|"                                   # DERNEĞİ/DERNEGI
-            r"[İI]KT[İI]SAD[İI]\s+[İI]ŞLETME[SŞ][İI]"         # İKTİSADİ İŞLETMESİ
-            r")\b",
-            re.IGNORECASE,
-        )
-        bad_start = re.compile(r"^(Adres|(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida)|Tescil|Tescile|MERS[İI]S|Ticaret\s*Sicil|Eski\s+Adres|Telefon|İlan\s*Sira\s*No|Ilan\s*Sira\s*No|Sira\s*No)\b", re.IGNORECASE)
-        lines = norm.splitlines()
-        for i, ln in enumerate(lines):
-            t = re.sub(r"\s+", " ", ln).strip(" -*–·•\t").strip()
-            if not t or len(t) < 3:
-                continue
-            if bad_start.search(t):
-                continue
-            if comp_pat.search(t):
-                # Birleşik iki satırlı unvanları birleştir
-                joined = t
-                if i + 1 < len(lines):
-                    nxt = lines[i + 1]
-                    if nxt and not bad_start.search(nxt) and (comp_pat.search(nxt) or is_upper_heavy(nxt)):
-                        joined = (t + " " + nxt).strip()
-                trade_name = re.sub(r"\s+", " ", joined).strip()
-                break
-        # "Ticaret Unvan(ı)" başlık fallback'i: aynı satırda veya bir sonraki satır(lar)da
-        if not trade_name:
-            lines = [ln.strip() for ln in norm.splitlines()]
-            # Aynı satırda değer olan biçimler
-            same_line = find_first(r"^\s*Ticaret\s*Unva[nm][ıi]?\s*[:：]+\s*(.+)$", norm, flags=re.IGNORECASE | re.MULTILINE)
-            if same_line:
-                trade_name = re.sub(r"\s+", " ", same_line).strip()
-            else:
-                # Sadece başlık satırı, sonraki satır unvan olan biçimler
-                for i, ln in enumerate(lines):
-                    if re.search(r"^\s*Ticaret\s*Unva[nmı]?\s*[:：]*\s$", ln, flags=re.IGNORECASE):
-                        # Sonraki 1-4 satırdan aday oluştur, durdurucularla kes
-                        cand_lines: List[str] = []
-                        addressish3 = re.compile(r"\b(MAH\.?|MAHALLES[İI]|CAD\.?|CADDES[İI]|CD\.?|SOK\.?|SOKA[ĞG][ıi]|SK\.?|BLV\.?|BULVAR[ıi]?|NO\b|KAT\b|DA[İI]RE\b|APT\.?|S[İI]TE|OSB|İÇ\s*KAP[İI]|DIŞ\s*KAP[İI]|BLOK)\b|[A-ZÇĞİÖŞÜ]{2,}\s*/\s*[A-ZÇĞİÖŞÜ]{2,}", re.IGNORECASE)
-                        for j in range(i + 1, min(i + 5, len(lines))):
-                            nxt = lines[j].strip(" -*–·•\t").strip()
-                            if not nxt:
-                                continue
-                            if re.search(r"^(Adres|(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida)|Tescil|Tescile|MERS[İI]S|Ticaret\s*Sicil|Eski\s+Adres|Telefon|İlan\s*Sira\s*No|Ilan\s*Sira\s*No|Sira\s*No|Madde)\b", nxt, flags=re.IGNORECASE):
-                                break
-                            if addressish3.search(nxt):
-                                break
-                            cand_lines.append(nxt)
-                            # Dört satırdan fazlasını alma
-                            if len(cand_lines) >= 4:
-                                break
-                        if cand_lines:
-                            cand = " ".join(cand_lines)
-                            # Satır içi durdurucu kelimelerle kes (örn. adına hareket, ikamet eden, temsilci)
-                            cut = re.search(r"\b(ad[ıi]na\s+hareket|ikamet\s+eden|temsilc|Y[öo]netim\s+Kurulu|Genel\s+M[üu]d[üu]r)\b", cand, flags=re.IGNORECASE)
-                            if cut:
-                                cand = cand[:cut.start()].strip()
-                            trade_name = re.sub(r"\s+", " ", cand).strip()
-        # Bloktan elde edilen çok satırlı aday mevcutsa, onu tercih et (en güvenilir bağlam)
-        if tn_from_block_candidate:
-            trade_name = tn_from_block_candidate.strip()
+        val = _nlp_extract_multiline_unvan(norm)
+        if val:
+            if DEBUG_NLP: print(f"DEBUG_NLP SWIFT FULLTEXT found: {val!r}")
+            trade_name = val
             used_block_inference = True
 
+    # 4.4) ULTRA FALLBACK: Header Block Search (if no 'Ticaret Unvani' header found)
+    # This catches "Continued" announcements or those where the name is at the top but unlabeled.
+    # 4.4) ULTRA FALLBACK: Header Block Search (if no 'Ticaret Unvani' header found)
+    # This catches "Continued" announcements or those where the name is at the top but unlabeled.
+    if not trade_name:
+        lines_all = [ln.strip() for ln in norm.splitlines()]
+        # Scan first 15 lines for a string that looks like a company
+        lines_top = [ln for ln in lines_all if ln][:15]
+        # Common suffixes: LTD, STI, AS, ANONIM, LIMITED, SIRKETI, ISLETMESI, TASFIYE HALINDE
+        comp_marker_re = re.compile(r"(?i)\b(?:LTD|ŞTİ|ŞTİ|A\.?Ş\.?|A\.?S\.?|ANON[İI]M|L[İI]M[İI]TED|S[İI]RKET[İI]?|[İŞ]LETMES[İI]|TASF[İI]YE(?:\s+HAL[İI]NDE)?)\b", re.IGNORECASE)
+        # Avoid lines that are headers (TC, MERSIS, SICIL, etc.)
+        header_noise_re = re.compile(r"(?i)^(T\.?C\.|MERS[İI]S|SICIL|ADRES|TESCIL|ILAN|SIRA|NO[:.]|ALACAKL[İI]LAR)", re.IGNORECASE)
+        
+        for ln in lines_top:
+            # We want lines that have a company marker OR are clearly uppercase names
+            is_company = bool(comp_marker_re.search(ln))
+            is_noise = bool(header_noise_re.match(ln))
+            # Sole proprietorship check: fully uppercase, at least 2 words, no excessive numbers
+            is_sole = (ln.isupper() and len(ln.split()) >= 2 and not any(c.isdigit() for c in ln))
+            
+            if (is_company or is_sole) and not is_noise and len(ln) > 8:
+                if DEBUG_NLP: print(f"DEBUG_NLP HEADER FALLBACK found: {ln!r} (sole={is_sole})")
+                # Surgical cleanup: remove leading artifacts and trailing headers stuck on the same line
+                ln = re.sub(r"^(?:#*\s*|-*\s*|\.\s*)", "", ln)
+                ln = re.sub(r"^(?:T\.?C\.\s*)", "", ln, flags=re.IGNORECASE)
+                ln = re.sub(r"\s*(?:MERS[İI]S|SICIL|ADRES|TESCIL|ILAN|SIRA).*$", "", ln, flags=re.IGNORECASE)
+                trade_name = ln.strip()
+                break
+                if DEBUG_NLP: print(f"DEBUG_NLP scan line: {t!r} | is_stop={is_stop}")
+                has_noise = bool(re.search(r"(\||\b(Uyruk|Kurucu|Dosya\s*No|ibraz\s+edilen|tasdikli|karar[ıi]|M[uü]d[uü]rl[uü]g[uü]nden|G[uü]ndemi)\b)", t, re.IGNORECASE))
+                is_uh = is_upper_heavy(t)
+                has_comp = bool(comp_pat.search(t))
+                if DEBUG_NLP:
+                    print(f"DEBUG_NLP last_resort check line='{t[:40]}...' is_stop={is_stop} has_noise={has_noise} is_uh={is_uh} has_comp={has_comp}")
+                if is_stop or has_noise:
+                    continue
+                # Şirket eki var mı veya tamamen büyük harf mi?
+                if (has_comp or is_uh) and len(t.split()) >= 2:
+                    trade_name = t
+                    break
+
+    # --- 4.5) Inline / Phrasal Fallback ---
+    # Sirketin unvanı ... SIRKETidir pattern'ı çok güçlüdür, başlık eşleşmesini bile ezebilir.
+    # MODIFIED: Handling 'SIRKETidir' (no space) and case variations
+    m_inline = re.search(r"S[ıiİI]rketin\s+unvan[ıiİI]?\s+(.*?)\s*[Ss][İIıi]RKET[İIıi]\s*dir[\s.:]*", norm, flags=re.IGNORECASE)
+    if m_inline and m_inline.group(1).strip():
+        val = m_inline.group(1).strip() + " ŞİRKETİ"
+        if DEBUG_NLP: print(f"DEBUG_NLP INLINE OVERRIDE found: {val!r}")
+        trade_name = val
+    
+    if not trade_name:
+        # Match company suffix (ANONIM SIRKETI, LIMITED SIRKETI etc.) to find the end of the name
+        # Allow standalone LIMITED/ANONIM/SIRKETI for embedded text
+        comp_suffix = r"(?:ANON[Iİ]M(?:\s*S[İI]RKET[Iİ])?|L[Iİ]M[Iİ]TED(?:\s*S[İI]RKET[Iİ])?|[AL]\s*\.?\s*[ŞS]\s*\.?\s*[TİI])"
+        m_yetki = re.search(rf"YETK[Iİ]L[Iİ]D[Iİ]R\s+([A-ZÇĞİÖŞÜ\s]{5,150}?{comp_suffix})", norm)
+        if m_yetki:
+            val = m_yetki.group(1).strip()
+            if DEBUG_NLP: print(f"DEBUG_NLP YETKILIDIR found: {val!r}")
+            trade_name = val
+
+    # --- 4.6) Deep Scan Fallback (Final Surgical Effort) ---
+    if not trade_name:
+        # Search for first line that contains a confident company pattern
+        # Allow standalone LIMITED/ANONIM/A.S for shorter names
+        strict_comp = re.compile(r"(.*?)\b(A\s*\.?\s*[ŞS]\s*\.?|LTD\.?\s*[ŞS]T[İI]|L[İI]M[İI]TED(?:\s*[ŞS][İI]RKET[İI])?|ANON[İI]M(?:\s*[ŞS][İI]RKET[İI])?|ANONYME|S\s*\.?\s*A\s*\.?)\b", re.IGNORECASE)
+        for ln in lines_all:
+            t = ln.strip(" -*–·•\t|#").strip()
+            if len(t) < 10: continue
+            m = strict_comp.search(t)
+            if m:
+                extracted = m.group(0).strip()
+                # Check for stop words inside the EXTRACTED part, not the whole line
+                if not bool(re.search(r"(?i)\b(MERS[IIi1]S|Ticaret\s+Sicil|Sira\s*No|Adres|Tescil|Vekaletname)\b", extracted, re.IGNORECASE)):
+                   # Clean up left garbage (e.g. 'tescil edilmistir . TASFIYE...')
+                   cleanup = re.search(r"^.*?\s*([A-ZÇĞİÖŞÜ\d].*)$", extracted)
+                   trade_name = cleanup.group(1) if cleanup else extracted
+                   if DEBUG_NLP: print(f"DEBUG_NLP DEEP_SCAN_SURGICAL found: {trade_name!r}")
+                   break
+
+    if not trade_name:
+        m_inline_old = re.search(r"[SŞ]irketin\s+unvanı?\s+(.*?)(?:dir|dır|dur|dür)\.?", norm, flags=re.IGNORECASE)
+        if m_inline_old and m_inline_old.group(1).strip():
+            trade_name = m_inline_old.group(1).strip()
+    
+    if DEBUG_NLP:
+        try:
+            print(f"DEBUG_NLP trade_name_result: {trade_name!r} (used_block={used_block_inference})")
+        except Exception:
+            pass
+
     if trade_name:
+        # İdari Gürültü ve Belge Başlıklarını Temizle (VEKALETNAME, ASLI GIBIDIR vb.)
+        noise_patterns = [
+            r"^\s*#*\s*T\.?C\.?\b",
+            r"^\s*#*\s*[İI]STANBUL\s+T[İI]CARET\s+S[İI]C[İI]L[İI]\s+M[ÜU]D[ÜU]RL[ÜU]G[ÜU]['’]NDEN\.?",
+            r"^\s*#*\s*M[ÜU]D[ÜU]RL[ÜU]G[ÜU]\b",
+            r"^\s*#*\s*S[OÖ]ZLE[SŞ]ME\s+YAPMA\s+YETK[Iİ].*?\b",
+            r"^\s*#*\s*VEKALETNAME\b",
+            r"^\s*#*\s*ASLI\s+G[Iİ]B[Iİ]D[Iİ]R\b",
+            r"\b\d+\s*\.?\s*[İI]LAN\b\.?\s*$",
+            r"##\s*Adres.*$", # Stuck headers
+            r"##\s*[İI]lan\s*S[ıi]ra.*$",
+            r"##\s*MERS[İI]S.*$"
+        ]
+        for pat in noise_patterns:
+            trade_name = re.sub(pat, "", trade_name, flags=re.IGNORECASE).strip()
+
         # Unvan sonuna eklemlenmiş gürültüyü kes (Adres, Tescil, MERSIS vb.)
-        stop_pat = re.compile(r"\b(?:Adres|(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida)|Tescil|Tescile|MERS[İI]S|Ticaret\s*Sicil|Eski\s+Adres|Telefon|İlan\s*Sira\s*No|Ilan\s*Sira\s*No|Sira\s*No|ad[ıi]na\s+hareket|ikamet\s+eden|temsilc|Y[öo]netim\s+Kurulu|Genel\s+M[üu]d[üu]r)\b", re.IGNORECASE)
+        stop_pat = re.compile(r"\b(?:Adres|(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida)|Tescil|Tescile|MERS[İI]S|Ticaret\s*Sicil|Eski\s+Adres|Telefon|İlan\s*Sira\s*No|Ilan\s*Sira\s*No|Sira\s*No|ad[ıi]na\s+hareket|ikamet\s+eden|temsilci|Y[öo]netim\s+Kurulu|Genel\s+M[üu]d[üu]r|M[üu]d[üu]rl[üu]g[üu](?:nden|ne)?|Karar[ıi]|Hususlar|G[üu]ndem)\b", re.IGNORECASE)
         mstop = stop_pat.search(trade_name)
         if mstop:
             trade_name = trade_name[: mstop.start()].strip()
@@ -2627,13 +2737,46 @@ def parse_announcement_text(text: str) -> dict:
             if len(re.sub(r"[^A-Za-zÇĞİÖŞÜçğıöşü]", "", left)) >= 3:
                 trade_name = left
         # Makul uzunluk sınırı ve sadeleştirme
-        trade_name = re.sub(r"\s+", " ", trade_name).strip()
+        trade_name = re.sub(r"\s+", " ", trade_name).strip(" -*–·•\t|#")
         if len(trade_name) > 150:
             cuts = re.split(r"(?:\s{2,}|,|;)", trade_name, maxsplit=1)
             trade_name = cuts[0].strip()
 
-        # Başta istenmeyen önekleri temizle (örn. "t:")
-        trade_name = re.sub(r"^[tT]\s*[:：.\-]+\s*", "", trade_name).strip()
+        # --- UNIVERSAL RECURSIVE REFINER ---
+        # This solves 'TC.', '##', 'Müdürlüğü'nden', etc. universally
+        refine_pat = re.compile(
+            r"^([#\*\s\-\:：.,;]+|"
+            r"T\.?C\.?(\s|(?=[A-ZÇĞİÖŞÜ]))|"
+            r"TiCARET\s+SiCiL[İI](\s+MÜDÜRLÜĞÜ)?\s*[:：.\-]*|"
+            r"MERS[İI]S\s*No.*?\:|"
+            r"[İI]lan\s*S[ıi]ra\s*No.*?\:|"
+            r"S[ıi]ra\s*No.*?\:)"
+            r"|([#\*\s\-\:：.,;]+|"
+            r"MÜDÜRLÜĞÜ['’]NDEN\.?|"
+            r"MÜDÜRLÜĞÜNE\.?|"
+            r"MÜDÜRLÜĞÜ\.?)$",
+            re.IGNORECASE
+        )
+        
+        iteration = 0
+        while iteration < 5:
+            prev = trade_name
+            trade_name = refine_pat.sub("", trade_name).strip()
+            # Special case: if it starts with 'ISTANBUL', 'ANKARA' etc followed by stuff we want to keep, leave it.
+            # But if it's 'TC. ISTANBUL TICARET SICILI MUDURLUGU', the whole thing is noise.
+            if trade_name == prev: break
+            iteration += 1
+
+        trade_name = trade_name.strip(":,.- ")
+
+        # PREAMBLE CLEANING: 'Istanbul da Maslak mukim;' vs.
+        # Allow room for City/District names in the preamble
+        preamble_pat = re.compile(r"^.*?\b(?:da|de|ta|te)\b.*?\b(?:mukim|bulunan|ikamet\s+eden)\b\s*[:;]?", re.IGNORECASE)
+        trade_name = preamble_pat.sub("", trade_name).strip()
+        # 'Merkezi ... olan' temizle
+        merkezi_pat = re.compile(r"^Merkezi\s+.*?\s+olan\s+", re.IGNORECASE)
+        trade_name = merkezi_pat.sub("", trade_name).strip()
+
         # Sonda içindekiler/ilan işaretçilerinden "1.İLAN/1.ILAN" benzeri sonekleri kaldır
         trade_name = re.sub(r"\s*\b\d+\s*\.?\s*[İI]LAN\b\.?\s*$", "", trade_name, flags=re.IGNORECASE).strip()
 
@@ -2649,20 +2792,18 @@ def parse_announcement_text(text: str) -> dict:
             r"\b("
             r"A\s*\.?\s*Ş\s*\.?|"                                  # AŞ, A.Ş.
             r"LTD\.?\s*ŞT[İIıi]\.?.?|"                          # LTD. ŞTİ. (tüm i varyantları)
-            r"L[İIıi]M[İIıi]TED\s+(?:Ş|S)[İIıi]RKET[İIıi]|"      # LİMİTED ŞİRKETİ / LIMITED SIRKETI
-            r"ANON[İIıi]M\s+(?:Ş|S)[İIıi]RKET[İIıi]|"            # ANONİM ŞİRKETİ / ANONIM SIRKETI
+            r"L[İIıi]M[İIıi]TED(?:\s+(?:Ş|S)[İIıi]RKET[İIıi])?|"      # LİMİTED (ŞİRKETİ)
+            r"ANON[İIıi]M(?:\s+(?:Ş|S)[İIıi]RKET[İIıi])?|"            # ANONİM (ŞİRKETİ)
             r"SAN(?:\.?|AY[İIıi])?\s*VE\s*T[İIıi]C(?:\.?|ARET)?|" # SAN... VE TİC(ARET)
-            r"KOLEKT[İIıi]F|"
-            r"KOMAND[İIıi]T|"
-            r"KOOP(?:ERAT[İIıi]F)?|"
-            r"VAKFI|VAKF[İIıi]|"
-            r"DERNE[GĞ][İIıi]|"
+            r"KOLEKT[İIıi]F|KOMAND[İIıi]T|KOOP(?:ERAT[İIıi]F)?|"
+            r"VAKFI|VAKF[İIıi]|DERNE[GĞ][İIıi]|"
+            r"INSAAT|T[İI]CARET|TUR[İI]ZM|SANAY[İI]|GIDA|TEKST[İI]L|H[İI]ZMETLER[İI]|" # Professional indicators for Sole Props
             r"[İIıi]KT[İIıi]SAD[İIıi]\s+[İIıi]ŞLETME[SŞ][İIıi]"
             r")\b",
             re.IGNORECASE,
         )
 
-        bad_start_v = re.compile(r"^(Adres|(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida)|Tescil|Tescile|MERS[İI]S|Ticaret\s*Sicil|Eski\s+Adres|Telefon|İlan\s*Sira\s*No|Ilan\s*Sira\s*No|Sira\s*No)\b", re.IGNORECASE)
+        bad_start_v = re.compile(r"(\b(Adres|(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida)|Tescil|Tescile|MERS[İI]S|Ticaret\s*Sicil|Eski\s+Adres|Telefon|İlan\s*Sira\s*No|Ilan\s*Sira\s*No|Sira\s*No|Dosya|ibraz\s+edilen|Kurucu|Uyruk|tasdikli|\|)\b)", re.IGNORECASE)
 
         tn = trade_name.strip()
         valid = True
@@ -2673,11 +2814,17 @@ def parse_announcement_text(text: str) -> dict:
             valid = False
         if _digit_ratio(tn) > 0.3:
             valid = False
+            
+        # 4) Sürreal gürültü kelimeleri: İlan, Tasfiyeden, Çağrı vb. (Tek başına unvan olamazlar)
+        if valid and re.search(r"(?i)\b(\d*\.?\s*[İI]LAN|TASF[İI]YEDEN|[ÇC]A[GĞSŠ]R[Iİ1])\b", tn):
+             # Eğer yanında LTD/AS gibi güçlü bir ibare yoksa reddet
+             if not comp_pat_v.search(tn):
+                 valid = False
 
         # Kabul sinyalleri: şirket soneki ya da başlığa/numara alanlarına yakınlık
         if valid and not comp_pat_v.search(tn):
             # Başlık yakınlığı: ilk ~700 karakter veya ilk 20 satıra denk gelmesi
-            lines_all = norm.splitlines()
+            lines_all_v = norm.splitlines()
             # Unvanın metin içinde konumunu yaklaşık eşleştir (boşluk toleranslı)
             esc = re.escape(tn)
             esc = esc.replace(r"\ ", r"\s+")
@@ -2692,17 +2839,22 @@ def parse_announcement_text(text: str) -> dict:
 
             # MERSIS/Sicil yakınlığı (±10 satır)
             mersis_sicil_idxs = []
-            for i, l in enumerate(lines_all):
+            for i, l in enumerate(lines_all_v):
                 if re.search(r"MERS[İI]S\s*No", l, flags=re.IGNORECASE) or re.search(r"Ticaret\s*Sicil(?:/Dosya)?\s*No", l, flags=re.IGNORECASE):
                     mersis_sicil_idxs.append(i)
             near_nums = False
             if mpos and mersis_sicil_idxs:
                 near_nums = any(abs(line_idx - k) <= 10 for k in mersis_sicil_idxs)
 
+            if DEBUG_NLP:
+                print(f"DEBUG_NLP validation tn='{tn[:30]}' head_close={header_close} near_nums={near_nums} used_block={used_block_inference}")
+
             if not (header_close or near_nums or used_block_inference):
                 valid = False
 
         if valid:
+            if DEBUG_NLP:
+                print(f"DEBUG_NLP ACCEPTED tn='{tn}'")
             entities["trade_name"] = tn
             entities["organizations"].append({"text": tn, "label": "ORG"})
             if old_trade_name_block:
@@ -2718,7 +2870,7 @@ def parse_announcement_text(text: str) -> dict:
         # Adres bloğunu tüketim için tek satıra indir (tire ile bölünmüş satırları birleştir)
         base_addr = _dehyphenate_lines(addr_block)
         # İlk kaba temizlik: adres satırına yapışmış başlıkları kes
-        stop_pat_inline = re.compile(r"\b(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida|Tescil|Tescile|MERS[İI]S|Ticaret\s*Sicil|Telefon|Tel|GSM|Faks|İlan\s*Sira\s*No|Ilan\s*Sira\s*No|Sira\s*No|Madde|Gündem|Gundem|Genel\s+Kurul|Vekaletname\b|Yeni\s*Ticaret\s*Sicil[iı]\s*M[üu]d[üu]rl[üu]g[üu][üu]?|Yeni\s*Sicil\s*No|Yeni\s*Adres|Merkezin\s+Kay\w*\s+Oldu\w*\s+M[üu]d[üu]rl[üu](?:g[üu]|k)|Eski\s*Ticaret\s*Sicil[iı]\s*M[üu]d[üu]rl[üu]g[üu][üu]?|Eski\s*Sicil\s*No|Eski\s*Adres)\b", re.IGNORECASE)
+        stop_pat_inline = re.compile(r"\b(?:Yu(?:ka(?:r|rn|n)?[ıi]?da)|Yukarıda|Yukarida|Tescil|Tescile|MERS[İI]S|Ticaret\s*Sicil|Telefon|Tel|GSM|Faks|İlan\s*Sira\s*No|Ilan\s*Sira\s*No|Sira\s*No|Madde|Gündem|Gundem|Genel\s+Kurul|Vekaletname\b|Yeni\s*Ticaret\s*Sicil[iı]\s*M[üu]d[üu]rl[üu]g[üu][üu]?|Yeni\s*Sicil\s*No|Yeni\s*Adres|Merkezin\s+Kay\w*\s+Oldu\w*\s+M[üu]d[üu]rl[üu](?:g[üu]|k)|Eski\s*Ticaret\s*Sicil[iı]\s*M[üu]d[üu]rl[üu]g[üu][üu]?|Eski\s*Sicil\s*No|Eski\s*Adres|bir\s+veya\s+birka[çc]\s+m[üu]d[üu]r|Kimlik\s+No|T[üu]rkiye\s+Cumhuriyeti)\b", re.IGNORECASE)
         a2 = re.sub(r"\s+", " ", base_addr or "").strip()
         mstop = stop_pat_inline.search(a2)
         if mstop:
@@ -3643,6 +3795,15 @@ def _detect_headers(text: str) -> List[int]:
         except Exception:
             pass
 
+    # Refined Splitters: Only split on MERSIS/ILAN SIRA if they are at the START of a line
+    # or preceded by a newline, to avoid splitting multi-company single-line headers.
+    fallback_split_re = re.compile(r"(?m)^\s*(?:#*\s*)?(?:[İIıi1l]lan\s*S[mt]?r[ıi]?a\s*No|MERS[İI]S\s*No)\s*[:.]", re.IGNORECASE)
+    for m in fallback_split_re.finditer(text):
+        ls = text.rfind("\n", 0, m.start())
+        ls = 0 if ls < 0 else ls + 1
+        # Only add as candidate if it's the start of the match or preceded by a cleanup.
+        cands.append((ls, m.end()))
+
     if not cands:
         return []
 
@@ -3664,12 +3825,14 @@ def _detect_headers(text: str) -> List[int]:
         # T.C izi (noktalı/noktasız, araya boşluk girmiş olabilir)
         if re.search(r"T\s*\.?\s*C\s*\.?", line, flags=re.IGNORECASE):
             sc += 2
-        # OCR toleranslı 'ILAN SIRA NO' varyantları (I/l/1/H karışıklıkları, boşluk/iki nokta farkları)
-        if re.search(r"\b[IH1L][IL1]AN\s*SIRA\s*N[O0]\b", look_norm):
+        # OCR toleranslı 'ILAN SIRA NO' varyantları (kendi satırı veya lookahead)
+        # SIRA/STRA/SMRA/SRRA varyantları
+        ilan_sira_re = r"\b[IH1L][IL1]AN\s*S[MT]?RA\s*N[O0]\b"
+        if re.search(ilan_sira_re, norm_line_here) or re.search(ilan_sira_re, look_norm):
             sc += 2
-        # OCR toleranslı 'MERSIS NO' varyantları (I/l/1 karışıklıkları)
-        if re.search(r"\bMERS[IL1]S\s*N[O0]\b", look_norm):
-            sc += 1
+        # OCR toleranslı 'MERSIS NO' varyantları (kendi satırı veya lookahead)
+        if re.search(r"\bMERS[IL1]S\s*N[O0]\b", norm_line_here) or re.search(r"\bMERS[IL1]S\s*N[O0]\b", look_norm):
+            sc += 2
         # Şehir adı benzeri bir kelime grubu + 'TICARET SICIL' çekirdeği (örn. ISTANBUL TICARET SICIL)
         if re.search(r"\b[A-ZÇĞİÖŞÜ]{3,}(?:\s+[A-ZÇĞİÖŞÜ]{3,})?\s+TICARET\s+SICIL", norm_line_here):
             sc += 1
@@ -3718,16 +3881,13 @@ def _detect_headers(text: str) -> List[int]:
         if re.search(r"\b(MUDURLUGUNCE|MEMURLUGUNCE)\b", norm_line):
             continue
         is_court = ("MAHKEME" in norm_line) and (ends_nden or has_tc or ("BASKAN" in norm_line))
-        if (has_core and ((ends_nden or has_tc) or has_ilan) and (sc >= 0)) or is_court:
+        # Allow splits if it has core header parts OR if it's a strong fallback (MERSIS/ILAN)
+        if (has_core and ((ends_nden or has_tc) or has_ilan) and (sc >= 0)) or is_court or (sc >= 2):
+            # sc >= 2 implies it has MERSIS or ILAN SIRA NO in it/near it
             # Başlığı satır başına hizala
             picks.append(ls)
 
     res = sorted(picks)
-    if DEBUG_NLP:
-        try:
-            print("DEBUG_NLP header starts:", res)
-        except Exception:
-            pass
     return res
 
 def split_announcements(text: str) -> List[str]:
@@ -4117,6 +4277,15 @@ def parse_multiple_announcements(text: str) -> List[dict]:
     t_all = time.perf_counter() if DEBUG_NLP else 0.0
     if DEBUG_NLP:
         logger.info("DEBUG_NLP parse_multiple_announcements start len=%d", len(text or ""))
+        
+    # --- MODİFİYE: Docling Markdown Etiketlerini KORU (Strip yapma ki regexler çalışsın) ---
+    if text:
+        # text = re.sub(r"^(?:#+\s+|\*\s+|-\s+|>+\s+)", "", text, flags=re.MULTILINE)
+        # Kalın ve Eğik sembollerini temizle (Sadece görsel gürültü oldukları için)
+        text = re.sub(r"(?<!\*)\*\*([^\*]+)\*\*(?!\*)", r"\1", text)
+        text = re.sub(r"(?<!_)__([^_]+)__(?!_)", r"\1", text)
+    # ---------------------------------------------------
+
     out: List[dict] = []
     segments = split_announcements_with_offsets(text)
     if DEBUG_NLP:
@@ -4125,7 +4294,10 @@ def parse_multiple_announcements(text: str) -> List[dict]:
     def _segment_is_court(seg: str) -> bool:
         top = [ln.strip() for ln in (seg or "").splitlines() if ln.strip()][:8]
         norm_top = [ _normalize_tr_for_header(ln) for ln in top ]
-        return any(("MAHKEME" in nt) for nt in norm_top if nt)
+        # More restrictive: Look for standalone MAHKEME/BASKAN/HUKUK keywords or specific phrase
+        court_keywords = re.compile(r"\b(MAHKEME|HUKUK\s*MAHKEMES[Iİ]|ASL[Iİ]YE\s*HUKUK|SULH\s*HUKUK|BASKANLIG[Iİ])\b", re.IGNORECASE)
+        # Also ensure it's not a false positive like 'mahkemelerinde' inside a long sentence
+        return any(bool(court_keywords.search(nt)) for nt in norm_top if nt and len(nt) < 150)
 
     def _pick_court_header_line(preferred_text: str, alt_text: str) -> str:
         def _scan(lines: List[str]) -> str:
@@ -4221,6 +4393,8 @@ def parse_multiple_announcements(text: str) -> List[dict]:
             continue
 
         parsed = parse_announcement_text(seg)
+        if parsed is None:
+            print(f"DEBUG_ERROR: parse_announcement_text returned None for segment: {seg[:60]!r}")
         # Başlığı TEK satır olarak al: güçlü heuristikler ile seç
         def _pick_header_line(preferred_text: str, alt_text: str) -> str:
             """

@@ -13,7 +13,7 @@ celery_app = Celery(
     "worker",  # Uygulama adı
     broker=str(settings.REDIS_URL),  # Görev kuyruğu için Redis bağlantısı
     backend=str(settings.REDIS_URL),  # Sonuçları saklamak için Redis bağlantısı
-    include=["app.tasks.scraping_tasks"]  # Görevlerin bulunduğu modülü belirt
+    include=["app.tasks.scraping_tasks", "app.tasks.ocr_tasks"]  # Görevlerin bulunduğu modülü belirt
 )
 
 # Celery için ek yapılandırma ayarları

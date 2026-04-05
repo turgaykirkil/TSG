@@ -14,6 +14,7 @@ class AnnouncementBase(BaseModel):
     announcement_type: Optional[str] = None
     newspaper_name: Optional[str] = None
     pdf_url: Optional[str] = None
+    content: Optional[str] = None
     company_id: uuid.UUID
 
 # Properties to receive on item creation

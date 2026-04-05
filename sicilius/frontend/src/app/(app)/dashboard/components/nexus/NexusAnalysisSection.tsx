@@ -18,7 +18,7 @@ export default function NexusAnalysisSection({ companyId }: NexusAnalysisSection
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const [limit, setLimit] = useState(10);
+    const [limit, setLimit] = useState(25);
     const containerRef = useRef<HTMLDivElement>(null);
     const [dimensions, setDimensions] = useState({ width: 0, height: 300 });
 
@@ -107,7 +107,10 @@ export default function NexusAnalysisSection({ companyId }: NexusAnalysisSection
     // Default empty state or data results
     const graph = data?.graph || { nodes: [], links: [] };
     const analysis = data?.analysis || {};
-    const isRisky = analysis?.cycle_detected || analysis?.risky_neighbors?.length > 0 || analysis?.suspicious_addresses?.length > 0;
+    const fraudLevel = analysis?.fraud_level || 'LOW';
+    const isHighRisk = fraudLevel === 'HIGH';
+    const isMediumRisk = fraudLevel === 'MEDIUM';
+    const isRisky = isHighRisk || isMediumRisk; // backward compat
 
     return (
         <section className="mt-6 border rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700">
@@ -117,8 +120,10 @@ export default function NexusAnalysisSection({ companyId }: NexusAnalysisSection
                     NEXUS Ağ Analizi
                     {(loading || expanding) && <span className="text-xs text-slate-400 font-normal animate-pulse ml-2">({expanding ? 'Genişletiliyor...' : 'Yükleniyor...'})</span>}
                 </h3>
-                {isRisky && started ? (
+                {isHighRisk && started ? (
                     <Badge variant="destructive" className="animate-pulse">YÜKSEK RİSK</Badge>
+                ) : isMediumRisk && started ? (
+                    <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300 animate-pulse">ORTA RİSK</Badge>
                 ) : started && data ? (
                     <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">GÜVENLİ AĞ</Badge>
                 ) : null}
@@ -165,29 +170,51 @@ export default function NexusAnalysisSection({ companyId }: NexusAnalysisSection
                                 </div>
                             </div>
 
-                            <div className={`p-3 rounded border text-xs ${analysis?.risky_neighbors?.length > 0 ? 'bg-orange-50 border-orange-200 text-orange-800' : 'bg-white border-slate-200 text-slate-600'}`}>
+                            <div className={`p-3 rounded border text-xs ${analysis?.risky_neighbors?.length > 0 || (analysis?.fraud_meta?.risky_at_addr > 0) ? 'bg-orange-50 border-orange-200 text-orange-800' : 'bg-white border-slate-200 text-slate-600'}`}>
                                 <div className="font-bold flex items-center gap-1">
-                                    {analysis?.risky_neighbors?.length > 0 ? <AlertCircle size={14} /> : <CheckCircle size={14} />}
+                                    {analysis?.risky_neighbors?.length > 0 || (analysis?.fraud_meta?.risky_at_addr > 0) ? <AlertCircle size={14} /> : <CheckCircle size={14} />}
                                     Risk Bulaşımı (Contagion)
                                 </div>
                                 <div className="mt-1">
-                                    {analysis?.risky_neighbors?.length > 0
-                                        ? `İlişkili ${analysis.risky_neighbors.length} riskli kurum tespit edildi.`
-                                        : "Riskli kurum bağlantısı yok."}
+                                    {(analysis?.fraud_meta?.risky_at_addr > 0)
+                                        ? `Aynı adreste ${analysis.fraud_meta.risky_at_addr} adet tasfiye/iflas hali şirket var. Risk bulaşımı yüksek.`
+                                        : analysis?.risky_neighbors?.length > 0
+                                            ? `İlişkili ${analysis.risky_neighbors.length} riskli kurum tespit edildi.`
+                                            : "Riskli kurum bağlantısı yok."}
                                 </div>
                             </div>
 
-                            <div className={`p-3 rounded border text-xs ${analysis?.suspicious_addresses?.length > 0 ? 'bg-yellow-50 border-yellow-200 text-yellow-800' : 'bg-white border-slate-200 text-slate-600'}`}>
+                            <div className={`p-3 rounded border text-xs ${analysis?.suspicious_addresses?.length > 0 || (analysis?.fraud_meta?.total_at_addr > 3) ? 'bg-yellow-50 border-yellow-200 text-yellow-800' : 'bg-white border-slate-200 text-slate-600'}`}>
                                 <div className="font-bold flex items-center gap-1">
-                                    {analysis?.suspicious_addresses?.length > 0 ? <AlertCircle size={14} /> : <CheckCircle size={14} />}
+                                    {analysis?.suspicious_addresses?.length > 0 || (analysis?.fraud_meta?.total_at_addr > 3) ? <AlertCircle size={14} /> : <CheckCircle size={14} />}
                                     Adres Yoğunluğu
                                 </div>
                                 <div className="mt-1">
-                                    {analysis?.suspicious_addresses?.length > 0
-                                        ? `${analysis.suspicious_addresses.length} adreste anormal şirket yığılması var.`
-                                        : "Adres paravan riski düşük."}
+                                    {(analysis?.fraud_meta?.total_at_addr > 3)
+                                        ? `Bu adreste toplam ${analysis.fraud_meta.total_at_addr} şirket kayıtlı. Adres paravan riski taşıyor.`
+                                        : analysis?.suspicious_addresses?.length > 0
+                                            ? `${analysis.suspicious_addresses.length} adreste anormal şirket yığılması var.`
+                                            : "Adres paravan riski düşük."}
                                 </div>
                             </div>
+
+                            {/* Fraud Sinyalleri Kartı */}
+                            {analysis?.fraud_signals?.length > 0 && (
+                                <div className="p-3 rounded border text-xs bg-red-50 border-red-200 text-red-800">
+                                    <div className="font-bold flex items-center gap-1 mb-1">
+                                        <AlertCircle size={14} />
+                                        Fraud Sinyalleri ({analysis.fraud_score} puan)
+                                    </div>
+                                    <ul className="space-y-1">
+                                        {analysis.fraud_signals.map((signal: string, i: number) => (
+                                            <li key={i} className="flex items-start gap-1">
+                                                <span className="text-red-500 mt-0.5">▶</span>
+                                                <span>{signal}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
                         </div>
 
                         {/* Sağ Panel: Graf Görselleştirme */}
@@ -235,15 +262,15 @@ export default function NexusAnalysisSection({ companyId }: NexusAnalysisSection
                                 />
                             )}
 
-                            {/* Load More Overlay Button */}
-                            {analysis?.limit_reached && !loading && (
+                            {/* Load More Overlay Button (Cap it to 60 for stability) */}
+                            {analysis?.limit_reached && limit < 60 && !loading && (
                                 <div className="absolute bottom-4 right-4 z-20">
                                     <button
-                                        onClick={() => setLimit(prev => prev + 10)}
-                                        className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded shadow-lg flex items-center gap-1 transition-colors"
+                                        onClick={() => setLimit(prev => Math.min(prev + 15, 60))}
+                                        className="bg-blue-600 hover:bg-blue-700 text-white text-[10px] px-2 py-1 rounded shadow-lg flex items-center gap-1 transition-colors"
                                     >
-                                        <Share2 size={12} />
-                                        Daha Fazla (+10)
+                                        <Share2 size={10} />
+                                        Genişlet ({limit}/60)
                                     </button>
                                 </div>
                             )}

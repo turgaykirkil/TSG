@@ -36,8 +36,6 @@ type NavItem = {
   target?: string;
 };
 
-
-
 const userNavigation: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: Home },
   { name: 'Arama', href: '/search', icon: Search },
@@ -47,7 +45,6 @@ const userNavigation: NavItem[] = [
 
 const adminNavigation: NavItem[] = [
   { name: 'Admin Paneli', href: '/admin', icon: Home },
-
   { name: 'Raporlar', href: '/admin/reports', icon: BarChart3 },
   { name: 'Supabase Kullanımı', href: '/admin/usage', icon: Database },
   { name: 'Kullanıcılar', href: '/admin/users', icon: Users },

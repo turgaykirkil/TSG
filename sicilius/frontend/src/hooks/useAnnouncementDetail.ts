@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 
 export interface AnnouncementDetailPayload {
   announcement: any | null;
+  content: string | null;
   original_text: string | null;
 }
 

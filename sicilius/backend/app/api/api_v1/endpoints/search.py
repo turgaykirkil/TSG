@@ -685,6 +685,7 @@ def _company_to_dict(
         "unvan": company.unvan,
         "firma_unvani": company.unvan,  # Alias for frontend compatibility
         "address": address,
+        "address_is_generic": len(address.strip()) < 15 if address else False,
         "adres": address,  # Alias for frontend compatibility
         "sicil_no": company.sicil_no,
         "mersis_number": company.mersis_number,
@@ -762,6 +763,7 @@ def _announcement_to_dict(announcement: Announcement) -> Dict[str, Any]:
         "newspaper_name": announcement.newspaper_name,
         "pdf_url": announcement.pdf_url,
         "hususlar": hususlar,
+        "content": announcement.content, # New field for UI
     }
 
 
@@ -1042,11 +1044,20 @@ def search_all_related(query: str, db: Session) -> SearchResult:
         # This ensures we search for both "İNŞAAT" and "INSAAT"
         search_token_pairs = []
         search_tokens = [] # For scoring logic later
+        id_tokens = [] # Pure digits or masked IDs like 123***45
+        
         for t in raw_tokens:
-            if not t.isdigit():
+            # Include digits if they might be MERSIS, Sicil No or TCKN parts
+            if t.isdigit():
+                if len(t) >= 4:
+                    search_token_pairs.append((t, t))
+                    id_tokens.append(t)
+            elif "*" in t or len(t) >= 2:
                 t_norm = tr_normalize_py(t)
                 search_token_pairs.append((t, t_norm))
                 search_tokens.append(t_norm)
+                if "*" in t:
+                    id_tokens.append(t)
                 
         q_digits = re.sub(r"\D+", "", q_raw)
 
@@ -1113,11 +1124,14 @@ def search_all_related(query: str, db: Session) -> SearchResult:
                 pats = {f"%{raw_t}%", f"%{norm_t}%"}
                 token_or_conditions = []
                 for pat in pats:
+                    # If token contains stars, ILIKE works directly
+                    # If not, we still check masked_id for partial matches
                     token_or_conditions.extend([
                         Person.first_name.ilike(pat),
                         Person.last_name.ilike(pat),
                         Person.full_name.ilike(pat),
-                        Person.masked_id.ilike(pat)
+                        Person.masked_id.ilike(pat),
+                        Person.nationality_id.ilike(pat)
                     ])
                 person_filters.append(or_(*token_or_conditions))
                 
@@ -1134,7 +1148,28 @@ def search_all_related(query: str, db: Session) -> SearchResult:
                     if cid:
                         ocr_scores[cid] = max(ocr_scores.get(cid, 0), 95)
 
-        # 3. Persons in OCR JSON (Fallback)
+        # 3. High-Fidelity Extraction (OCR Results)
+        if search_token_pairs:
+            ocr_text_query = db.query(OcrResult.company_id)
+            ocr_text_filters = []
+            
+            for raw_t, norm_t in search_token_pairs:
+                pats = {f"%{raw_t}%", f"%{norm_t}%"}
+                token_or_conditions = []
+                for pat in pats:
+                    token_or_conditions.extend([
+                        OcrResult.trade_name.ilike(pat),
+                        # PERFORMANCE FIX: Disabling CAST(hususlar AS TEXT) for local stability
+                        # OcrResult.hususlar.ilike(pat) if it was a String/Text field, but it is JSONB.
+                    ])
+                ocr_text_filters.append(or_(*token_or_conditions))
+                
+            found_ocr_cids = ocr_text_query.filter(and_(*ocr_text_filters)).limit(50).all()
+            for (cid,) in found_ocr_cids:
+                if cid:
+                    ocr_scores[cid] = max(ocr_scores.get(cid, 0), 90)
+
+        # 4. Persons in OCR JSON (Fallback)
         # PERFORMANCE FIX: Disabling this block as it causes DB crashes due to 
         # heavy CAST(persons AS TEXT) operations on large datasets.
         # TODO: Implement a proper GIN index or dedicated text column for this search.
@@ -1227,6 +1262,34 @@ def search_all_related(query: str, db: Session) -> SearchResult:
         )
         result.history = [_gazette_entry_to_dict(entry) for entry in history_rows]
 
+        # --- NEXUS DISCOVERY ---
+        # 1. Aynı Adresteki Şirketler (Discovery by Address)
+        unique_addresses = {comp.address for comp in top_company_objs if comp.address and len(comp.address.strip()) > 15}
+        print(f"[NEXUS DEBUG] Unique Addresses for Discovery: {unique_addresses}")
+        if unique_addresses:
+            addr_filters = [Company.address.ilike(f"{addr[:25]}%") for addr in unique_addresses]
+            same_addr_rows = (
+                db.query(Company)
+                .filter(or_(*addr_filters))
+                .filter(Company.id.notin_(company_ids_uuid))
+                .limit(50)
+                .all()
+            )
+            print(f"[NEXUS DEBUG] Found {len(same_addr_rows)} same address companies")
+            result.same_address_companies = [_company_to_dict(c) for c in same_addr_rows]
+
+        # 2. Ortağın Diğer Şirketleri (Discovery by Mutual Partners)
+        if person_ids:
+            mutual_rel_rows = (
+                db.query(Company)
+                .join(CompanyPersonRelation, Company.id == CompanyPersonRelation.company_id)
+                .filter(CompanyPersonRelation.person_id.in_(list(person_ids)))
+                .filter(Company.id.notin_(company_ids_uuid))
+                .limit(50)
+                .all()
+            )
+            result.related_companies = [_company_to_dict(c) for c in mutual_rel_rows]
+
     result.total_matches = total_companies_pre_count
     return result
 
@@ -1252,10 +1315,10 @@ def search_all(
             "next_cursor": None,
         }
 
-    cache_key = f"all:{query}:{cursor}:{limit}"
-    cached = _cache_all.get(cache_key)
-    if cached is not None:
-        return cached
+    # cache_key = f"all:{query}:{cursor}:{limit}"
+    # cached = _cache_all.get(cache_key)
+    # if cached is not None:
+    #     return cached
 
     result = search_all_related(query, db)
 
@@ -1267,13 +1330,15 @@ def search_all(
         "companies": companies_slice,
         "persons": result.persons,
         "history": result.history,
+        "same_address_companies": result.same_address_companies,
+        "related_companies": result.related_companies,
         "total_matches": result.total_matches or len(result.companies),
         "limit": limit,
         "next_offset": next_cursor,
         "next_cursor": next_cursor,
     }
 
-    _cache_all.set(cache_key, payload)
+    # _cache_all.set(cache_key, payload)
     return payload
 
 
@@ -1312,6 +1377,18 @@ def company_detail(
             }
 
         persons_payload: List[Dict[str, Any]] = []
+        for rel in relations:
+            p = persons_map.get(rel.person_id)
+            if p:
+                p_dict = _person_to_dict(p)
+                p_dict.update({
+                    "relation_type": rel.relation_type.value if rel.relation_type else None,
+                    "position": rel.position,
+                    "is_current": rel.is_current,
+                    "share_percentage": rel.share_percentage,
+                    "description": rel.description,
+                })
+                persons_payload.append(p_dict)
 
         announcement_rows = (
             db.query(Announcement)
@@ -1409,14 +1486,65 @@ def company_detail(
         if not company_payload.get("address") and ocr_entities["addresses"]:
             company_payload["address"] = ocr_entities["addresses"][0]
 
-        same_address_companies: List[Dict[str, Any]] = []
-        
-        # PERFORMANS OPTİMİZASYONU: Adres eşleştirme bloğu Nexus'a devredildi.
-        same_address_companies: List[Dict[str, Any]] = []
+        same_address_companies = []
+        target_addr = company_payload.get("address") or (company_obj.address if company_obj else None)
+        if target_addr and len(target_addr.strip()) > 10:
+            addr_parts = target_addr.strip().upper().split()
+            unique_prefix = " ".join(addr_parts[2:6]) if len(addr_parts) > 5 else " ".join(addr_parts[:4])
+            
+            with open("/tmp/nexus_debug.txt", "a") as f:
+                f.write(f"[NEXUS DEBUG] Company: {company_id} | Target Addr: {target_addr} | Unique Prefix: {unique_prefix}\n")
+            
+            same_addr_query = text("""
+                SELECT id, unvan, address FROM app.companies 
+                WHERE id != :current_id 
+                  AND tr_normalize(address) ILIKE '%' || tr_normalize(:prefix) || '%'
+                LIMIT 50
+            """)
+            same_addr_results = db.execute(same_addr_query, {
+                "current_id": company_uuid, 
+                "prefix": unique_prefix
+            }).fetchall()
+            with open("/tmp/nexus_debug.txt", "a") as f:
+                f.write(f"[NEXUS DEBUG] Found {len(same_addr_results)} companies at same address.\n")
+            same_address_companies = [
+                {"id": str(r[0]), "unvan": r[1], "address": r[2]} for r in same_addr_results
+            ]
 
-        related_companies: List[Dict[str, Any]] = []
-        # PERFORMANS OPTİMİZASYONU: İlişkili şirketler bloğu Nexus'a devredildi.
-        related_companies: List[Dict[str, Any]] = []
+        related_companies = []
+        # 1. Direct Partners' other companies
+        if person_ids:
+            mutual_rel_rows = (
+                db.query(Company)
+                .join(CompanyPersonRelation, Company.id == CompanyPersonRelation.company_id)
+                .filter(CompanyPersonRelation.person_id.in_(list(person_ids)))
+                .filter(Company.id != company_uuid)
+                .distinct()
+                .limit(30)
+                .all()
+            )
+            related_companies = [_company_to_dict(c) for c in mutual_rel_rows]
+
+        # 2. OCR Mentioned Partners' other companies (Deep Discovery)
+        if person_ids:
+            ocr_mention_query = text("""
+                SELECT DISTINCT c.id, c.unvan, c.address
+                FROM app.ocr_person_mentions m
+                JOIN app.ocr_results orr ON m.ocr_result_id = orr.id
+                JOIN app.companies c ON orr.company_id = c.id
+                WHERE m.person_id IN :pids AND c.id != :current_id
+                LIMIT 20
+            """)
+            ocr_mention_results = db.execute(ocr_mention_query, {
+                "pids": tuple(person_ids),
+                "current_id": company_uuid
+            }).fetchall()
+            
+            for r in ocr_mention_results:
+                cid_str = str(r[0])
+                # Prevent duplicates if already in related_companies
+                if not any(rc['id'] == cid_str for rc in related_companies):
+                    related_companies.append({"id": cid_str, "unvan": r[1], "address": r[2], "relation_type": "İlan Mentions"})
 
 
 
@@ -1709,7 +1837,7 @@ def announcement_detail(
                 "title": getattr(ocr_obj, "hususlar", None) or "Sicil Gazetesi İlanı (OCR)",
                 "company_title": getattr(ocr_obj, "trade_name", None),
                 "company_name": getattr(ocr_obj, "trade_name", None),
-                "content": None,
+                "content": ocr_obj.markdown_content or ocr_obj.original_text,
                 "ocr_text": getattr(ocr_obj, "original_text", None),
                 "hususlar": getattr(ocr_obj, "hususlar", None),
             }

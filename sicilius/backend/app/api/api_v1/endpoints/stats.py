@@ -95,13 +95,21 @@ def get_storage_pdfs_count():
 @router.get("/coordinates", summary="Get coordinate statistics")
 def get_coordinate_stats(db: Session = Depends(deps.get_db)):
     try:
-        result = db.execute(text("SELECT get_coordinate_statistics();")).scalar()
-        if result is None:
-            raise HTTPException(status_code=500, detail="Coordinate statistics function returned no data")
-        if isinstance(result, str):
-            result = json.loads(result)
-        return result
-    except HTTPException:
+        coordinated = db.execute(text("SELECT COUNT(*) FROM companies WHERE koordinat IS NOT NULL")).scalar() or 0
+        uncoordinated = db.execute(text("SELECT COUNT(*) FROM companies WHERE address IS NOT NULL AND koordinat IS NULL")).scalar() or 0
+        conflicts = db.execute(text("""
+            SELECT COUNT(*) FROM (
+                SELECT address FROM companies 
+                WHERE address IS NOT NULL AND koordinat IS NOT NULL
+                GROUP BY address HAVING COUNT(*) > 1
+            ) AS c
+        """)).scalar() or 0
+
+        return {
+            "coordinated": coordinated,
+            "uncoordinated": uncoordinated,
+            "conflicts": conflicts
+        }
         raise
     except Exception as exc:  # pragma: no cover - defensive
         logger.error("Error fetching coordinate stats: %s", exc, exc_info=True)

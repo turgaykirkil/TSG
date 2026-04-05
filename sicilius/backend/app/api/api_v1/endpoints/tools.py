@@ -20,7 +20,7 @@ async def get_coordinates_from_address(
     if not address:
         raise HTTPException(status_code=400, detail="Adres parametresi boş olamaz.")
 
-    coordinates = await geocode_address(address)
+    coordinates = await geocode_address(db, address)
 
     if not coordinates:
         raise HTTPException(status_code=404, detail="Bu adres için koordinat bulunamadı.")

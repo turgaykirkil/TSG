@@ -19,6 +19,7 @@ class Announcement(Base):
     announcement_type = Column(String(255), nullable=True) # İlan Türü
     newspaper_name = Column(String(255), nullable=True) # Gazete adı veya pre-2021 işareti
     pdf_url = Column(String(1024), nullable=True) # Gazete
+    content = Column(Text, nullable=True) # Full announcement text (failsafe)
 
     # Relationship to Company
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)

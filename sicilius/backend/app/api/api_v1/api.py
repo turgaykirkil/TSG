@@ -57,7 +57,7 @@ api_router.include_router(nexus.router, prefix="/nexus", tags=["NEXUS Risk Engin
 if not getattr(settings, "API_ONLY", False):
     if INCLUDE_OCR:
         from app.api.api_v1.endpoints import ocr  # type: ignore
-        api_router.include_router(ocr.router, prefix="/parsing", tags=["OCR & Parsing"])
+        api_router.include_router(ocr.router, prefix="/ocr", tags=["OCR & Parsing"])
     if INCLUDE_PARSING:
         from app.api.api_v1.endpoints import parsing  # type: ignore
         api_router.include_router(parsing.router, prefix="/parsing", tags=["Parsing"])

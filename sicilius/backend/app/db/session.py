@@ -36,7 +36,7 @@ if is_supabase:
 else:
     # Regular pooling for local/managed Postgres
     engine_kwargs.update({
-        "pool_recycle": 60,  # Recycle fast (1 min) to avoid stale remote tunnel connections
+        "pool_recycle": 30,  # Recycle aggressively (30s) to avoid stale SSH tunnel connections
         "pool_size": 5,
         "max_overflow": 10,
     })

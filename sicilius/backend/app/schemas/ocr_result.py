@@ -23,8 +23,31 @@ class OcrResultInDBBase(BaseModel):
     company_id: UUID
     announcement_id: Optional[UUID] = None
     original_text: Optional[str] = None
-    structured_data: Optional[Any] = None
+    markdown_content: Optional[str] = None
+    json_payload: Optional[Any] = None
+    processing_time: Optional[float] = None
+    pdf_page_count: Optional[int] = None
     status: str
+    
+    # Matching OcrResult model columns
+    publication_date: Optional[datetime] = None
+    issue_number: Optional[int] = None
+    page_number: Optional[int] = None
+    pdf_url: Optional[str] = None
+    sicil_office_header: Optional[str] = None
+    sicil_dosya_no: Optional[str] = None
+    mersis_no: Optional[str] = None
+    trade_name: Optional[str] = None
+    old_trade_name: Optional[str] = None
+    addresses: Optional[Any] = None
+    old_addresses: Optional[Any] = None
+    persons: Optional[Any] = None
+    masked_ids: Optional[Any] = None
+    hususlar: Optional[Any] = None
+    belgeler: Optional[str] = None
+    type: Optional[str] = None
+    ilan_sira_no: Optional[Any] = None
+    
     created_at: datetime
     updated_at: Optional[datetime] = None
 

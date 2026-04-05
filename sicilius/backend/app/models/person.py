@@ -24,6 +24,7 @@ class Person(Base):
     # Contact Information
     email = Column(String(255), index=True)
     phone = Column(String(20))
+    address = Column(Text, nullable=True) # RESIDENTIAL ADDRESS FOR NEXUS DEDUPLICATION
     
     # Additional Information
     birth_date = Column(Date)

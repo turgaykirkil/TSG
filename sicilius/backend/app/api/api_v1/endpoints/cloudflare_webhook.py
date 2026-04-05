@@ -7,7 +7,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 from app import models
 from app.api import deps
@@ -26,7 +26,7 @@ class CloudflareEmailPayload(BaseModel):
     Simplified Cloudflare Email Routing webhook payload.
     Actual payload may have more fields - adapt as needed.
     """
-    from_: EmailStr
+    from_: EmailStr = Field(alias='from')
     to: EmailStr
     subject: Optional[str] = None
     text: Optional[str] = None  # Plain text body
@@ -35,7 +35,6 @@ class CloudflareEmailPayload(BaseModel):
 
     class Config:
         populate_by_name = True
-        fields = {'from_': 'from'}  # Map 'from' to 'from_' (keyword workaround)
 
 
 @router.post("/webhooks/cloudflare-email", summary="Cloudflare Email Routing webhook")

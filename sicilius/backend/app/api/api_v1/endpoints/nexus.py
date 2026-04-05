@@ -17,7 +17,7 @@ def get_company_network_analysis(
     db: Session = Depends(deps.get_db),
     company_id: UUID,
     current_user: User = Depends(deps.get_current_active_user),
-    limit: int = 10,
+    limit: int = 50,
     background_tasks: BackgroundTasks
 ) -> Any:
     """
@@ -40,6 +40,10 @@ def get_company_network_analysis(
         # Trigger Background Geocoding for Missing Coordinates
         if result.get('analysis') and result['analysis'].get('missing_coords'):
             background_tasks.add_task(process_background_geocoding, result['analysis']['missing_coords'])
+            
+        # Trigger Background ML Anomaly Detection
+        if result.get('analysis') and result['analysis'].get('ml_features_payload'):
+            background_tasks.add_task(service.run_background_anomaly_detection, result['analysis']['ml_features_payload'])
             
         return result
     except Exception as e:

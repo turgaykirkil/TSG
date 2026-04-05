@@ -777,7 +777,9 @@ async def scrape_company(page: Page, db: Session, company):
                                     except Exception:
                                         pass
 
-                                    pdf_url = get_presigned_url(bucket_name, file_name, expires=24 * 3600)
+                                    # Store the plain object name so OCR tasks can always fetch from MinIO
+                                    # without presigned URL expiry issues.
+                                    pdf_url = file_name  # e.g. "announcement_{company_id}_{uuid}.pdf"
                                     scraping_state.add_log(f"PDF_SUCCESS: '{title}' için PDF yüklendi (MinIO).")
                                 else:
                                     scraping_state.add_log(f"PDF_SKIP: '{title}' için PDF alınamadı.")

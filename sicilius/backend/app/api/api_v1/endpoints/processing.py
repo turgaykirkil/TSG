@@ -42,192 +42,38 @@ def clean_address(address: str) -> str:
     return address
 
 
-def normalize_for_geocoding(address: str) -> str:
-    s = address or ""
-    s = unicodedata.normalize("NFC", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    s = s.replace("ISTANBUL", "İstanbul").replace("İSTANBUL", "İstanbul").replace("istanbul", "İstanbul")
-    s = s.replace("IZMIR", "İzmir").replace("İZMİR", "İzmir").replace("izmir", "İzmir")
-    s = re.sub(r"\b(MH|MH\.|MAH|MAH\.)\b", "Mahallesi", s, flags=re.IGNORECASE)
-    s = re.sub(r"\b(CD|CD\.|CAD|CAD\.|CADD?E?)\b", "Cadde", s, flags=re.IGNORECASE)
-    s = re.sub(r"\b(SOK|SOK\.|SK|SK\.)\b", "Sokak", s, flags=re.IGNORECASE)
-    s = re.sub(r"\b(BUL|BUL\.|BLV|BLV\.|BLVR?)\b", "Bulvarı", s, flags=re.IGNORECASE)
-    s = re.sub(r"\bST\b\.?", "Sokak", s, flags=re.IGNORECASE)
-    s = re.sub(r"\bBLK?\b\.?", "Blok", s, flags=re.IGNORECASE)
-    s = re.sub(r"\bNO\s*[:\.]?\s*", "No ", s, flags=re.IGNORECASE)
-    s = re.sub(r"\bİÇ\s*KAPI\s*NO\s*[:\.]?\s*", "İç Kapı No ", s, flags=re.IGNORECASE)
-    s = re.sub(r"\bN[O\.]?\s*[:\.]?\s*(\d+)", r"No \1", s, flags=re.IGNORECASE)
-    s = re.sub(r"\b(Mahallesi|Cadde|Sokak|Bulvarı)\.", r"\1", s, flags=re.IGNORECASE)
-    s = re.sub(r"\s*\.\s*", " ", s)
-    # Anahtar kelimelerden sonra bitisik gelen buyuk harf/rakam oncesine bosluk koy
-    s = re.sub(r"\b(Mahallesi|Cadde|Sokak|Bulvarı|Blok)(?=[A-ZÇĞİÖŞÜ0-9])", r"\1 ", s)
-    # Ozel bitisik kombinasyonlar
-    s = re.sub(r"\b(Blok|Sokak)No\b", r"\1 No", s, flags=re.IGNORECASE)
-    # Harf-buyuk harf arasi, harf-rakam ve rakam-harf arasi bosluk ekle
-    # Harf-buyuk harf arasi (CamelCase icin) bosluk ekle - SAFE VERSION
-    # Yani kucuk harf bitip buyuk harf basliyorsa. ORNEK: "NergisSk" -> "Nergis Sk"
-    s = re.sub(r"([a-zçğıöşü])([A-ZÇĞİÖŞÜ])", r"\1 \2", s)
-    
-    # Rakam-Harf ayirimi (No:5A -> No:5 A gibi degil, daha ziyade No15 -> No 15)
-    # Ancak No:15 bitisikse No 15 yapmak isteriz. 
-    # Dikkatli olunmali. 
-    s = re.sub(r"([0-9])([A-Za-zÇĞİÖŞÜçğıöşü])", r"\1 \2", s)
-    s = re.sub(r"([A-Za-zÇĞİÖŞÜçğıöşü])([0-9])", r"\1 \2", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
-
+from app.services.geocoding_service import geocode_address, clean_address
 
 class CoordinateProcessingRequest(BaseModel):
     limit: int = 100
 
-async def _fetch_coords(client: httpx.AsyncClient, address: str) -> Dict[str, Any]:
-    """Helper to call LocationIQ API."""
-    try:
-        params = {
-            "key": settings.locationiq_token,
-            "q": address,
-            "format": "json",
-            "countrycodes": "tr",
-            "accept-language": "tr",
-            "limit": 1,
-        }
-        resp = await client.get(LOCATIONIQ_API_URL, params=params)
-        if resp.status_code == 200:
-            data = resp.json()
-            if data:
-                return data[0]
-        elif resp.status_code != 404:
-            logger.warning(f"LocationIQ API warning for '{address}': {resp.status_code} {resp.text}")
-    except Exception as e:
-        logger.error(f"HTTP Request failed for '{address}': {e}")
-    return None
-
-async def geocode_with_fallback(client: httpx.AsyncClient, address: str) -> Dict[str, Any]:
-    """
-    Attempts to geocode with fallback strategy:
-    1. Exact Match
-    2. Street Level (strip door numbers)
-    3. Neighbourhood Level (Mahalle + City)
-    """
-    logger.info(f"Geocoding Address: '{address}'")
-    
-    # 1. Exact Match
-    logger.info(f"Attempt 1 (Exact): '{address}'")
-    result = await _fetch_coords(client, address)
-    if result:
-        logger.info(f"✅ Exact match found for: '{address}'")
-        return result
-    else:
-        logger.info(f"❌ Exact match failed for: '{address}'")
-        
-    # 2. Street Level (Remove No: ...)
-    # Regex: Remove "No" (and optional preceding digit like '0 No') followed by digits
-    # Original was: r'(\sNo\s\d+.*)'
-    # New: r'(\s(\d+\s)?No\s\d+.*)' to catch " 0 No 12" patterns common in dirty data
-    street_level = re.sub(r'(\s(\d+\s)?No\s\d+.*)', '', address, flags=re.IGNORECASE).strip()
-    
-    # Extra cleaning for Street Level: Remove building names (APT, SITESI, etc.) which often confuse geocoders
-    # Capture " X APT" or " X SITESI" at the end of the string
-    street_level = re.sub(r'\s+[A-Za-z0-9]+\s+(APT|APARTMANI|SİTESİ|İŞ MERKEZİ|PLAZA)\b.*', '', street_level, flags=re.IGNORECASE).strip()
-    
-    if street_level and street_level != address and len(street_level) > 10:
-        logger.info(f"Attempt 2 (Street Level): '{street_level}'")
-        result = await _fetch_coords(client, street_level)
-        if result:
-            logger.info(f"✅ Street level match found for: '{street_level}'")
-            return result
-        else:
-             logger.info(f"❌ Street level match failed for: '{street_level}'")
-    else:
-        logger.info("⚠️ Street level fallback skipped/same as exact.")
-
-    # 3. Neighbourhood Level (Mahalle + District + City)
-    # Try to extract "X Mahallesi"
-    mahalle_match = re.search(r'([A-Za-zÇĞİÖŞÜçğıöşü\s]+Mahallesi)', address, re.IGNORECASE)
-    
-    if mahalle_match:
-        mahalle_part = mahalle_match.group(1).strip()
-        location_suffix = ""
-        
-        # Try to parse "District / City" structure which is common in our data
-        if "/" in address:
-            parts = address.split("/")
-            if len(parts) >= 2:
-                city = parts[-1].strip()
-                # District is usually the last word of the part before slash
-                pre_slash = parts[-2].strip()
-                district = pre_slash.split()[-1] if pre_slash else ""
-                
-                # Validation: District should not be a number or contain digits (like "88A")
-                if district and any(char.isdigit() for char in district):
-                    district = ""
-                
-                # Avoid adding district if it's already in mahalle part (rare but possible)
-                if district and district.lower() not in mahalle_part.lower():
-                    location_suffix = f" {district} {city}"
-                else:
-                    location_suffix = f" {city}"
-        
-        # Fallback for city detection if no slash
-        if not location_suffix:
-            lower_addr = address.lower()
-            if "istanbul" in lower_addr: location_suffix = " İstanbul"
-            elif "ankara" in lower_addr: location_suffix = " Ankara"
-            elif "izmir" in lower_addr: location_suffix = " İzmir"
-            
-        neigh_level = f"{mahalle_part}{location_suffix}".strip()
-        
-        # Check against previous attempts to avoid duplicate calls
-        if neigh_level and neigh_level != street_level and neigh_level != address:
-             logger.info(f"Attempt 3 (Neighbourhood): '{neigh_level}'")
-             result = await _fetch_coords(client, neigh_level)
-             if result:
-                 logger.info(f"✅ Neighbourhood level match found for: '{neigh_level}'")
-                 return result
-             else:
-                 logger.info(f"❌ Neighbourhood level match failed for: '{neigh_level}'")
-        else:
-            logger.info(f"⚠️ Neighbourhood fallback skipped (duplicate/empty): '{neigh_level}'")
-    else:
-        logger.info("⚠️ Failed to try Neighbourhood level (no 'Mahallesi' found).")
-
-    return None
-
 async def geocode_company_by_id(db: Session, company_id: Any, address: str) -> bool:
     """
-    Geocodes a single company by ID and updates the DB.
+    Geocodes a single company by ID and updates the DB using the central geocoding service.
     Returns True if successful, False otherwise.
     """
     if not address:
         return False
         
-    cleaned_address = clean_address(address)
-    if not cleaned_address:
-        return False
-
-    normalized = normalize_for_geocoding(cleaned_address)
-    if not normalized:
-        return False
-        
     try:
-        async with httpx.AsyncClient() as client:
-            geocoding_result = await geocode_with_fallback(client, normalized)
+        # Use the central geocoding engine
+        geocoding_result = await geocode_address(db, address)
 
-            if geocoding_result:
-                lat, lon = float(geocoding_result['lat']), float(geocoding_result['lon'])
-                
-                # Use ORM to avoid table name resolution issues
-                company = db.query(Company).filter(Company.id == company_id).first()
-                if company:
-                    company.koordinat = WKTElement(f'POINT({lon} {lat})', srid=4326)
-                    db.commit()
-                    return True
-                else:
-                    logger.error(f"Company {company_id} not found during geocoding update.")
-                    return False
+        if geocoding_result:
+            lat, lon = geocoding_result['lat'], geocoding_result['lon']
+            
+            # Use ORM to avoid table name resolution issues
+            company = db.query(Company).filter(Company.id == company_id).first()
+            if company:
+                company.koordinat = WKTElement(f'POINT({lon} {lat})', srid=4326)
+                db.commit()
+                return True
             else:
-                logger.warning(f"Could not geocode address (all attempts failed) for company {company_id}: '{cleaned_address}'")
+                logger.error(f"Company {company_id} not found during geocoding update.")
                 return False
+        else:
+            logger.warning(f"Could not geocode address via engine for company {company_id}: '{address}'")
+            return False
 
     except Exception as e:
         # Critical: Rollback session on DB errors to prevent 'Aborted Transaction' loops
@@ -250,7 +96,6 @@ async def process_background_geocoding(company_ids: List[str]):
         for comp in companies:
             if comp.address and not comp.koordinat:
                 await geocode_company_by_id(db, comp.id, comp.address)
-                await asyncio.sleep(0.5) # Courtesy delay
     except Exception as e:
         logger.error(f"Error in background geocoding task: {e}")
     finally:
