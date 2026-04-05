@@ -1,4 +1,5 @@
 'use client';
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -18,13 +19,18 @@ interface ColumnTypeModalProps {
 }
 
 const typeOptions: { value: ColumnType; label: string; icon: React.ElementType }[] = [
-  { value: 'sicil_no', label: 'Sicil No', icon: Hash },
-  { value: 'firma_unvani', label: 'Firma Ünvanı', icon: Building2 },
-  { value: 'adres', label: 'Adres', icon: MapPin },
-  { value: 'sicil_mudurluk', label: 'Sicil Müdürlüğü', icon: Library },
+    { value: 'sicil_no', label: 'Sicil No', icon: Hash },
+    { value: 'firma_unvani', label: 'Firma Ünvanı', icon: Building2 },
+    { value: 'adres', label: 'Adres', icon: MapPin },
+    { value: 'sicil_mudurluk', label: 'Sicil Müdürlüğü', icon: Library },
 ];
 
-export function ColumnTypeModal({ isOpen, onClose, columnName, onSelectType }: ColumnTypeModalProps) {
+export function ColumnTypeModal({ 
+  isOpen, 
+  onClose, 
+  columnName, 
+  onSelectType 
+}: ColumnTypeModalProps) {
   const handleSelect = (type: ColumnType) => {
     onSelectType(type);
     onClose();
@@ -42,18 +48,18 @@ export function ColumnTypeModal({ isOpen, onClose, columnName, onSelectType }: C
           </DialogDescription>
           <div className="space-y-2">
             {typeOptions.map(({ value, label, icon: Icon }) => (
-              <Button
-                key={value}
-                variant="outline"
-                className="w-full justify-start gap-2"
-                onClick={() => handleSelect(value)}
-              >
-                <Icon className="h-4 w-4" />
-                <span>{label}</span>
-              </Button>
+                 <Button
+                    key={value}
+                    variant="outline"
+                    className="w-full justify-start gap-2"
+                    onClick={() => handleSelect(value)}
+                >
+                    <Icon className="h-4 w-4" />
+                    <span>{label}</span>
+                </Button>
             ))}
-            <Button
-              variant="ghost"
+            <Button 
+              variant="ghost" 
               className="w-full justify-start gap-2 text-gray-500 hover:text-red-500"
               onClick={() => handleSelect('none')}
             >

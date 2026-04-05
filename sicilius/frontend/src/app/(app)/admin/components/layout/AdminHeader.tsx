@@ -1,12 +1,16 @@
+
+
 'use client';
 
-import React from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { usePathname } from 'next/navigation';
-import { Bell, Search, Menu, User, Settings, LogOut, Sun, Moon } from 'lucide-react';
+import { useState } from 'react';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import { Bell, Search, Menu, User, Settings, LogOut, CreditCard, LifeBuoy, Sun, Moon } from 'lucide-react';
+
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
+import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
   DropdownMenu,
@@ -17,108 +21,82 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+
+
+
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { AppSidebar } from './AdminSidebar';
 
 export function AppHeader() {
-  const { session, logout } = useAuth();
-  const { theme, setTheme } = useTheme();
-  const user = session?.user;
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const pathname = usePathname();
+  const router = useRouter();
+  const { session, logout } = useAuth();
+  const user = session?.user;
+  const { theme, setTheme } = useTheme();
 
-  const getPageTitle = () => {
-    const parts = pathname.split('/').filter(Boolean);
-    if (parts.length === 0) return 'Panel';
-    const lastPart = parts[parts.length - 1];
-    return lastPart.charAt(0).toUpperCase() + lastPart.slice(1);
+  const toggleTheme = () => setTheme(theme === 'dark' ? 'light' : 'dark');
+
+  const navigation = [
+    { name: 'Raporlar', href: '/reports' },
+    { name: 'Kaydedilenler', href: '/favorites' },
+    { name: 'Ayarlar', href: '/settings' },
+  ];
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchTerm.trim()) {
+      router.push(`/search?q=${encodeURIComponent(searchTerm)}`);
+    }
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b bg-background/95 px-4 backdrop-blur sm:px-6">
-      <div className="flex items-center gap-4">
-        <Sheet>
-          <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" className="lg:hidden">
-              <Menu className="h-5 w-5" />
-              <span className="sr-only">Toggle menu</span>
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="left" className="w-[280px] p-0">
-            <AppSidebar />
-          </SheetContent>
-        </Sheet>
+    <header className="sticky top-0 z-10 flex-shrink-0 flex h-16 bg-background border-b">
+      <div className="flex-1 px-4 flex justify-between">
+        <div className="flex items-center">
+          <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+            <SheetTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="md:hidden"
+              >
+                <span className="sr-only">Menüyü aç</span>
+                <Menu className="h-6 w-6" aria-hidden="true" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="p-0 w-72">
+              <AppSidebar onLinkClick={() => setMobileMenuOpen(false)} />
+            </SheetContent>
+          </Sheet>
+        </div>
+
+
+
         <div className="flex items-center gap-2">
-          <h1 className="text-lg font-semibold text-foreground md:text-xl">
-            {getPageTitle()}
-          </h1>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleTheme}
+            aria-label="Tema değiştir"
+            title={theme === 'dark' ? 'Açık tema' : 'Koyu tema'}
+          >
+            {theme === 'dark' ? (
+              <Sun className="h-5 w-5" />
+            ) : (
+              <Moon className="h-5 w-5" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={logout}
+            className="ml-1 text-sm font-medium text-foreground"
+          >
+            <LogOut className="mr-2 h-5 w-5" />
+            Çıkış Yap
+          </Button>
         </div>
-      </div>
-
-      <div className="flex items-center gap-2 sm:gap-4">
-        <div className="hidden items-center md:flex">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Ara..."
-              className="w-64 pl-9 lg:w-80"
-            />
-          </div>
-        </div>
-
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-        >
-          {theme === 'dark' ? (
-            <Sun className="h-5 w-5" />
-          ) : (
-            <Moon className="h-5 w-5" />
-          )}
-        </Button>
-
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
-          <span className="absolute right-2 top-2 flex h-2 w-2 rounded-full bg-primary" />
-        </Button>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="relative h-9 w-9 rounded-full">
-              <Avatar className="h-9 w-9">
-                <AvatarImage src={user?.user_metadata?.avatar_url} alt={user?.email || ''} />
-                <AvatarFallback>{user?.email?.charAt(0).toUpperCase()}</AvatarFallback>
-              </Avatar>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="w-56" align="end" forceMount>
-            <DropdownMenuLabel className="font-normal">
-              <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium leading-none">{user?.email}</p>
-                <p className="text-xs leading-none text-muted-foreground">
-                  Yönetici Hesabı
-                </p>
-              </div>
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <User className="mr-2 h-4 w-4" />
-                <span>Profil</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <Settings className="mr-2 h-4 w-4" />
-                <span>Ayarlar</span>
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => logout()}>
-              <LogOut className="mr-2 h-4 w-4" />
-              <span>Çıkış Yap</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
     </header>
   );

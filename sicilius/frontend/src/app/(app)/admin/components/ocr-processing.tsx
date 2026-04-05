@@ -4,18 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { MoreHorizontal } from 'lucide-react';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 export default function OCRProcessing() {
   const [ocrStatus, setOcrStatus] = useState<'idle' | 'running' | 'completed'>('idle');
   const [progress, setProgress] = useState(0);
+  
   const [ocrQueue] = useState([
     { id: 1, fileName: 'firma-listesi.xlsx', status: 'Bekliyor', date: '2025-06-05' },
     { id: 2, fileName: 'resmi-gazete.pdf', status: 'Tamamlandı', date: '2025-06-04' },
@@ -24,9 +18,10 @@ export default function OCRProcessing() {
 
   const startOCR = () => {
     if (ocrStatus === 'running') return;
+    
     setOcrStatus('running');
     setProgress(0);
-
+    
     // Simulate OCR progress
     const interval = setInterval(() => {
       setProgress(prev => {
@@ -43,7 +38,7 @@ export default function OCRProcessing() {
 
   return (
     <div className="space-y-6">
-      <Card>
+            <Card>
         <CardHeader>
           <CardTitle>OCR İşlemi</CardTitle>
         </CardHeader>
@@ -58,7 +53,10 @@ export default function OCRProcessing() {
                   {ocrStatus === 'completed' && 'OCR işlemi tamamlandı'}
                 </p>
               </div>
-              <Button onClick={startOCR} disabled={ocrStatus === 'running'}>
+              <Button 
+                onClick={startOCR}
+                disabled={ocrStatus === 'running'}
+              >
                 {ocrStatus === 'running' ? (
                   <>
                     <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
@@ -67,6 +65,7 @@ export default function OCRProcessing() {
                 ) : 'OCR Başlat'}
               </Button>
             </div>
+            
             {ocrStatus !== 'idle' && (
               <div className="space-y-2">
                 <Progress value={progress} />
@@ -100,11 +99,12 @@ export default function OCRProcessing() {
                   <TableCell className="font-medium">{item.fileName}</TableCell>
                   <TableCell>{item.date}</TableCell>
                   <TableCell>
-                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                      item.status === 'Bekliyor' ? 'bg-yellow-100 text-yellow-800' :
-                      item.status === 'Tamamlandı' ? 'bg-green-100 text-green-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
+                    <span
+                      className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                        item.status === 'Bekliyor' ? 'bg-yellow-100 text-yellow-800' :
+                        item.status === 'Tamamlandı' ? 'bg-green-100 text-green-800' :
+                        'bg-red-100 text-red-800'
+                      }`}>
                       {item.status}
                     </span>
                   </TableCell>
@@ -119,6 +119,8 @@ export default function OCRProcessing() {
           </Table>
         </CardContent>
       </Card>
+
+
     </div>
   );
 }

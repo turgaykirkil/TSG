@@ -2,25 +2,16 @@ import { useState } from 'react';
 import { Icons } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function JobHistory() {
-  const [filter, setFilter] = useState({ type: '', status: '', search: '' });
+  const [filter, setFilter] = useState({
+    type: '',
+    status: '',
+    search: ''
+  });
 
   const jobHistory = [
     { id: 1, type: 'Dosya Yükleme', fileName: 'firma-listesi.xlsx', date: '2025-06-05 14:30', status: 'Tamamlandı', duration: '45s' },
@@ -60,6 +51,7 @@ export default function JobHistory() {
                 </SelectContent>
               </Select>
             </div>
+            
             <div>
               <label className="text-sm font-medium mb-1 block">Durum</label>
               <Select onValueChange={value => setFilter({...filter, status: value})}>
@@ -74,10 +66,11 @@ export default function JobHistory() {
                 </SelectContent>
               </Select>
             </div>
+            
             <div className="md:col-span-2">
               <label className="text-sm font-medium mb-1 block">Arama</label>
               <Input 
-                placeholder="Dosya adı veya işlem türü ara..." 
+                placeholder="Dosya adı veya işlem türü ara..."
                 value={filter.search}
                 onChange={e => setFilter({...filter, search: e.target.value})}
               />
@@ -109,19 +102,14 @@ export default function JobHistory() {
                   <TableCell>{job.type}</TableCell>
                   <TableCell className="font-medium">{job.fileName}</TableCell>
                   <TableCell>
-                    <span className={`px-2 py-1 rounded-full text-xs ${
-                      job.status === 'Tamamlandı' ? 'bg-green-100 text-green-800' :
-                      job.status === 'Başarısız' ? 'bg-red-100 text-red-800' :
-                      'bg-yellow-100 text-yellow-800'
-                    }`}>
+                    <span className={`px-2 py-1 rounded-full text-xs ${job.status === 'Tamamlandı' ? 'bg-green-100 text-green-800' : job.status === 'Başarısız' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>
                       {job.status}
                     </span>
                   </TableCell>
                   <TableCell>{job.duration}</TableCell>
                   <TableCell>
                     <Button variant="outline" size="sm">
-                      <Icons.fileText className="mr-1 h-4 w-4" />
-                      Detay
+                      <Icons.fileText className="mr-1 h-4 w-4" /> Detay
                     </Button>
                   </TableCell>
                 </TableRow>

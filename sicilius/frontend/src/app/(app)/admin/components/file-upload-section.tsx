@@ -128,20 +128,25 @@ const SheetMappingInterface: FC<{ sheet: ExcelSheetResult; selectedSicilMudurluk
   }, [onReset]);
 
   const handleUpload = useCallback(async () => {
+    console.log('[SheetMapping] Handle upload called.');
     if (!selectedSicilMudurluk) {
       toast.error('Lütfen Sicil Müdürlüğü seçin.');
+      console.error('[SheetMapping] Sicil Müdürlüğü not selected.');
       return;
     }
 
     const result = getMappedData();
+    console.log('[SheetMapping] Mapped data result:', result);
 
     if (!result.isValid) {
       toast.error('Eksik zorunlu alanlar var.', {
         description: `Lütfen şu alanları eşleştirin: ${result.missingColumns.join(', ')}`,
       });
+      console.error(`[SheetMapping] Missing required columns: ${result.missingColumns.join(', ')}`);
       return;
     }
 
+    console.log(`[SheetMapping] Attempting to upload ${result.data.length} companies.`);
     await uploader.upload(result.data, selectedSicilMudurluk, handleUploadSuccess);
   }, [getMappedData, uploader, selectedSicilMudurluk, handleUploadSuccess]);
 
@@ -224,6 +229,7 @@ const FileProcessedState: FC<{ fileData: ProcessedFileData; onReset: () => void 
               <SelectItem value="İSTANBUL TİCARET SİCİLİ MÜDÜRLÜĞÜ">İSTANBUL TİCARET SİCİLİ MÜDÜRLÜĞÜ</SelectItem>
               <SelectItem value="ANKARA TİCARET SİCİLİ MÜDÜRLÜĞÜ">ANKARA TİCARET SİCİLİ MÜDÜRLÜĞÜ</SelectItem>
               <SelectItem value="İZMİR TİCARET SİCİLİ MÜDÜRLÜĞÜ">İZMİR TİCARET SİCİLİ MÜDÜRLÜĞÜ</SelectItem>
+              {/* Diğer müdürlükler buraya eklenebilir */}
             </SelectContent>
           </Select>
         </div>
@@ -306,6 +312,7 @@ export default function FileUploadSection() {
     setSelectedPdfTable(null);
   }, [processor]);
 
+  // 1. Show processing state
   if (processor.isProcessing) {
     return (
       <Card className="w-full max-w-2xl mx-auto">
@@ -320,6 +327,7 @@ export default function FileUploadSection() {
     );
   }
 
+  // 2. Show error state
   if (processor.error) {
     return (
       <Card className="w-full max-w-2xl mx-auto">
@@ -336,6 +344,7 @@ export default function FileUploadSection() {
     );
   }
 
+  // 3. Show PDF table selector if PDF is processed
   if (processor.isPdfSuccess && processor.pdfData.length > 0 && !selectedPdfTable) {
     return (
       <PdfTableSelector
@@ -347,6 +356,7 @@ export default function FileUploadSection() {
     );
   }
 
+  // 4. Show data mapping for a selected PDF table
   if (selectedPdfTable && processor.currentFiles.length > 0) {
     const sheetResult: ExcelSheetResult = {
       sheetName: selectedPdfTable.table_name,
@@ -371,10 +381,12 @@ export default function FileUploadSection() {
     return <FileProcessedState fileData={fileData} onReset={handleReset} />;
   }
 
+  // 5. Show data mapping for a processed Excel file
   if (processor.excelData && processor.excelData.sheets.length > 0) {
     return <FileProcessedState fileData={processor.excelData} onReset={handleReset} />;
   }
 
+  // 6. Show initial dropzone
   return (
     <Card className="w-full max-w-2xl mx-auto">
       <CardHeader>

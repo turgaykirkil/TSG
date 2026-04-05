@@ -1,5 +1,4 @@
 'use client';
-
 import React, { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -27,6 +26,8 @@ export default function ScrapingDashboard() {
     setError(null);
     setIsLoading(true);
     try {
+      // Use the proxy endpoint (Next.js route handler) for failover support
+      // Do NOT use getApiUrl() here as it points directly to backend 5001 via rewrites
       const response = await fetch(`/api/scraping/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -58,6 +59,8 @@ export default function ScrapingDashboard() {
     setIsLoading(true);
     setSelectedCity(city);
     try {
+      // Use the proxy endpoint (Next.js route handler) for failover support
+      // Do NOT use getApiUrl() here as it points directly to backend 5001 via rewrites
       const response = await fetch(`/api/scraping/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -90,10 +93,12 @@ export default function ScrapingDashboard() {
     }
   }, [getApiUrl]);
 
+  // İlk yüklemede bir kez durumu çek
   useEffect(() => {
     fetchStatus();
   }, [fetchStatus]);
 
+  // Sadece scraping.running=true iken 3 sn'de bir poll et
   useEffect(() => {
     if (status?.scraping?.running) {
       const id = setInterval(fetchStatus, 3000);
@@ -147,6 +152,7 @@ export default function ScrapingDashboard() {
               </Button>
             </div>
 
+            {/* Worker Source Selection */}
             <div className="mt-4 flex items-center gap-4 p-3 border rounded-md bg-white dark:bg-black/40">
               <span className="text-sm font-medium">Kaynak:</span>
               <div className="flex items-center gap-2">
@@ -170,6 +176,7 @@ export default function ScrapingDashboard() {
                 </Button>
               </div>
             </div>
+            {/* Status panel */}
             <div className="mt-4 rounded-md border bg-white/50 dark:bg-black/20 p-3 text-sm">
               <div className="flex items-center justify-between">
                 <div>
