@@ -1,0 +1,6 @@
+#!/usr/bin/expect -f
+set timeout 1800
+spawn ssh -o StrictHostKeyChecking=no ubuntu@89.252.153.102 "cd ~/sicilius && sudo docker compose -f docker-compose.prod.yml down && sudo docker system prune -af && sudo docker compose -f docker-compose.prod.yml build --no-cache && sudo docker compose -f docker-compose.prod.yml up -d"
+expect "*assword:*" { send "q27MB7kCAJryfz\r" }
+expect "*assword:*" { send "q27MB7kCAJryfz\r" }
+expect eof

@@ -1,0 +1,24 @@
+#!/usr/bin/expect -f
+set timeout 900
+set SERVER_IP "89.252.153.102"
+set PASSWORD "q27MB7kCAJryfz"
+
+spawn ssh -o StrictHostKeyChecking=no ubuntu@$SERVER_IP
+expect "*assword:*" { send "$PASSWORD\r" }
+
+# Sunucuya giriş yaptık, en basit prompt'u bekle: *$ 
+expect "*$ "
+send "cd ~/sicilius && sudo docker compose -f docker-compose.prod.yml down\r"
+
+# Sudo şifre bekleyebilir
+expect {
+    "*assword:*" { send "$PASSWORD\r"; exp_continue }
+    "~/sicilius$ " { send "sudo docker system prune -af && sudo docker compose -f docker-compose.prod.yml build --no-cache && sudo docker compose -f docker-compose.prod.yml up -d\r" }
+}
+
+expect {
+    "*assword:*" { send "$PASSWORD\r"; exp_continue }
+    "exporting layers" { exp_continue }
+    "done" { exp_continue }
+    eof
+}
