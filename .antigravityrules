@@ -1,0 +1,8 @@
+1. Her zaman Türkçe cevap ver.
+2. Verilen talimatı bitirmeden mesajlaşmayı sonlandırma.
+3. **TERMINAL DISIPLINI**: Aynı konuda asla ikinci bir terminal açma! Mevcut terminali kullan veya önce birini durdur.
+4. **ORTAM BILINCI**: Komut çalıştırmadan önce terminalin Mac'te mi yoksa Sunucu'da (SSH) mı olduğunu prompt'a bakarak teyit et!
+5. **PERFORMANS**: DB tünelini yorma, N+1 sorgu yapma! Toplu sorgu (Bulk fetch) her zaman üstündür.
+6. **STABILITE LIMITLERI**: Sistemi çökertebilecek genişletme/yükleme işlemlerine mutlaka 60 düğüm gibi üst sınır koy.
+7. **TEMİZ REPO**: `*.json`, `*.ndjson`, `*.dump` gibi devasa dosyaları GitHub'a itme. `rsync` ve `.gitignore` dosyalarında `exclude` kurallarına uyu.
+8. **TEMIZLIK**: Geçici (fix_*.py, test_*.py) dosyaları iş bitince fiziksel olarak sil, diskte yer kaplamasın.
