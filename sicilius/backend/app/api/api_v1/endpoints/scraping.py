@@ -22,6 +22,8 @@ class ScrapingRequest(BaseModel):
     count: int = 10
     mode: Optional[Literal['normal', 'city_fill']] = 'normal'
     city: Optional[str] = None
+    strategy: Optional[Literal['gap_fill', 'sequential']] = 'gap_fill'
+    start_from: Optional[int] = None
 
 # Endpoints
 @router.post("/start-login", response_model=LoginSessionResponse)
@@ -121,7 +123,14 @@ async def start_scraping(
     if request.mode == 'city_fill':
         if not request.city:
             raise HTTPException(status_code=400, detail="city is required when mode=city_fill")
-        background_tasks.add_task(start_enhanced_scraping_process, count=request.count, city=request.city, mode='city_fill')
+        background_tasks.add_task(
+            start_enhanced_scraping_process, 
+            count=request.count, 
+            city=request.city, 
+            mode='city_fill',
+            strategy=request.strategy,
+            start_from=request.start_from
+        )
         return {"message": f"City-fill scraping started for {request.city} with {request.count} attempts."}
 
     # Default: normal mode

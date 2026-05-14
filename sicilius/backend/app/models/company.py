@@ -32,7 +32,7 @@ class Company(Base):
     district = Column(String(100), nullable=True)
     city = Column(String(100), nullable=True)
     country = Column(String(100), default="Türkiye")
-    koordinat = Column(Geometry('POINT', srid=4326), nullable=True, index=True)
+    koordinat = Column(Geometry('POINT', srid=4326), nullable=True)
 
     # Status and Timestamps
     is_active = Column(Boolean, default=True)

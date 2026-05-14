@@ -1,0 +1,17 @@
+FROM node:18-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+
+# 1. Sadece package.json kopyala ve sadece prod paketlerini kur (Çok az RAM harcar)
+COPY package*.json ./
+RUN npm install --omit=dev --legacy-peer-deps --no-audit --no-fund --no-package-lock
+
+# 2. Kalan tüm dosyaları ve Mac'te derlenmiş .next klasörünü kopyala
+COPY . .
+
+# Environment
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
+EXPOSE 3000
+CMD ["npm", "run", "start"]

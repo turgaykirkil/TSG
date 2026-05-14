@@ -42,6 +42,7 @@ from app.utils.scrape_helpers_async import (
     random_human_delay,
     gentle_mouse_wiggle,
 )
+from process_pdfs import get_ocr_baseline
 
 logger = logging.getLogger(__name__)
 
@@ -428,7 +429,13 @@ class BrowserManager:
 browser_manager = BrowserManager()
 
 
-async def start_enhanced_scraping_process(count: int, city: Optional[str] = None, mode: Optional[str] = 'normal'):
+async def start_enhanced_scraping_process(
+    count: int, 
+    city: Optional[str] = None, 
+    mode: Optional[str] = 'normal', 
+    strategy: Optional[str] = 'gap_fill', 
+    start_from: Optional[int] = None
+):
     """
     Fetches unscraped companies, scrapes their announcements, and saves them to the database.
     This function is intended for robust, production-like scraping.
@@ -464,7 +471,14 @@ async def start_enhanced_scraping_process(count: int, city: Optional[str] = None
             # Aday sicil numaralarını hazırla (gaps + max'tan itibaren)
             # İstanbul için en az 6 haneli (>=100000) kısıtını uygula
             min_threshold = 100000 if office_label == 'İSTANBUL' else 1
-            candidates: List[int] = _compute_candidate_sicil_numbers(db, office_label, count, min_threshold=min_threshold)
+            candidates: List[int] = _compute_candidate_sicil_numbers(
+                db, 
+                office_label, 
+                count, 
+                min_threshold=min_threshold,
+                strategy=strategy or 'gap_fill',
+                start_from=start_from
+            )
             if not candidates:
                 scraping_state.start(total_count=count)
                 scraping_state.add_log("CITY_FILL_INFO: Aday sicil numarası üretilemedi.")
@@ -473,11 +487,10 @@ async def start_enhanced_scraping_process(count: int, city: Optional[str] = None
             scraping_state.start(total_count=count)
             bucket_name = "gazette-pdfs"
             try:
-                ensure_bucket(bucket_name)
-                logger.info("Bucket '%s' hazır", bucket_name)
+                # ensure_bucket(bucket_name) # MinIO kapalı olduğu için atlanıyor
+                logger.info("Bucket '%s' kontrolü atlandı (MinIO deaktif).", bucket_name)
             except Exception as e:
                 logger.error("Bucket kontrolü başarısız oldu: %s", e)
-                raise e
             processed = 0
             
             for num in candidates:
@@ -523,11 +536,10 @@ async def start_enhanced_scraping_process(count: int, city: Optional[str] = None
         # Ensure the Supabase bucket exists before starting to scrape
         bucket_name = "gazette-pdfs"
         try:
-            ensure_bucket(bucket_name)
-            logger.info("Bucket '%s' hazır", bucket_name)
+            # ensure_bucket(bucket_name) # MinIO kapalı olduğu için atlanıyor
+            logger.info("Bucket '%s' kontrolü atlandı (MinIO deaktif).", bucket_name)
         except Exception as e:
             logger.error("Bucket kontrolü başarısız oldu: %s", e)
-            raise e
 
         company_processed_count = 0
 
@@ -557,9 +569,17 @@ async def start_enhanced_scraping_process(count: int, city: Optional[str] = None
             logger.warning("Failed to close browser during finalization.")
 
 
-def _compute_candidate_sicil_numbers(db: Session, office_label: str, count: int, min_threshold: int = 1) -> List[int]:
-    """Verilen ofis için DB'deki sayısal sicil_no'ları toplayıp aralıklardaki boşlukları (gaps)
-    üretir; gerekirse en büyük numaradan itibaren yukarı doğru tamamlayarak toplam 'count' aday üretir.
+def _compute_candidate_sicil_numbers(
+    db: Session, 
+    office_label: str, 
+    count: int, 
+    min_threshold: int = 1,
+    strategy: str = 'gap_fill',
+    start_from: Optional[int] = None
+) -> List[int]:
+    """Verilen ofis için aday sicil numaralarını üretir.
+    - gap_fill: Boşlukları doldurur ve max'tan devam eder.
+    - sequential: Boşlukları atlar, doğrudan başlangıç noktasından (veya max) ileri gider.
     """
     try:
         # Ofis eşleşmesi: öncelik sicil_office_code, yoksa sicil_mudurluk ilk kelime eşleşmesi
@@ -586,13 +606,21 @@ def _compute_candidate_sicil_numbers(db: Session, office_label: str, count: int,
             except Exception:
                 continue
         if not nums:
-            # hiç veri yoksa 1'den başlayarak count kadar üret
-            start_n = max(1, int(min_threshold))
-            return list(range(start_n, start_n + max(1, count)))[:count]
+            # hiç veri yoksa start_from veya min_threshold'dan başlayarak count kadar üret
+            current_start = start_from if start_from is not None else max(1, int(min_threshold))
+            return list(range(current_start, current_start + max(1, count)))[:count]
+        
         nums = sorted(set(nums))
         candidates: List[int] = []
-        # Başlangıç boşluğu: min_threshold .. ilk mevcut-1
-        start_n = max(1, int(min_threshold))
+
+        # STRATEGY: Sequential (Directly from start_from or max_n + 1)
+        if strategy == 'sequential':
+            effective_start = start_from if start_from is not None else (nums[-1] + 1)
+            return list(range(effective_start, effective_start + count))
+
+        # STRATEGY: Gap Fill (Existing logic)
+        # Başlangıç boşluğu: start_from/min_threshold .. ilk mevcut-1
+        start_n = start_from if start_from is not None else max(1, int(min_threshold))
         first = nums[0]
         if first > start_n:
             for n in range(start_n, first):
@@ -711,10 +739,26 @@ async def scrape_company(page: Page, db: Session, company):
 
                     publication_date_str = await cells[3].inner_text()
                     title = await cells[2].inner_text()
-                    publication_date = datetime.strptime(publication_date_str, '%d.%m.%Y').date()
+                    publication_date = datetime.strptime(publication_date_str.strip(), '%d.%m.%Y').date()
+                    
+                    # Extract issue and page for composite deduplication
+                    try:
+                        issue_str = (await cells[4].inner_text()).strip()
+                        page_str = (await cells[5].inner_text()).strip()
+                        issue_number = int(issue_str) if issue_str.isdigit() else 0
+                        page_number_val = int(page_str) if page_str.isdigit() else 0
+                    except Exception:
+                        issue_number = 0
+                        page_number_val = 0
 
-                    if crud.announcement.get_by_details(db, company_id=company.id, publication_date=publication_date, title=title):
-                        scraping_state.add_log(f"DUPLICATE_SKIP: Skipping existing announcement: {title}")
+                    # NEW SMART DEDUPLICATION: Match on Date, Issue, Page
+                    if crud.announcement.get_by_keys(
+                        db, 
+                        publication_date=publication_date, 
+                        issue_number=issue_number, 
+                        page_number=page_number_val
+                    ):
+                        scraping_state.add_log(f"DUPLICATE_SKIP (Composite match): Skip already processed announcement: Sayı {issue_number}, Sayfa {page_number_val}")
                         continue
 
                     pdf_url = None
@@ -761,26 +805,57 @@ async def scrape_company(page: Page, db: Session, company):
                                                 pass
 
                                 if content:
-                                    file_name = f"announcement_{company.id}_{uuid.uuid4()}.pdf"
-                                    bucket_name = "gazette-pdfs"
-                                    upload_bytes(
-                                        bucket_name=bucket_name,
-                                        object_name=file_name,
-                                        data=content,
-                                        content_type="application/pdf",
-                                    )
-                                    
-                                    # Increment stats counter
-                                    from app.utils.stats_helper import increment_storage_file_count
+                                    pending_ocr_results = []
+                                    # GUARDIAN OCR: FAST BASELINE ONLY
+                                    scraping_state.add_log(f"OCR_START: Starting FAST baseline OCR for '{title}'...")
                                     try:
-                                        increment_storage_file_count(db, delta=1)
-                                    except Exception:
-                                        pass
+                                        # Only Vision + Regex (no Llama here)
+                                        ocr_baselines = get_ocr_baseline(content)
+                                        scraping_state.add_log(f"OCR_SUCCESS: Found {len(ocr_baselines)} chunk(s). Status: pending_llm.")
+                                        
+                                        # Save each baseline as a pending OcrResult
+                                        for res in ocr_baselines:
+                                            re_ent = res.get("regex_entities", {})
+                                            new_ocr = models.OcrResult(
+                                                announcement_id=None,
+                                                company_id=company.id,
+                                                original_text=res.get("original_text"),
+                                                trade_name=re_ent.get("trade_name"),
+                                                old_trade_name=re_ent.get("old_trade_name"),
+                                                sicil_dosya_no=re_ent.get("registration_number") or re_ent.get("sicil_dosya_no"),
+                                                mersis_no=re_ent.get("mersis_no"),
+                                                addresses=re_ent.get("addresses"),
+                                                old_addresses=re_ent.get("old_addresses"),
+                                                persons=re_ent.get("persons"),
+                                                hususlar=re_ent.get("hususlar"),
+                                                belgeler=re_ent.get("belgeler"),
+                                                ilan_sira_no=re_ent.get("ilan_sira_no"),
+                                                sicil_office_header=res.get("header"),
+                                                item_index=res.get("index"),
+                                                json_payload={"regex_entities": re_ent}, # SAVE FOR ENRICHMENT
+                                                status="pending_llm" # MARK AS PENDING
+                                            )
+                                            db.add(new_ocr)
+                                            pending_ocr_results.append(new_ocr)
+                                            
+                                            # LLM kapalıysa veya asenkron çalışmıyorsa diye doğrudan Regex (Fallback) ile şirket verilerini dolduralım:
+                                            if not company.unvan and re_ent.get("trade_name"):
+                                                company.unvan = re_ent.get("trade_name")
+                                            if not company.mersis_number and re_ent.get("mersis_no"):
+                                                company.mersis_number = re_ent.get("mersis_no")
+                                            if not company.address and re_ent.get("addresses"):
+                                                company.address = " | ".join(re_ent.get("addresses"))
+                                            db.add(company)
+                                            
+                                            db.flush()
+                                    except Exception as ocr_err:
+                                        scraping_state.add_log(f"OCR_ERROR: Baseline failed: {ocr_err}")
+                                        logger.error(f"OCR_ERROR for {company.unvan}", exc_info=True)
 
-                                    # Store the plain object name so OCR tasks can always fetch from MinIO
-                                    # without presigned URL expiry issues.
-                                    pdf_url = file_name  # e.g. "announcement_{company_id}_{uuid}.pdf"
-                                    scraping_state.add_log(f"PDF_SUCCESS: '{title}' için PDF yüklendi (MinIO).")
+                                    # Temporary local storage (optional, user said no server upload)
+                                    # We skip upload_bytes to satisfy the request.
+                                    pdf_url = "processed_locally" 
+                                    scraping_state.add_log(f"PDF_PROCESSED: '{title}' finished.")
                                 else:
                                     scraping_state.add_log(f"PDF_SKIP: '{title}' için PDF alınamadı.")
 
@@ -794,14 +869,21 @@ async def scrape_company(page: Page, db: Session, company):
                         trade_registry_number=await cells[1].inner_text(),
                         title=title,
                         publication_date=publication_date,
-                        issue_number=int(await cells[4].inner_text()),
-                        page_number=int(await cells[5].inner_text()),
+                        issue_number=issue_number,
+                        page_number=page_number_val,
                         announcement_type=await cells[6].inner_text(),
                         newspaper_name=newspaper_text, # mark pre-2021 when skipping upload
                         pdf_url=pdf_url
                     )
-                    crud.announcement.create(db=db, obj_in=announcement_data)
+                    announcement = crud.announcement.create(db=db, obj_in=announcement_data)
                     scraping_state.add_log(f"DB_SUCCESS: Saved announcement: {title}")
+
+                    # Link OCR results to this announcement
+                    if 'pending_ocr_results' in locals() and pending_ocr_results:
+                        for ocr in pending_ocr_results:
+                            ocr.announcement_id = announcement.id
+                        db.flush()
+                        scraping_state.add_log(f"OCR_LINK: Linked {len(pending_ocr_results)} OCR chunk(s) to announcement.")
 
                 except Exception as e:
                     db.rollback() # Rollback on row error

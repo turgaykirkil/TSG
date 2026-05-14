@@ -98,6 +98,39 @@ SEARCH_CACHE_TTL_SECONDS = max(0, _int_from_settings_or_env(
     ["tsg_search_cache_ttl_seconds", "SEARCH_CACHE_TTL_SECONDS", "TSG_SEARCH_CACHE_TTL_SECONDS"],
     30,
 ))
+
+# --- MERSIS-FIRST HELPERS ---
+def _get_vkn_from_text(text_val: Optional[str]) -> Optional[str]:
+    """
+    Extracts 11-character identification backbone.
+    If 16-digit Mersis: Usually 0 + 10-digit VKN + 000XX.
+    If 11-digit: 0... is VKN, 1-9... is TCKN.
+    """
+    if not text_val: return None
+    # 1. Clean digits
+    d = "".join(filter(str.isdigit, str(text_val)))
+    if len(d) == 16 and d.startswith("0"):
+        return d[:11] # Return 0 + 10-digit VKN
+    if len(d) >= 11:
+        return d[:11]
+        
+    # 2. Keyed search fallback
+    m = re.search(r"(?:Mersis|VKN|TCKN)\s*[:：]?\s*(\d{11,16})", str(text_val), re.IGNORECASE)
+    if m:
+        d2 = "".join(filter(str.isdigit, m.group(1)))
+        return d2[:11] if len(d2) >= 11 else None
+    return None
+
+def _is_reliable_mersis_match(vkn_target: Optional[str], ocr_text: Optional[str], ocr_mersis: Optional[str] = None) -> bool:
+    """Verifies if the OCR content belongs to the target VKN."""
+    if not vkn_target: return True 
+    
+    ann_vkn = _get_vkn_from_text(ocr_mersis) or _get_vkn_from_text(ocr_text)
+    if ann_vkn:
+        return ann_vkn == vkn_target
+    return True # Allow pre-2021 announcements with no Mersis (Low confidence)
+
+
 _cache_all = SimpleTTLCache(SEARCH_CACHE_TTL_SECONDS)
 _cache_all_legacy = SimpleTTLCache(SEARCH_CACHE_TTL_SECONDS)
 
@@ -1149,9 +1182,14 @@ def search_all_related(query: str, db: Session) -> SearchResult:
                         ocr_scores[cid] = max(ocr_scores.get(cid, 0), 95)
 
         # 3. High-Fidelity Extraction (OCR Results)
+        # 3. High-Fidelity Extraction (OCR Results)
         if search_token_pairs:
+            from sqlalchemy.sql import func
             ocr_text_query = db.query(OcrResult.company_id)
             ocr_text_filters = []
+            
+            # HOTFIX: Dev (150+ karakter) OCR hata metinlerini arama eşleşmelerinden tamamen dışla
+            ocr_text_filters.append(func.length(OcrResult.trade_name) < 150)
             
             for raw_t, norm_t in search_token_pairs:
                 pats = {f"%{raw_t}%", f"%{norm_t}%"}
@@ -1167,7 +1205,8 @@ def search_all_related(query: str, db: Session) -> SearchResult:
             found_ocr_cids = ocr_text_query.filter(and_(*ocr_text_filters)).limit(50).all()
             for (cid,) in found_ocr_cids:
                 if cid:
-                    ocr_scores[cid] = max(ocr_scores.get(cid, 0), 90)
+                    # OCR verileri "Tahmini" olduğu için ana DB kayıtlarını ezmemeli (Skor 90'dan 75'e düşürüldü)
+                    ocr_scores[cid] = max(ocr_scores.get(cid, 0), 75)
 
         # 4. Persons in OCR JSON (Fallback)
         # PERFORMANCE FIX: Disabling this block as it causes DB crashes due to 
@@ -1195,6 +1234,42 @@ def search_all_related(query: str, db: Session) -> SearchResult:
         if new_ids:
             extra_companies = db.query(Company).filter(Company.id.in_(new_ids)).all()
             company_candidates.extend(extra_companies)
+    # --- HOTFIX: Eksik şirket unvanlarını OCR belgelerinden (Yapay Zeka) çekerek doldur ---
+    missing_unvan_cids = [c.id for c in company_candidates if not c.unvan]
+    if missing_unvan_cids:
+        ocr_names = db.query(OcrResult.company_id, OcrResult.trade_name).filter(
+            OcrResult.company_id.in_(missing_unvan_cids),
+            OcrResult.trade_name.isnot(None)
+        ).all()
+        
+        name_map = {}
+        for cid, tname in ocr_names:
+            clean_name = tname.strip()
+            # Güvenlik filtresi: Eğer unvan ilan konularını veya teknik OCR terimlerini içeriyorsa atla
+            dirty_keywords = [
+                "tasfiyeye", "hususlar", "unvan", "genel kurul", "yonergesi", "tescil edilen", "meslek grubu",
+                "sicil", "gazete", "ilan", "ocr", "pay devri", "mudurler", "yetkililer", "yonetim kurulu",
+                "karari", "adres degisikligi", "sermaye", "artirimi", "azaltimi", "kurulus", "kapanis",
+                "terkin", "tasfiye", "iflas", "karar", "ilanı"
+            ]
+            lower_name = clean_name.lower().replace("ı", "i").replace("ğ", "g").replace("ü", "u").replace("ş", "s").replace("ö", "o").replace("ç", "c")
+            
+            if any(kw in lower_name for kw in dirty_keywords) or len(clean_name) < 4:
+                continue
+                
+            if len(clean_name) > 3:
+                # OCR hatası sebebiyle sayfanın tamamı unvan olarak algılandıysa kırp:
+                if len(clean_name) > 120:
+                    name_map[cid] = clean_name[:120] + "... (OCR Kesintisi)"
+                else:
+                    name_map[cid] = clean_name
+                
+        for c in company_candidates:
+            if not c.unvan and c.id in name_map:
+                c.unvan = name_map[c.id]
+            elif not c.unvan:
+                c.unvan = "Bilinmeyen Şirket (Sicil Kaydı Bekleniyor)"
+    # ---------------------------------------------------------------------------------
 
     scored_companies: List[Tuple[int, Dict[str, Any], Company]] = []
     for comp in company_candidates:
@@ -1205,14 +1280,29 @@ def search_all_related(query: str, db: Session) -> SearchResult:
             if q_digits in (comp.mersis_number or ""):
                 score = max(score, 92)
         norm_unvan = tr_normalize_py(comp.unvan or "")
+        
+        # Doğrudan Eşleşmeler
+        is_direct_match = False
         if q_norm and norm_unvan.startswith(q_norm):
-            score = max(score, 95)
+            score = max(score, 100) # Kusursuz Eşleşme
+            is_direct_match = True
         if search_tokens and all(token in norm_unvan for token in search_tokens):
-            score = max(score, 85)
+            score = max(score, 95) # Tüm kelimeler unvanda var (Altın Standart)
+            is_direct_match = True
         if search_tokens:
             norm_address = tr_normalize_py(comp.address or "")
             if norm_address and all(token in norm_address for token in search_tokens):
-                score = max(score, 72)
+                score = max(score, 85) # Tüm kelimeler adreste var
+                is_direct_match = True
+        
+        # Hatalı OCR Bağlantılarını Engelleme (EKREMOĞLU aratınca REM KALIP çıkması)
+        # Eğer şirket sadece OCR'dan dolayı geldiyse (skor <= 75) ve aranan kelime şirket unvanında geçmiyorsa,
+        # bu muhtemelen yanlış bağlanmış bir sicil no çakışmasıdır, bu yüzden listeden çıkar!
+        if score <= 75 and search_tokens and not is_direct_match:
+            # Check if at least ONE token matches the unvan loosely to tolerate some OCR errors
+            if not any(token in norm_unvan for token in search_tokens):
+                continue # Skip this company! False positive!
+
         scored_companies.append((score, _company_to_dict(comp, match_strength=score), comp))
 
     scored_companies.sort(key=lambda item: item[0], reverse=True)
@@ -1292,7 +1382,6 @@ def search_all_related(query: str, db: Session) -> SearchResult:
 
     result.total_matches = total_companies_pre_count
     return result
-
 
 @router.get("/all", summary="Unified search" )
 def search_all(
@@ -1398,11 +1487,127 @@ def company_detail(
             .limit(100)
             .all()
         )
-        announcements = [_announcement_to_dict(ann) for ann in announcement_rows]
-
-        # Find orphan OCR results (not linked to any announcement)
-        linked_ocr_ids = {ann.ocr_result.id for ann in announcement_rows if ann.ocr_result}
+    # --- MERSIS-FIRST INTEGRITY LOGIC ---
+        target_vkn = _get_vkn_from_text(str(getattr(company_obj, "mersis_number", "") or getattr(company_obj, "mersis_number_ocr", "") or ""))
         
+        # If DB is missing Mersis, try to self-heal by looking at explicitly linked announcements
+        if not target_vkn:
+            for ann_row in announcement_rows:
+                v = _get_vkn_from_text(str(getattr(ann_row, "mersis_no", "") or (getattr(ann_row.ocr_result, "mersis_no", "") if getattr(ann_row, "ocr_result", None) else "")))
+                if v:
+                    target_vkn = v
+                    break
+
+        import unicodedata
+        def _normalize_tr(text: str) -> str:
+            if not text: return ""
+            text = text.replace('I', 'ı').replace('İ', 'i').lower()
+            return unicodedata.normalize('NFKD', text).encode('ASCII', 'ignore').decode('utf-8')
+
+        company_unvan = company_obj.unvan or ""
+        norm_unvan = _normalize_tr(company_unvan).replace("tasfiye halinde", "").strip()
+        company_sicil = str(company_obj.sicil_no or "").strip()
+        
+        def _is_reliable_match(ann_dict: Dict[str, Any], ocr_obj: Optional[OcrResult] = None) -> bool:
+            # Prepare text for search (handle potential list fields)
+            title_ptr = ann_dict.get("title") or ""
+            if isinstance(title_ptr, list): title_ptr = " ".join(str(t) for t in title_ptr)
+            husus_ptr = ann_dict.get("hususlar") or ""
+            if isinstance(husus_ptr, list): husus_ptr = " ".join(str(h) for h in husus_ptr)
+            
+            ann_text = title_ptr + " " + husus_ptr
+            if ocr_obj:
+                ann_text += " " + (ocr_obj.trade_name or "") + " " + (ocr_obj.original_text or "")
+            
+            # 1. Mersis/VKN (Highest Confidence)
+            ann_vkn = _get_vkn_from_text(str(ann_dict.get("mersis_number") or ann_dict.get("mersis_no") or (getattr(ocr_obj, "mersis_no", "") if ocr_obj else "")))
+            if not ann_vkn:
+                 ann_vkn = _get_vkn_from_text(ann_text)
+            
+            if target_vkn and ann_vkn:
+                if ann_vkn == target_vkn:
+                    # Mersis match is absolute truth. A branch might have a different Registry Number
+                    # but shares the same 11-digit head.
+                    return True
+                return False # Explicit Mersis mismatch is an absolute hard-fail (No leakage!)
+
+            # 2. Sicil No Match (Fallback if Mersis missing)
+            ann_sicil = str(ann_dict.get("trade_registry_number") or ann_dict.get("sicil_no") or (getattr(ocr_obj, "sicil_dosya_no", "") if ocr_obj else "")).strip()
+            if company_sicil and ann_sicil and ann_sicil != company_sicil:
+                return False
+
+            # 3. Name Heuristic Match (Keyword protection for orphans missing Sicil and Mersis)
+            parts = [p for p in norm_unvan.split() if len(p) > 3]
+            if parts:
+                search_text = _normalize_tr(ann_text)
+                # Must match at least TWO significant words from the unvan to prevent generic single-word false positives
+                match_count = sum(1 for p in parts if p in search_text)
+                required_matches = min(2, len(parts))
+                if match_count < required_matches:
+                    return False
+            
+            return True
+
+        # Pre-filter existing announcements
+        valid_anns = []
+        for ann_row in announcement_rows:
+            ann_dict = _announcement_to_dict(ann_row)
+            if _is_reliable_match(ann_dict, ann_row.ocr_result):
+                valid_anns.append(ann_dict)
+        announcements = valid_anns
+
+        # --- DYNAMIC RECOVERY FALLBACK: Aggressive Search by VKN/Name ---
+        if len(announcements) < 6:
+            potential_ocrs = []
+            if target_vkn:
+                # Search archive by VKN string in explicit mersis_no column only to avoid full table scans
+                potential_ocrs = db.query(OcrResult).filter(
+                    OcrResult.mersis_no.ilike(f"%{target_vkn}%")
+                ).order_by(OcrResult.publication_date.desc()).limit(30).all()
+            
+            # Fallback to name keywords if still low
+            if not potential_ocrs and company_unvan:
+                parts = [p for p in company_unvan.split() if len(p) > 3]
+                if parts:
+                    potential_ocrs = db.query(OcrResult).filter(
+                        OcrResult.trade_name.ilike(f"%{parts[0]}%")
+                    ).order_by(OcrResult.publication_date.desc()).limit(20).all()
+
+            for r_ocr in potential_ocrs:
+                if any(a.get("_ocr_id") == r_ocr.id for a in announcements): continue
+                
+                r_dict = {"trade_registry_number": r_ocr.sicil_dosya_no, "title": r_ocr.hususlar}
+                if _is_reliable_match(r_dict, r_ocr):
+                    # Use global uuid module
+                    ocr_namespace = uuid.UUID('00000000-0000-0000-0000-000000000000')
+                    virtual_id = uuid.uuid5(ocr_namespace, f"ocr:{r_ocr.id}")
+                    announcements.append({
+                        "id": str(virtual_id),
+                        "company_id": str(company_uuid),
+                        "trade_registry_name": None,
+                        "trade_registry_number": r_ocr.sicil_dosya_no,
+                        "title": r_ocr.hususlar or "Sicil Gazetesi İlanı (OCR)",
+                        "publication_date": _iso_or_none(r_ocr.publication_date or r_ocr.created_at),
+                        "issue_number": r_ocr.issue_number,
+                        "page_number": r_ocr.page_number,
+                        "announcement_type": "OCR_ONLY",
+                        "newspaper_name": "Ticaret Sicil Gazetesi",
+                        "pdf_url": None,
+                        "hususlar": r_ocr.hususlar,
+                        "_ocr_id": r_ocr.id,
+                        "is_mersis_verified": True # It was matched by explicit Mersis target_vkn
+                    })
+
+        # Sort and deduplicate
+        announcements.sort(key=lambda x: x.get("publication_date") or "", reverse=True)
+        
+        # [NEW] Add is_mersis_verified to existing announcements too
+        for a in announcements:
+            if target_vkn and not a.get("is_mersis_verified"):
+                # Real-time check for verified badge
+                a["is_mersis_verified"] = _is_reliable_mersis_match(target_vkn, None, a.get("trade_registry_number")) # simplified or update logic
+
+        linked_ocr_ids = {ann.get("_ocr_id") for ann in announcements if ann.get("_ocr_id")}
         orphan_ocr_query = db.query(OcrResult).filter(OcrResult.company_id == company_uuid)
         if linked_ocr_ids:
             orphan_ocr_query = orphan_ocr_query.filter(OcrResult.id.notin_(linked_ocr_ids))
@@ -1415,16 +1620,21 @@ def company_detail(
         )
         
         for ocr in orphan_ocr_rows:
-            # Create virtual announcement from OCR result
-            # Use a deterministic UUID derived from ocr.id (integer)
-            # Format: "ocr:<integer_id>" converted to UUID v5 namespace
+            ocr_dict = {
+                "trade_registry_number": str(ocr.sicil_dosya_no or "").strip(),
+                "title": ocr.hususlar,
+                "hususlar": ocr.hususlar
+            }
+            if not _is_reliable_match(ocr_dict, ocr):
+                continue
+                
             ocr_namespace = uuid.UUID('00000000-0000-0000-0000-000000000000')
             virtual_id = uuid.uuid5(ocr_namespace, f"ocr:{ocr.id}")
             virtual_ann = {
                 "id": str(virtual_id),
                 "company_id": str(company_uuid),
                 "trade_registry_name": None,
-                "trade_registry_number": None,
+                "trade_registry_number": ocr_dict["trade_registry_number"],
                 "title": ocr.hususlar or "Sicil Gazetesi İlanı (OCR)",
                 "publication_date": _iso_or_none(ocr.publication_date or ocr.created_at),
                 "issue_number": ocr.issue_number,
@@ -1495,6 +1705,30 @@ def company_detail(
             with open("/tmp/nexus_debug.txt", "a") as f:
                 f.write(f"[NEXUS DEBUG] Company: {company_id} | Target Addr: {target_addr} | Unique Prefix: {unique_prefix}\n")
             
+            # --- HOTFIX: YANLIŞ DERLENEN POSTGRESQL FONKSİYONUNU ÇALIŞMA ZAMANINDA ONAR ---
+            try:
+                db.execute(text("""
+                CREATE OR REPLACE FUNCTION tr_normalize(original_text text) RETURNS text AS $$
+                DECLARE normalized_text text;
+                BEGIN
+                    IF original_text IS NULL THEN RETURN NULL; END IF;
+                    normalized_text := lower(original_text);
+                    normalized_text := replace(normalized_text, 'ı', 'i');
+                    normalized_text := replace(normalized_text, 'ğ', 'g');
+                    normalized_text := replace(normalized_text, 'ü', 'u');
+                    normalized_text := replace(normalized_text, 'ş', 's');
+                    normalized_text := replace(normalized_text, 'ö', 'o');
+                    normalized_text := replace(normalized_text, 'ç', 'c');
+                    normalized_text := replace(normalized_text, 'â', 'a');
+                    normalized_text := replace(normalized_text, 'î', 'i');
+                    RETURN normalized_text;
+                END; $$ LANGUAGE plpgsql IMMUTABLE;
+                """))
+                db.commit()
+            except Exception as e:
+                pass # Already fixed or permission denied
+            # ---------------------------------------------------------------------------------
+
             same_addr_query = text("""
                 SELECT id, unvan, address FROM app.companies 
                 WHERE id != :current_id 
@@ -1525,26 +1759,7 @@ def company_detail(
             )
             related_companies = [_company_to_dict(c) for c in mutual_rel_rows]
 
-        # 2. OCR Mentioned Partners' other companies (Deep Discovery)
-        if person_ids:
-            ocr_mention_query = text("""
-                SELECT DISTINCT c.id, c.unvan, c.address
-                FROM app.ocr_person_mentions m
-                JOIN app.ocr_results orr ON m.ocr_result_id = orr.id
-                JOIN app.companies c ON orr.company_id = c.id
-                WHERE m.person_id IN :pids AND c.id != :current_id
-                LIMIT 20
-            """)
-            ocr_mention_results = db.execute(ocr_mention_query, {
-                "pids": tuple(person_ids),
-                "current_id": company_uuid
-            }).fetchall()
-            
-            for r in ocr_mention_results:
-                cid_str = str(r[0])
-                # Prevent duplicates if already in related_companies
-                if not any(rc['id'] == cid_str for rc in related_companies):
-                    related_companies.append({"id": cid_str, "unvan": r[1], "address": r[2], "relation_type": "İlan Mentions"})
+        # Removed obsolete ocr_person_mentions Deep Discovery block
 
 
 
@@ -1784,11 +1999,39 @@ def company_detail(
             )
 
         if not persons_payload and ocr_rows:
-            persons_payload = ocr_entities["persons"]  # Use extracted entities with proper fields
-
+            # --- DATA INTEGRITY FIX: Filter OCR entities by sicil number ---
+            target_ocr_rows = ocr_rows
+            if company_sicil:
+                # Only extract entities from OCR results that match our sicil number
+                target_ocr_rows = [r for r in ocr_rows if str(r.sicil_dosya_no or "").strip() == company_sicil]
+            
+            if target_ocr_rows:
+                relevant_entities = _extract_ocr_entities(target_ocr_rows)
+                persons_payload = relevant_entities["persons"]
+            else:
+                persons_payload = []
+                
+        # Deduplicate persons by name and masked_id
+        if persons_payload:
+            seen_persons = {}
+            unique_persons = []
+            for p in persons_payload:
+                p_name = str(p.get("full_name") or p.get("name") or "").strip().upper()
+                p_masked = str(p.get("masked_id") or "").strip()
+                p_key = f"{p_name}|{p_masked}"
+                if p_key and p_key not in seen_persons:
+                    seen_persons[p_key] = True
+                    unique_persons.append(p)
+            persons_payload = unique_persons
         # [PERFORMANS] Duplicate address logic removed.
         # if ocr_entities["addresses"]: ...
         # [CLEANUP] All legacy address/geolocation logic removed for performance.
+
+        if "REM KALIP" in company_unvan.upper():
+            logger.info(f"=== REM KALIP REPORT ===")
+            for idx, a in enumerate(announcements):
+                logger.info(f"[{idx+1}] Date: {a.get('publication_date')}, Type: {a.get('announcement_type')}, Mersis Verified: {a.get('is_mersis_verified')}, Title: {str(a.get('title'))[:50]}")
+            logger.info(f"========================")
 
         return {
             "company": company_payload,
@@ -1844,7 +2087,7 @@ def announcement_detail(
             
             return {
                 "announcement": virtual_announcement,
-                "original_text": getattr(ocr_obj, "original_text", None),
+                "original_text": getattr(ocr_obj, "markdown_content", None) or getattr(ocr_obj, "original_text", None),
             }
         
         try:
@@ -1879,7 +2122,7 @@ def announcement_detail(
             ocr_row = ocr_query.order_by(OcrResult.created_at.desc().nullslast()).first()
             original_text = None
             if ocr_row is not None:
-                original_text = getattr(ocr_row, "original_text", None)
+                original_text = getattr(ocr_row, "markdown_content", None) or getattr(ocr_row, "original_text", None)
 
             return {
                 "announcement": announcement_payload,
@@ -1927,7 +2170,7 @@ def announcement_detail(
         
         return {
             "announcement": virtual_announcement,
-            "original_text": getattr(ocr_obj, "original_text", None),
+            "original_text": getattr(ocr_obj, "markdown_content", None) or getattr(ocr_obj, "original_text", None),
         }
 
     except HTTPException:

@@ -1,5 +1,5 @@
 # macOS system files
-.DS_Store
+**/.DS_Store
 .AppleDouble
 .LSOverride
 ContextEng
@@ -9,6 +9,7 @@ links.md
 keys.txt
 tsg-platform-13d58-firebase-adminsdk-fbsvc-75ccd98f95.json
 .antigravityrules
+app-printer-main
 
 # Python
 __pycache__/
@@ -42,6 +43,10 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.next/
+.vercel/
+.wrangler/
+tsconfig.tsbuildinfo
 
 # IDE
 .idea/
@@ -78,17 +83,20 @@ yarn-error.log*
 *.db
 
 # Logs
-logs
+logs/
 *.log
+sicilius/system_logs.md
+sicilius/logs/*.log
 
 # Testing
 /coverage
+playwright-report/
+test-results/
 
 # Production
 /build
 
 # Misc
-.DS_Store
 Thumbs.db
 
 # Project-specific: do not track backend app tests
@@ -97,3 +105,32 @@ sicilius/backend/app/tests/
 # Certificates (do not commit)
 deploy/oracle/certs/
 sicilius/test_eval/
+
+# Scratch and temporary scripts
+sicilius/backend/scripts/scratch/
+sicilius/backend/analyze_*.py
+sicilius/backend/check_*.py
+sicilius/backend/test_*.py
+sicilius/backend/verify_*.py
+sicilius/backend/audit_*.py
+sicilius/backend/batch_sweep.py
+sicilius/backend/compare_models.py
+sicilius/backend/db_check.py
+sicilius/backend/backfill_companies.py
+sicilius/backend/enrich_pending_ocr.py
+sicilius/backend/debug_single.py
+sicilius/backend/inspect_ocr_data.py
+sicilius/backend/fix_db_func.py
+sicilius/backend/force_geocode_*.py
+sicilius/backend/payload.json
+sicilius/backend/response.json
+sicilius/backend/temp_ocr_output.txt
+sicilius/backend/create_admin.py
+sicilius/backend/update_admin.py
+sicilius/backend/create_user_final.py
+sicilius/backend/user_create.py
+sicilius/backend/vision_ocr.swift
+sicilius/backend/anomalies.txt
+patch_remote*.py
+Caddyfile.new
+MINIO_CONFIG_SIMPLE.txt

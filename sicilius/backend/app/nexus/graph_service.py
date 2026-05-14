@@ -272,36 +272,8 @@ class NexusGraphService:
                         if not G.has_edge(str(current_id), other_node_id):
                             G.add_edge(str(current_id), other_node_id, label="Aynı Adres", type="shared_address")
 
-            # 5. Deep Discovery: OCR Person Mentions (Find 'Shadow' Connections)
-            # Get current person IDs for this company iteration
-            current_person_ids = [p[0] for p in self.db.query(CPR2.person_id).filter(CPR2.company_id == current_id).all()]
-            
-            if current_person_ids:
-                remaining_nodes = limit - G.number_of_nodes()
-                if remaining_nodes > 0:
-                    ocr_mention_query = text("""
-                        SELECT DISTINCT c.id, c.unvan 
-                        FROM app.ocr_person_mentions m
-                        JOIN app.ocr_results orr ON m.ocr_result_id = orr.id
-                        JOIN app.companies c ON orr.company_id = c.id
-                        WHERE m.person_id IN :pids AND c.id != :current_id
-                        LIMIT :limit
-                    """)
-                    ocr_mention_results = self.db.execute(ocr_mention_query, {
-                        "pids": tuple(current_person_ids),
-                        "current_id": current_id,
-                        "limit": remaining_nodes
-                    }).fetchall()
-
-                    for other_cid, other_unvan in ocr_mention_results:
-                        other_node_id = str(other_cid)
-                        if other_node_id not in G.nodes:
-                            if G.number_of_nodes() >= limit: break
-                            G.add_node(other_node_id, label=other_unvan, type="company", risk_status='UNKNOWN')
-                            queue.append((other_cid, current_depth + 1))
-                        
-                        if not G.has_edge(str(current_id), other_node_id):
-                            G.add_edge(str(current_id), other_node_id, label="İlan Mentions", type="ocr_mention")
+            # 5. Deep Discovery: Removed obsolete ocr_person_mentions block.
+            # Person relations are already handled above in "3. Find Neighbors via Shared Persons"
 
             # 6. Find Neighbors via PostGIS Geographic Radius (50 meters)
             if comp.koordinat is not None:
@@ -395,37 +367,7 @@ class NexusGraphService:
                      G.add_edge(str(current_id), other_node_id, 
                                 label="Aynı Adres", type="same_address")
 
-            # 6. Find Neighbors via OCR Mentions (Cross-company Person mentions)
-            # If we are at the target node, look for all companies where its partners are MENTIONED in OCR
-            if current_depth == 0:
-                 remaining_nodes = limit - G.number_of_nodes()
-                 if remaining_nodes > 0:
-                      # Find person IDs linked to this company
-                      partner_ids = [p[0] for p in self.db.query(CompanyPersonRelation.person_id).filter(CompanyPersonRelation.company_id == current_id).all()]
-                      if partner_ids:
-                           ocr_mention_query = text("""
-                                SELECT DISTINCT c.id, c.unvan, m.full_name_raw
-                                FROM app.ocr_person_mentions m
-                                JOIN app.ocr_results orr ON m.ocr_result_id = orr.id
-                                JOIN app.companies c ON orr.company_id = c.id
-                                WHERE m.person_id IN :pids AND c.id != :current_id
-                                LIMIT :limit
-                           """)
-                           ocr_mention_results = self.db.execute(ocr_mention_query, {
-                               "pids": tuple(partner_ids),
-                               "current_id": current_id,
-                               "limit": remaining_nodes
-                           }).fetchall()
-                           
-                           for other_cid, other_unvan, found_name in ocr_mention_results:
-                                other_node_id = str(other_cid)
-                                if other_node_id not in G.nodes:
-                                     G.add_node(other_node_id, label=other_unvan, type="company", risk_status='UNKNOWN')
-                                     queue.append((other_cid, current_depth + 1))
-                                
-                                # Edge label with masked name from OCR
-                                safe_name = self._mask_name(found_name)
-                                G.add_edge(str(current_id), other_node_id, label=f"İlan Mention: {safe_name}", type="ocr_mention")
+            # 6. Cross-company Person mentions: Removed obsolete ocr_person_mentions block
 
 
         # --- Analysis Phase ---

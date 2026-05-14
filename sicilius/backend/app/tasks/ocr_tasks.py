@@ -100,7 +100,10 @@ async def process_pdf_for_announcement(db: Session, announcement: Announcement):
         return
 
     if markdown_str or json_payload:
-        structured_data = {}
+        # Upsert: remove any previous failed or existing records first
+        db.query(OcrResult).filter(OcrResult.announcement_id == announcement.id).delete()
+        
+        parsed_items = []
         if markdown_str:
             try:
                 from app.services import nlp_service
@@ -109,82 +112,63 @@ async def process_pdf_for_announcement(db: Session, announcement: Announcement):
                 
                 # Parse the Docling Markdown to extract names, addresses, etc.
                 parsed_items = nlp_service.parse_multiple_announcements(markdown_str)
-                
-                if parsed_items:
-                    # PICK THE BEST MATCH: If multiple announcements are in one PDF, find the one that matches our record
-                    structured_data = parsed_items[0] 
-                    if len(parsed_items) > 1:
-                        logger.info(f"Multiple announcements detected ({len(parsed_items)}) in PDF for {announcement.id}. Attempting to match...")
-                        found_match = False
-                        for item in parsed_items:
-                            # 1) Try Mersis match (only if available on announcement)
-                            ann_mersis = getattr(announcement, "mersis_no", None)
-                            if item.get("mersis_no") and ann_mersis and item["mersis_no"] == ann_mersis:
-                                structured_data = item
-                                found_match = True
-                                break
-                            # 2) Try Sicil No match (use correct schema name: trade_registry_number)
-                            if item.get("sicil_no") and announcement.trade_registry_number and item["sicil_no"] == announcement.trade_registry_number:
-                                structured_data = item
-                                found_match = True
-                                break
-                        
-                        if not found_match:
-                            logger.warning(f"Could not conclusively match PDF content to announcement {announcement.id}. Falling back to first item.")
-
-                    # DATABASE FALLBACK: If NLP failed to find a trade name, use the existing one from the DB
-                    # This is crucial for 'Continued' announcements where the header is on the previous page.
-                    if not structured_data.get("trade_name") and announcement.title:
-                        logger.info(f"NLP found no trade name for {announcement.id}. Falling back to DB: {announcement.title}")
-                        structured_data["trade_name"] = announcement.title
-
-                    # SYNC TO RELATIONAL: Bridge the gap between OCR and Search/Nexus
-                    try:
-                        corrected_cid = ingest_service.sync_relational_data_from_nlp(db, announcement.company_id, structured_data)
-                        if corrected_cid != announcement.company_id:
-                            logger.info(f"Cascading split for Announcement {announcement.id}: {announcement.company_id} -> {corrected_cid}")
-                            announcement.company_id = corrected_cid
-                            db.flush()
-                    except Exception as sync_exc:
-                        logger.error(f"Relational sync failed for announcement {announcement.id}: {sync_exc}")
-                        corrected_cid = announcement.company_id
-                else:
-                    structured_data = {}
-                    corrected_cid = announcement.company_id
-
             except Exception as exc:
                 logger.error("NLP extraction failed for announcement %s: %s", announcement.id, exc)
-                structured_data = {}
-                corrected_cid = announcement.company_id
 
-        # Upsert: remove any previous failed record first (so we don't violate the unique constraint)
-        db.query(OcrResult).filter(OcrResult.announcement_id == announcement.id).delete()
-        ocr_record = OcrResult(
-            announcement_id=announcement.id,
-            company_id=corrected_cid,
-            markdown_content=markdown_str,
-            json_payload=json_payload,
-            processing_time=processing_time,
-            pdf_page_count=pages,
-            status="completed",
-            message=None,
-            
-            # NLP Extracted fields
-            sicil_office_header=structured_data.get("sicil_office_header"),
-            sicil_dosya_no=structured_data.get("sicil_no"), # Changed from "sicil_dosya_no" to "sicil_no"
-            mersis_no=structured_data.get("mersis_no"),
-            trade_name=structured_data.get("trade_name"),
-            old_trade_name=structured_data.get("old_trade_name"),
-            addresses=structured_data.get("addresses"),
-            old_addresses=structured_data.get("old_addresses"),
-            persons=structured_data.get("persons"),
-            masked_ids=structured_data.get("masked_ids"),
-            hususlar=structured_data.get("hususlar"),
-            belgeler=structured_data.get("belgeler"),
-            type=structured_data.get("type"),
-            ilan_sira_no=structured_data.get("ilan_sira_no"),
-        )
-        db.add(ocr_record)
+        # If NLP completely failed or returned empty list, save a fallback raw record
+        if not parsed_items:
+            ocr_record = OcrResult(
+                announcement_id=announcement.id,
+                company_id=announcement.company_id,
+                markdown_content=markdown_str,
+                json_payload=json_payload,
+                processing_time=processing_time,
+                pdf_page_count=pages,
+                status="completed",
+                trade_name=announcement.title, # Fallback
+            )
+            db.add(ocr_record)
+        else:
+            # Process ALL parsed items independently to prevent data loss
+            for item in parsed_items:
+                # DATABASE FALLBACK for missing trade name
+                if not item.get("trade_name") and announcement.title:
+                    item["trade_name"] = announcement.title
+                    
+                target_cid = announcement.company_id
+                try:
+                    # Sync relational data & auto-discover if mismatched
+                    target_cid = ingest_service.sync_relational_data_from_nlp(db, announcement.company_id, item)
+                except Exception as sync_exc:
+                    logger.error(f"Relational sync failed for announcement {announcement.id}: {sync_exc}")
+
+                ocr_record = OcrResult(
+                    announcement_id=announcement.id,
+                    company_id=target_cid,
+                    markdown_content=markdown_str,
+                    json_payload=json_payload,
+                    processing_time=processing_time,
+                    pdf_page_count=pages,
+                    status="completed",
+                    message=None,
+                    
+                    # NLP Extracted fields
+                    sicil_office_header=item.get("sicil_office_header"),
+                    sicil_dosya_no=item.get("sicil_no"),
+                    mersis_no=item.get("mersis_no"),
+                    trade_name=item.get("trade_name"),
+                    old_trade_name=item.get("old_trade_name"),
+                    addresses=item.get("addresses"),
+                    old_addresses=item.get("old_addresses"),
+                    persons=item.get("persons"),
+                    masked_ids=item.get("masked_ids"),
+                    hususlar=item.get("hususlar"),
+                    belgeler=item.get("belgeler"),
+                    type=item.get("type"),
+                    ilan_sira_no=item.get("ilan_sira_no"),
+                )
+                db.add(ocr_record)
+                
         db.commit()
         logger.info("✅ OCR completed for announcement %s (%d pages, %.1fs)", announcement.id, pages or 0, processing_time)
     else:

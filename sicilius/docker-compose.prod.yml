@@ -5,9 +5,10 @@ services:
   # Frontend (Next.js)
   # -------------------------------------------------------------------------
   frontend:
+    image: sicilius_frontend:latest
     build:
       context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.hybrid
       args:
         NEXT_PUBLIC_API_URL: https://${DOMAIN_NAME:-localhost}
     restart: unless-stopped
@@ -21,6 +22,7 @@ services:
   # Backend (FastAPI - API Only)
   # -------------------------------------------------------------------------
   backend:
+    image: sicilius_backend:latest
     build:
       context: ./backend
       dockerfile: Dockerfile.prod

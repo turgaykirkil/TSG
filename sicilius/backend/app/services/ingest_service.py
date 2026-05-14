@@ -282,8 +282,11 @@ def _find_or_create_company_by_nlp(db: Session, structured_data: Dict[str, Any],
 
     # 3. Create new company entry if we strongly believe it's a different entity
     if trade_name:
+        raw_unvan = _clean_nexus_string(trade_name) or f"SİSTEM KEŞFİ (Sicil: {sicil_no or 'BİLİNMİYOR'})"
+        safe_unvan = raw_unvan[:450] # Prevent StringDataRightTruncation
+        
         new_comp = Company(
-            unvan=_clean_nexus_string(trade_name),
+            unvan=safe_unvan,
             sicil_no=str(sicil_no) if sicil_no else None,
             mersis_number=_normalize_whitespace(mersis_no) if mersis_no else None,
             address=_clean_nexus_string(_pick_address(structured_data.get("addresses")))

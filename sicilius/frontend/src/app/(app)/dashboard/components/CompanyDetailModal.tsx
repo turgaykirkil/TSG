@@ -106,7 +106,11 @@ function AnnouncementItem({ ann, extractHususFn, forceOpenOnPrint = false }: { a
 
   // Title priority: 1. Hususlar (Topic) 2. Type 3. Extracted 4. "İlan"
   // Intentionally ignoring ann.title as it often contains the full company name which is redundant
-  const title = hususDisplay || ann?.announcement_type || 'İlan';
+  const title = useMemo(() => {
+    if (hususDisplay && hususDisplay.length > 3) return hususDisplay;
+    if (ann?.announcement_type === 'OCR_ONLY') return 'Bilgi Güncelleme / Diğer';
+    return ann?.announcement_type || 'İlan';
+  }, [hususDisplay, ann?.announcement_type]);
 
   const textSrc = (ann?.original_text || (typeof data?.original_text === 'string' ? data?.original_text : '')) as string;
   const dt = ann?.publication_date || ann?.created_at || null;
@@ -175,6 +179,27 @@ function AnnouncementItem({ ann, extractHususFn, forceOpenOnPrint = false }: { a
       >
         <div className="flex items-start justify-start gap-2 w-full" style={{ textAlign: 'left' }}>
           <div className="min-w-0 text-left w-full flex-1" style={{ textAlign: 'left' }}>
+            <div className="mb-1 flex flex-wrap gap-1">
+              {(ann?.announcement_type === 'OCR_ONLY' || ann?.announcement_type === 'RECOVERED') && (
+                <Badge variant="outline" className="text-[10px] text-blue-600 border-blue-200 bg-blue-50 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800 pointer-events-none">
+                  {ann?.announcement_type === 'RECOVERED' ? 'Sistem Eşleştirmesi (Hassas)' : 'Sistem Eşleştirmesi (OCR)'}
+                </Badge>
+              )}
+              {ann?.is_mersis_verified && (
+                <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800 pointer-events-none">
+                  <span className="mr-1">✓</span> Mersis Doğrulandı
+                </Badge>
+              )}
+              {!ann?.is_mersis_verified && (() => {
+                const yearMatch = String(dateDisplay).match(/\d{4}/);
+                const year = yearMatch ? parseInt(yearMatch[0], 10) : 0;
+                return year >= 2021;
+              })() && (
+                <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800 pointer-events-none">
+                  Düşük Güvenlikli (Mersis'siz)
+                </Badge>
+              )}
+            </div>
             <div className="font-medium text-left whitespace-pre-wrap break-words" style={{ textAlign: 'left' }} title={title}>{title}</div>
             <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex flex-wrap gap-x-3 gap-y-1">
               <span>Tarih: {dateDisplay}</span>
@@ -732,7 +757,22 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
       || (/m[üu]d[üu]rl[üu][ğg][üu]/i.test(tt) && tt.toLowerCase().includes('ticaret'));
     return isOffice ? null : tt;
   }, [uniqueAnnouncements]);
-  const headerTitle = company?.firma_unvani || company?.unvan || latestAnnTitle || 'Şirket Detayı';
+
+  const headerTitle = useMemo(() => {
+    // 1. Try company record unvan
+    const base = company?.unvan || company?.firma_unvani || company?.title;
+    if (base && base.length > 5 && !/tasfiyeye|hususlar|unvan|kurul|yonerge|bilgi/i.test(base)) {
+      return base;
+    }
+
+    // 2. Try latest announcement title
+    const annT = latestAnnTitle;
+    if (annT && annT.length > 5 && !/tasfiyeye|hususlar|unvan|kurul|yonerge|bilgi/i.test(annT)) {
+      return annT;
+    }
+
+    return base || annT || 'Bilinmeyen Ünvan (Kayıt Mevcut Değil)';
+  }, [company, latestAnnTitle]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -809,18 +849,27 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
           <div className="text-sm text-red-600" role="alert">{(error as Error)?.message || 'Detaylar alınamadı.'}</div>
         )}
 
-        {!isFetching && !isError && company && (
+        {!isFetching && !isError && (company || uniqueAnnouncements.length > 0) && (
           <div className="space-y-6 p-4 break-words">
-            <section>
-              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Şirket Bilgileri</h3>
-              <div className="mt-2 space-y-1 text-sm">
-                <div><span className="text-slate-500 dark:text-slate-400">Sicil No:</span> {company.sicil_no || '-'}</div>
-                <div><span className="text-slate-500 dark:text-slate-400">MERSİS No:</span> {maskMersisUi(company.mersis_number || company.mersis_number_ocr)}</div>
-                <div><span className="text-slate-500 dark:text-slate-400">Müdürlük:</span> {company.sicil_office_header || company.sicil_mudurluk || '-'}</div>
-                <div><span className="text-slate-500 dark:text-slate-400">Adres:</span> {company.adres || company.address || '-'}</div>
-                <div><span className="text-slate-500 dark:text-slate-400">Son Güncelleme:</span> {formatDateTime(company.last_update || company.updated_at || company.last_scraped_at || company.created_at || '-')}</div>
+            {company && (
+              <div className="border-b pb-4 mb-4">
+                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Şirket Bilgileri</h3>
+                <div className="mt-2 space-y-1 text-sm">
+                  <div><span className="text-slate-500 dark:text-slate-400">Sicil No:</span> {company.sicil_no || '-'}</div>
+                  <div><span className="text-slate-500 dark:text-slate-400">MERSİS No:</span> {maskMersisUi(company.mersis_number || company.mersis_number_ocr)}</div>
+                  <div><span className="text-slate-500 dark:text-slate-400">Müdürlük:</span> {company.sicil_office_header || company.sicil_mudurluk || '-'}</div>
+                  <div><span className="text-slate-500 dark:text-slate-400">Adres:</span> {company.adres || company.address || '-'}</div>
+                  <div><span className="text-slate-500 dark:text-slate-400">Son Güncelleme:</span> {formatDateTime(company.last_update || company.updated_at || company.last_scraped_at || company.created_at || '-')}</div>
+                </div>
               </div>
-            </section>
+            )}
+
+            {/* NEXUS 360 Graph Simulation Section */}
+            {(company?.id || companyId) && (
+              <div className="mb-6">
+                <NexusAnalysisSection companyId={company?.id || companyId!} />
+              </div>
+            )}
             {/* İlanlar */}
             {uniqueAnnouncements.length > 0 && (
               <section className="text-left">
@@ -845,11 +894,6 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
                   <div className="mt-2 text-xs text-muted-foreground dark:text-slate-400">İlan bulunamadı.</div>
                 )}
               </section>
-            )}
-
-            {/* NEXUS Ağ Analizi */}
-            {company?.id && (
-              <NexusAnalysisSection companyId={company.id} />
             )}
 
             {/* Konkordato */}

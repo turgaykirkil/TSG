@@ -15,10 +15,12 @@ import {
   ScanText,
   ArrowRight,
   Database,
+  Server,
   Mail,
   Users,
   AlertTriangle,
   MessageSquare,
+  Activity,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Logo } from '@/components/ui/logo';
@@ -47,13 +49,14 @@ const userNavigation: NavItem[] = [
 
 const adminNavigation: NavItem[] = [
   { name: 'Admin Paneli', href: '/admin', icon: Home },
-
+  { name: 'Veritabanı Yönetimi', href: '/admin/database', icon: Database },
   { name: 'Raporlar', href: '/admin/reports', icon: BarChart3 },
-  { name: 'Supabase Kullanımı', href: '/admin/usage', icon: Database },
+  { name: 'Supabase Kullanımı', href: '/admin/usage', icon: Server },
   { name: 'Kullanıcılar', href: '/admin/users', icon: Users },
   { name: 'Hatalar', href: '/admin/errors', icon: AlertTriangle },
   { name: 'İletişim', href: '/admin/contact', icon: MessageSquare },
   { name: 'Gelen Mailler', href: '/admin/inbox', icon: Mail },
+  { name: 'Operasyon Merkezi', href: '/admin/operations', icon: Activity },
   { name: 'Kaydedilenler', href: '/admin/favorites', icon: Bookmark },
   { name: 'Ayarlar', href: '/admin/settings', icon: Settings },
 ];

@@ -28,10 +28,15 @@ from app.api.api_v1.endpoints import (
     company_errors,
     contact_messages,
     nexus,
+    operations,
+    admin,
 )
 
 api_router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Core
+api_router.include_router(admin.router, prefix="/admin", tags=["Admin DB Control"])
 
 # Ortam bayrakları ile modüler include kontrolü
 INCLUDE_NLP = os.getenv("INCLUDE_NLP", "true").lower() == "true"
@@ -87,6 +92,7 @@ api_router.include_router(tools.router, prefix="/tools", tags=["Tools"])
 api_router.include_router(utils.router, prefix="/utils", tags=["Utilities"])
 api_router.include_router(usage.router, prefix="/usage", tags=["Usage"])
 api_router.include_router(settings_ep.router, prefix="/settings", tags=["Settings"])
+api_router.include_router(operations.router, prefix="/operations", tags=["Operations Center"])
 
 # Email System (Admin inbox + Cloudflare webhook)
 api_router.include_router(incoming_emails.router, tags=["Incoming Emails"])

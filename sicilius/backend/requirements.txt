@@ -29,6 +29,7 @@ slowapi==0.1.9  # Rate limiting middleware
 
 # OCR & Data Processing
 pypdf
+pymupdf
 pandas
 pdf2image
 pdfplumber

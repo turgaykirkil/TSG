@@ -11,7 +11,7 @@ echo "🚀 TSG_Platform Lokal Ortam Hazırlanıyor..."
 
 # 0. Liman Temizliği (Daha agresif)
 echo "🧹 Eski bağlantılar temizleniyor (5001, 3000, 5432)..."
-lsof -ti:5001,3000,5432,5433,5434 | xargs kill -9 2>/dev/null
+lsof -ti:5001,3000,5432,5433,5434,9000 | xargs kill -9 2>/dev/null
 sleep 2
 
 # Log klasörünü oluştur
@@ -23,7 +23,8 @@ cat << EOF > /tmp/db_tunnel.exp
 #!/usr/bin/expect -f
 set timeout -1
 # -o ExitOnForwardFailure=yes ile port çakışması varsa hata verir
-spawn ssh -o StrictHostKeyChecking=no -o PreferredAuthentications=password -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o ExitOnForwardFailure=yes -N -L 127.0.0.1:5434:172.18.0.6:5432 $REMOTE_USER@$REMOTE_IP
+# Yerelde 9000 portu macOS cslistener tarafından işgal edildiği için 9005 portuna taşındı, ancak production'da MinIO olmadığı için şimdilik kaldırıldı.
+spawn ssh -o StrictHostKeyChecking=no -o PreferredAuthentications=password -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o ExitOnForwardFailure=yes -N -L 127.0.0.1:5434:172.18.0.2:5432 $REMOTE_USER@$REMOTE_IP
 expect {
     "*assword:*" {
         send "$REMOTE_PASS\r"
@@ -81,9 +82,6 @@ echo "▶ Scraping Worker başlatılıyor..."
 echo "▶ Frontend başlatılıyor..."
 (cd "$BASE_DIR/frontend" && npm run dev) 2>&1 | sed -u -e "s/^/\x1b[36m[FRONTEN]\x1b[0m /" | tee -a "$LOG_DIR/frontend.log" &
 
-# 6. Swift OCR App
-echo "▶ OCR App başlatılıyor..."
-(cd "$BASE_DIR/ocr_app" && swift run ocr_app) 2>&1 | sed -u -e "s/^/\x1b[35m[OCR_APP]\x1b[0m /" | tee -a "$LOG_DIR/ocr.log" &
 
 echo "✅ Sistem hazır! 'localhost:3000' adresinden giriş yapabilirsin."
 wait
