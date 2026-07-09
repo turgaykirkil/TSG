@@ -104,6 +104,7 @@ def get_current_active_user(
 
 
 def enforce_daily_limit(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_active_user),
 ) -> None:
@@ -112,6 +113,11 @@ def enforce_daily_limit(
     Varsayılan limit 20'dir. ENV ile değiştirilebilir: TSG_DAILY_QUERY_LIMIT
     Aşıldığında 429 döner.
     """
+    # Sayfalama aramalarında limiti düşürme (cursor > 0)
+    cursor = request.query_params.get("cursor", "0")
+    if cursor != "0":
+        return
+
     # Öncelik: ENV > settings
     limit_env = os.getenv("TSG_DAILY_QUERY_LIMIT")
     if limit_env is not None:

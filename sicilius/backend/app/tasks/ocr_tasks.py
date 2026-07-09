@@ -142,8 +142,48 @@ async def process_pdf_for_announcement(db: Session, announcement: Announcement):
                 except Exception as sync_exc:
                     logger.error(f"Relational sync failed for announcement {announcement.id}: {sync_exc}")
 
+                # If target company does not match the announcement's company, route it correctly!
+                target_announcement_id = announcement.id
+                if target_cid != announcement.company_id:
+                    existing_ann = db.query(Announcement).filter(
+                        Announcement.company_id == target_cid,
+                        Announcement.publication_date == announcement.publication_date,
+                        Announcement.issue_number == announcement.issue_number,
+                        Announcement.page_number == announcement.page_number
+                    ).first()
+                    if existing_ann:
+                        target_announcement_id = existing_ann.id
+                    else:
+                        # Try to determine the correct type for this secondary announcement
+                        chunk_hususlar = item.get("hususlar")
+                        if chunk_hususlar and isinstance(chunk_hususlar, list):
+                            chunk_type = ", ".join(chunk_hususlar)
+                        else:
+                            chunk_type = announcement.announcement_type
+
+                        target_comp = db.query(Company).filter(Company.id == target_cid).first()
+                        target_unvan = target_comp.unvan if (target_comp and target_comp.unvan and target_comp.unvan != "None") else None
+                        ann_title = item.get("trade_name") or target_unvan or "Ticaret Sicil Gazetesi İlanı"
+
+                        # Create a matching announcement for the correct target company
+                        new_ann = Announcement(
+                            company_id=target_cid,
+                            trade_registry_name=item.get("sicil_office_header") or announcement.trade_registry_name,
+                            trade_registry_number=item.get("sicil_no") or announcement.trade_registry_number,
+                            title=ann_title,
+                            publication_date=announcement.publication_date,
+                            issue_number=announcement.issue_number,
+                            page_number=announcement.page_number,
+                            announcement_type=chunk_type,
+                            newspaper_name=announcement.newspaper_name,
+                            pdf_url=announcement.pdf_url,
+                        )
+                        db.add(new_ann)
+                        db.flush()
+                        target_announcement_id = new_ann.id
+
                 ocr_record = OcrResult(
-                    announcement_id=announcement.id,
+                    announcement_id=target_announcement_id,
                     company_id=target_cid,
                     markdown_content=markdown_str,
                     json_payload=json_payload,

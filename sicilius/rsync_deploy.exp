@@ -1,5 +1,0 @@
-#!/usr/bin/expect -f
-set timeout 900
-spawn rsync -avz -e "ssh -o StrictHostKeyChecking=no" --exclude "node_modules" --exclude ".next" --exclude ".git" ./ ubuntu@89.252.153.102:~/sicilius/
-expect "*assword:*" { send "q27MB7kCAJryfz\r" }
-expect eof

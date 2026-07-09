@@ -230,3 +230,4 @@ def run_scraping_task(self: Task, count: int):
         if db:
             db.close()
             logger.info("CLEANUP: Veritabanı bağlantısı kapatıldı.")
+

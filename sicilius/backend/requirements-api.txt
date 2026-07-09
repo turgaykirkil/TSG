@@ -15,6 +15,7 @@ sqlalchemy
 alembic
 psycopg2-binary
 redis
+celery
 GeoAlchemy2
 
 # Auth
@@ -36,6 +37,7 @@ minio  # S3-compatible storage client
 sentry-sdk
 
 # NLP segmentation deps (lightweight)
+spacy
 numbers-parser
 orjson
 rapidfuzz

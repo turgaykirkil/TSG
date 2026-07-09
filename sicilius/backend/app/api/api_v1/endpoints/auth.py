@@ -20,6 +20,7 @@ from app.schemas import user as user_schema, token as token_schema, msg as msg_s
 from pydantic import BaseModel, EmailStr, Field
 import re
 import hashlib
+import httpx
 from app.models.app_setting import AppSetting
 from app.services import email_service
 from app.core.rate_limit import limiter
@@ -411,19 +412,23 @@ async def invite_user(
     db.commit()
     db.refresh(invite)
 
-    # Davetiye e-postasını gönder (no-reply). Hata halinde daveti geri al.
+    # Davetiye e-postasını gönder (no-reply). Hata halinde logla ve uyarı mesajı dön.
+    email_sent = True
+    email_error = None
     try:
         email_service.send_invite_email(db, to=str(req.email), token=token)
     except Exception as e:
-        try:
-            db.delete(invite)
-            db.commit()
-        except Exception:
-            db.rollback()
-        raise HTTPException(status_code=400, detail=f"Davet e-postası gönderilemedi: {e}")
+        email_sent = False
+        email_error = str(e)
+        logger.warning(f"Failed to send invite email to {req.email}: {e}")
 
     # Frontend'in davet linki oluşturabilmesi için token'ı da döndür.
-    return {"token": token, "msg": "Davet oluşturuldu ve e-posta gönderildi"}
+    return {
+        "token": token,
+        "email_sent": email_sent,
+        "email_error": email_error,
+        "msg": "Davet oluşturuldu ve e-posta gönderildi" if email_sent else f"Davet oluşturuldu fakat e-posta gönderilemedi: {email_error}"
+    }
 
 
 @router.post("/invite/accept", summary="Validate invite token and return invited email")
@@ -547,6 +552,7 @@ def invite_complete(
 
     # 2) Supabase ile parola ile giriş yap ve access_token al
     try:
+        from supabase import create_client
         client = create_client(settings.supabase_url, settings.supabase_key)
         res = client.auth.sign_in_with_password(
             {
@@ -735,6 +741,7 @@ def signup_proxy(
 
     if body.auto_login:
         try:
+            from supabase import create_client
             client = create_client(settings.supabase_url, settings.supabase_key)
             res = client.auth.sign_in_with_password({
                 "email": str(body.email).lower(),

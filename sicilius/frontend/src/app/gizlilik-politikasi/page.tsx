@@ -75,7 +75,7 @@ export default function GizlilikPolitikasiPage() {
         <section className="mt-8 space-y-3">
           <h2 className="text-xl font-semibold">7. İletişim</h2>
           <p>
-            Sorularınız için: <a className="underline" href="mailto:privacy@sicilius.local">privacy@sicilius.local</a>
+            Sorularınız için: <a className="underline" href="mailto:privacy@sicilius.com.tr">privacy@sicilius.com.tr</a>
           </p>
         </section>
       </main>

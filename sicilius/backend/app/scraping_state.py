@@ -50,6 +50,7 @@ class ScrapingState:
             self.is_running = False
 
     def add_log(self, message):
+        print(f"[SCRAPER] {message}", flush=True)
         with self.lock:
             self.logs.append(message)
 

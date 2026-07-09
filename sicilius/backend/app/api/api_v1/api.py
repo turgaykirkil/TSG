@@ -30,6 +30,7 @@ from app.api.api_v1.endpoints import (
     nexus,
     operations,
     admin,
+    worker_node,
 )
 
 api_router = APIRouter()
@@ -74,6 +75,7 @@ if not getattr(settings, "API_ONLY", False):
         api_router.include_router(scraping.router, prefix="/scraping", tags=["Scraping"])
 api_router.include_router(search.router, prefix="/search", tags=["Search"])
 api_router.include_router(processing.router, prefix="/process", tags=["Processing"])
+api_router.include_router(worker_node.router, prefix="/worker-node", tags=["Worker Node (Distributed)"])
 
 # File & Job Handling
 api_router.include_router(file_uploads.router, prefix="/files", tags=["File Handling"])

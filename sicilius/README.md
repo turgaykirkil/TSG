@@ -1,170 +1,162 @@
-# 🏢 Sicilius - Şirket Araştırma Platformu
+# 🏢 Sicilius — Akıllı Şirket Araştırma ve Ağ Analizi Platformu
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
+![Status](https://img.shields.io/badge/production-active-success.svg)
 
-**Türkiye Ticaret Sicil Gazetesi verilerini analiz eden, yapay zeka destekli akıllı şirket araştırma platformu.**
+**Türkiye Ticaret Sicil Gazetesi verilerini yapay zeka ile analiz eden, ilişki ağlarını haritalandıran ve kurumsal risk tespiti yapan yeni nesil istihbarat platformu.**
 
-[Sicilius web sitesi](https://sicilius.com.tr) • [Dokümantasyon](#-özellikler) • [Kurulum](#-kurulum)
-
-</div>
-
----
-
-## 📸 Önizleme
-
-<div align="center">
-
-![Sicilius Dashboard](docs/screenshot-dashboard.png)
-
-*Sicilius ana arama ekranı - Hızlı ve akıllı şirket araması*
+[sicilius.com.tr](https://sicilius.com.tr) · [NEXUS Modülü](/nexus) · [Pazarlama & Sunum Sayfası](/presentation)
 
 </div>
 
 ---
 
-## 🎯 Genel Bakış
+## 📸 Genel Bakış ve Mimari
 
-Sicilius, Türkiye Ticaret Sicil Gazetesi'nde yayınlanan şirket ilanlarını otomatik işleyerek, şirket bilgilerini yapılandırılmış bir veritabanında toplayan ve kullanıcılara güçlü arama ve analiz araçları sunan bir platformdur.
+Sicilius; Türkiye Ticaret Sicil Gazetesi'nde (TSG) yayınlanan dağınık şirket ilanlarını otonom olarak tarayan, OCR ve NLP (Doğal Dil İşleme) teknolojileriyle yapılandırılmış verilere dönüştüren ve bu veriler üzerinden şirketler/kişiler arasındaki dolaylı bağları ortaya çıkaran modern bir RegTech (Regulatory Technology) platformudur.
 
-### 📊 Kullanım Alanları
-
-- **Piyasa Araştırması:** Şirket kuruluşları ve değişikliklerini takip edin
-- **Due Diligence:** Şirket geçmişlerini detaylı inceleyin
-- **İlişki Haritalama:** Şirketler arası bağlantıları keşfedin
+```
+                    ┌────────────────────────┐
+                    │  Kullanıcı Arayüzü     │◀─── (Next.js 14, Tailwind CSS, Leaflet)
+                    └───────────┬────────────┘
+                                │ (HTTPS / API v1)
+                                ▼
+                    ┌────────────────────────┐
+                    │ Caddy Reverse Proxy    │
+                    └───────────┬────────────┘
+                                │
+                                ▼
+                    ┌────────────────────────┐
+                    │ FastAPI API Gateway    │
+                    └────┬──────────────┬────┘
+                         │              │
+                         ▼              ▼
+       ┌────────────────────┐        ┌────────────────────┐
+       │ PostgreSQL/PostGIS │        │ MinIO (S3 Storage) │
+       └────────────────────┘        └────────────────────┘
+                 ▲
+                 │ (İlişki Ağı ve Coğrafi Konum Verisi)
+                 │
+       ┌─────────┴──────────┐
+       │ NEXUS Graph Engine │◄─── (Contagion & ML Anomali Modülleri)
+       └────────────────────┘
+                 ▲
+                 │ (OCR & NLP Yapılandırılmış Çıktılar)
+                 │
+       ┌─────────┴──────────┐
+       │  Scraping Worker   │◄─── (Python Tesseract OCR & NLP Parser)
+       └────────────────────┘
+```
 
 ---
 
-## ✨ Özellikler
+## ✨ Temel Modüller ve Yetenekler
 
-### 🔍 Akıllı Arama
-- Fuzzy search ile esnek şirket araması
-- Ortak yönetici/hissedar ilişkisi tespiti
-- Coğrafi konum bazlı arama
+### 1. 🕸️ NEXUS Ağ Analizi ve Risk Motoru
+Şirketler, ortaklar ve yöneticiler arasındaki ilişkileri derinlik 2'ye (Depth-2) kadar tarayarak ağ grafiği oluşturur.
+*   **İnteraktif Graf:** React Force Graph ile 3D/2D ilişki görselleştirme.
+*   **Contagion (Risk Yayılım) Simülasyonu:** Bir şirketteki finansal/hukuki risklerin ortaklık bağları üzerinden diğer şirketlere nasıl sirayet edebileceğini modeller.
+*   **Sankey Akış Diyagramı:** Şirketler arası sermaye ve kredi geçişlerini görselleştirir.
+*   **ML Anomali Tespiti:** Ağ üzerindeki şüpheli kümelenmeleri, paravan şirket yapılarını ve dolaylı ortaklıkları arka planda otomatik olarak analiz eder.
 
-### 📊 Veri Görselleştirme
-- İnteraktif harita görünümü
-- Detaylı şirket profilleri
-- PDF export
+### 2. 🤖 Otonom OCR & NLP Veri İşleme Hattı (Pipeline)
+*   **Otonom Worker:** Ticaret Sicil Gazetesi'nden her gün otomatik olarak yayınlanan PDF'leri çeker.
+*   **Tesseract OCR:** Taranmış PDF'leri yüksek doğrulukla metne dönüştürür.
+*   **NLP Parser:** Türkçe dil modellerine uygun kurallarla metinlerden şirket unvanı, MERSİS no, VKN, kurucu ortaklar, imza yetkilileri, adresler ve sermaye değişimlerini yapısal JSON formatında ayıklar.
+
+### 3. 🗺️ Coğrafi Konum Analizi (PostGIS)
+*   Adres verilerini otomatik temizler, normalize eder ve Nominatim / LocationIQ API'leri aracılığıyla koordinatlara (`Point(4326)`) dönüştürür.
+*   PostGIS uzamsal indeksleme kullanarak bölgesel şirket yoğunluklarını Leaflet harita üzerinde kümeler halinde görselleştirir.
+
+### 4. 📧 Entegre Mailbox Sistemi
+*   Brevo API ve SMTP entegrasyonu sayesinde sistem içi davetler ve kullanıcı iletişim mesajları tek bir merkezden yönetilir.
+*   Admin panel üzerinden gelen mesajlara anlık yanıt verme yeteneği mevcuttur.
 
 ---
 
-## 🛠 Teknoloji Stack
-
-### Backend
-- FastAPI - Modern Python web framework
-- PostgreSQL + PostGIS - Veritabanı
-- Redis - Cache layer
-- Minio - Object storage
+## 🛠️ Teknoloji Yığını (Tech Stack)
 
 ### Frontend
-- Next.js 14 - React framework
-- Tailwind CSS - Styling
-- Leaflet - Harita görselleştirme
-- TypeScript - Type safety
+*   **Next.js 14 (App Router):** Standalone production build modu ile optimize edilmiş yükleme süreleri.
+*   **TypeScript:** Statik tip güvenliği.
+*   **Tailwind CSS:** Glassmorphic ve modern koyu tema tasarımı.
+*   **Leaflet.js:** Coğrafi kümeleme haritaları.
+*   **React Force Graph & Plotly:** NEXUS ağ analizi grafiklerim.
+
+### Backend
+*   **FastAPI:** Python tabanlı, yüksek performanslı ve asenkron API altyapısı.
+*   **SQLAlchemy & Alembic:** Veritabanı ORM ve güvenli migrasyon yönetimi.
+*   **Celery / Arka Plan Görevleri:** OCR ve geocoding gibi ağır işlemleri asenkron yönetme.
+
+### Veri & DevOps
+*   **PostgreSQL 15 + PostGIS:** Uzamsal (Spatial) veri sorguları ve ilişkisel veritabanı.
+*   **MinIO (S3 Uyumlu):** PDF dokümanları ve görsel dosyaları için yerel Object Storage çözümü.
+*   **Caddy 2:** Otomatik Let's Encrypt SSL/TLS yönetimi ve güvenli ters proxy (Reverse Proxy).
+*   **Docker & Docker Compose:** Tüm servislerin containerized olarak tek komutla ayağa kaldırılması.
 
 ---
 
-## 🚀 Kurulum
+## 🚀 Yerel Geliştirme (Local Development)
 
-### Docker ile (Önerilen)
+Yerel geliştirme ortamını kurmak için aşağıdaki adımları izleyin:
 
 ```bash
-# Repository'yi klonlayın
+# 1. Projeyi klonlayın
 git clone <repo-url>
 cd sicilius
 
-# Environment variables ayarlayın
+# 2. Çevre değişkenlerini yapılandırın
 cp backend/.env.example backend/.env
 cp frontend/.env.local.example frontend/.env.local
 
-# Container'ları başlatın
+# 3. Docker container'larını başlatın
 docker-compose up -d --build
 
-# Database migration
+# 4. Veritabanı migrasyonlarını uygulayın
 docker-compose exec backend alembic upgrade head
 ```
 
-Uygulama şu adreslerde çalışacaktır:
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:5001
-- API Docs: http://localhost:5001/docs
-
-### Yerel Geliştirme
-
-Detaylı kurulum bilgisi için ilgili klasörlerdeki README dosyalarına bakınız:
-- [Backend README](backend/README.md)
-- [Frontend README](frontend/README.md)
+Yerel erişim adresleri:
+*   **Frontend:** `http://localhost:3000`
+*   **Backend API Swagger:** `http://localhost:5001/docs`
 
 ---
 
-## 📚 API Dokümantasyonu
+## 🛡️ Canlı Sunucu Deployment (Production)
 
-API endpoint'lerini keşfetmek için Swagger UI:
+Sicilius, şirket bünyesindeki Mac Mini sunucusunda (`sicilius-server.local`) Docker üzerinde canlı olarak çalışmaktadır.
+
+Canlıya güvenli geçiş için hazırlanan `deploy_old_mac.sh` scripti yerel terminalden tek tetikleme ile çalışır:
+```bash
+./deploy_old_mac.sh
 ```
-http://localhost:5001/docs
-```
+*Bu script; yerelde Next.js build'ini alır, gerekli kaynakları rsync ile sunucuya taşır, sunucuda Docker imajlarını sıfır downtime ile yeniden derler ve database migrasyonlarını otomatik tamamlar.*
 
 ---
 
-## 📂 Proje Yapısı
+## 📂 Proje Dizin Yapısı
 
 ```
 sicilius/
-├── backend/          # FastAPI backend service
-├── frontend/         # Next.js frontend app
-├── ocr_app/          # OCR companion app
-└── docker-compose.yml
+├── backend/            # FastAPI backend projesi
+│   ├── app/            # API endpointleri, modeller, servisler ve görevler
+│   └── alembic/        # Veritabanı migrasyon geçmişi
+├── frontend/           # Next.js 14 frontend projesi
+│   ├── src/            # Sayfalar (App Router), bileşenler ve grafikler
+│   └── public/         # Statik sayfalar, görseller, NEXUS ve presentation assetleri
+├── ocr_app/            # Swift tabanlı yerel OCR companion modülü
+├── Caddyfile           # Caddy web sunucusu proxy kuralları
+├── docker-compose.yml  # Docker servis tanımları
+└── deploy_old_mac.sh   # Otomatik deployment betiği
 ```
-
----
-
-## 💝 Hakkında
-
-Sicilius, **tamamen açık kaynak** ve **ücretsiz** bir projedir. 
-
-Bu platform, Türkiye'deki şirket verilerinin daha erişilebilir olması ve araştırmacıların işini kolaylaştırmak amacıyla **hobi projesi** olarak geliştirilmiştir. Herhangi bir **ticari amaç** güdülmemekte ve kullanıcılardan **hiçbir ücret talep edilmemektedir**.
-
-### 🎯 Amaçlarımız
-
-- 📖 **Bilgiyi Demokratikleştirmek:** Kamuya açık verileri herkesin kolayca erişebileceği hale getirmek
-- 🤝 **Topluluk Katkısı:** Açık kaynak ruhuna uygun olarak, herkesin katkıda bulunabileceği bir platform oluşturmak  
-- 🎓 **Eğitim ve Öğrenme:** Modern web teknolojileri ve yapay zeka uygulamaları için bir örnek teşkil etmek
-- 💡 **İnovasyon:** Kamusal verilerin yapay zeka ile nasıl anlamlı hale getirilebileceğini göstermek
-
-> **Not:** Bu proje gönüllü geliştiriciler tarafından boş zamanlarında hobi amaçlı geliştirilmektedir. Herhangi bir kar amacı güdülmemektedir ve SaaS/ticari bir ürün değildir.
 
 ---
 
 ## 🔒 Güvenlik
 
-- JWT tabanlı authentication
-- Role-based access control
-- Rate limiting
-- Input validation
-- HTTPS/TLS desteği
-
----
-
-## 📝 Lisans
-
-Bu proje MIT lisansı altında lisanslanmıştır.
-
----
-
-## 📧 İletişim
-
-- **Website:** [sicilius.com.tr](https://sicilius.com.tr)
-- **Email:** info@sicilius.com.tr
-
----
-
-<div align="center">
-
-**Made with ❤️ by Sicilius Team**
-
-⭐ Bu projeyi beğendiyseniz yıldız vermeyi unutmayın!
-
-</div>
+*   **JWT & RBAC:** Kullanıcı yetkilendirmesi ve Rol Tabanlı Erişim Kontrolü (Admin, Standart).
+*   **İçerik Güvenlik Politikası (CSP):** Next.js ve CDN kütüphanelerine özel tanımlı katı CSP kuralları.
+*   **Hassas Dosya Koruması:** `.env` ve SSH anahtarı gibi gizli veriler Git geçmişinden ve rsync transferlerinden tamamen izole edilmiştir.

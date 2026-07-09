@@ -101,7 +101,11 @@ export default function AdminUsersPage() {
       const base = await fetchInviteBase();
       const link = `${base || "http://localhost:3000/davet"}?token=${encodeURIComponent(token)}`;
       setInviteLink(link);
-      toast({ title: "Davet oluşturuldu" });
+      toast({
+        title: data?.email_sent !== false ? "Davet Oluşturuldu" : "Davet Oluşturuldu (E-posta Hatası)",
+        description: data?.msg || "Davet bağlantısı başarıyla üretildi.",
+        variant: data?.email_sent !== false ? "default" : "destructive"
+      });
     } catch (e: any) {
       toast({ title: "Hata", description: e.message || String(e), variant: "destructive" });
     } finally {

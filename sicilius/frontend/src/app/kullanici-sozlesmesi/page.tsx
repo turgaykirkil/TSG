@@ -102,7 +102,7 @@ export default function KullaniciSozlesmesiPage() {
         <section className="mt-8 space-y-3">
           <h2 className="text-xl font-semibold">10. İletişim</h2>
           <p>
-            Bu Sözleşme ve Platform kullanımıyla ilgili sorularınız için lütfen iletişime geçin: <a className="underline" href="mailto:legal@sicilius.local">legal@sicilius.local</a>
+            Bu Sözleşme ve Platform kullanımıyla ilgili sorularınız için lütfen iletişime geçin: <a className="underline" href="mailto:legal@sicilius.com.tr">legal@sicilius.com.tr</a>
           </p>
         </section>
       </main>

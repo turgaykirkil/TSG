@@ -134,8 +134,8 @@ class Settings(BaseSettings):
     sentry_env: Optional[str] = None
     sentry_release: Optional[str] = None
 
-    # Redis
-    REDIS_URL: RedisDsn = "redis://localhost:6379/0"
+    # Redis (Port 6380 via SSH Tunnel to Remote Server)
+    REDIS_URL: RedisDsn = "redis://localhost:6380/0"
 
     # Search (backend performance & security)
     # Not: .env içinde anahtarlar 'tsg_search_max_companies' gibi prefix'li ya da prefix'siz olabilir.

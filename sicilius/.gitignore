@@ -41,6 +41,10 @@ DEPLOYMENT.md
 deploy_security.sh
 start_local_dev.sh
 project_context_handoff.md
+*.exp
+deploy_*.sh
+rebuild_and_deploy.sh
+start_all.sh
 
 # Sicilius Operational & Test Scripts
 start_scraping_worker.sh
@@ -50,4 +54,21 @@ backend/debug_*.py
 backend/db_check.py
 *.zip
 .dockerignore
+venv/
+.venv/
+
+# Scratch & Backup scripts
+scratch/
+scripts/backup_via_api.py
+scripts/setup_remote_docker.sh
+start_server.sh
+.rsync-exclude
+kurtarilan_tsg_mesajlari.md
+Caddyfile.new
+*.jsonl
+*.json
+!package.json
+!tsconfig.json
+!components.json
+
 

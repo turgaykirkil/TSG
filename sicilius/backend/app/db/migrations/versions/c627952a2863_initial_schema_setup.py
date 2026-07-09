@@ -1,9 +1,9 @@
 import geoalchemy2
 """Initial schema setup
 
-Revision ID: a37d7e5633d3
+Revision ID: c627952a2863
 Revises: 
-Create Date: 2026-05-12 04:59:05.614052
+Create Date: 2026-05-14 20:31:42.928706
 
 """
 from alembic import op
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = 'a37d7e5633d3'
+revision = 'c627952a2863'
 down_revision = None
 branch_labels = None
 depends_on = None

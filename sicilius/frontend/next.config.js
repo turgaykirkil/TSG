@@ -7,6 +7,8 @@ const BACKEND_ORIGIN =
     ? 'http://localhost:5001'
     : 'http://sicilius-backend:5001');
 const nextConfig = {
+  output: 'standalone',
+
 
   webpack: (config, { isServer }) => {
     config.resolve.alias['@'] = path.join(__dirname, 'src');
@@ -35,6 +37,14 @@ const nextConfig = {
       {
         source: '/nexus/',
         destination: '/nexus/index.html',
+      },
+      {
+        source: '/presentation',
+        destination: '/presentation/index.html',
+      },
+      {
+        source: '/presentation/',
+        destination: '/presentation/index.html',
       },
       {
         source: '/api/v1/:path*',

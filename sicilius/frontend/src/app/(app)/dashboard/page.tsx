@@ -12,6 +12,7 @@ import { useDailyUsage } from '@/hooks/useDailyUsage';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { motion, AnimatePresence } from 'framer-motion';
 import { SEARCH_MAX_COMPANIES } from '@/config/constants';
 import EmptyState from './components/EmptyState';
 import { useSearchHistory } from './hooks/useSearchHistory';
@@ -163,7 +164,7 @@ export default function DashboardPage() {
           <button
             type="button"
             aria-label="Arama geçmişi"
-            className="rounded-full p-2.5 bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow hover:bg-white dark:hover:bg-slate-900"
+            className="rounded-full p-2.5 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow hover:bg-white dark:hover:bg-slate-900"
             onClick={() => setMobileOpen(true)}
             data-testid="mobile-history-button"
           >
@@ -208,7 +209,7 @@ export default function DashboardPage() {
             type="button"
             onClick={() => setInviteOpen(true)}
             aria-label="Davet Et"
-            className="rounded-full p-2.5 bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow hover:bg-white dark:hover:bg-slate-900"
+            className="rounded-full p-2.5 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shadow hover:bg-white dark:hover:bg-slate-900"
           >
             <UserPlus size={18} />
           </button>
@@ -218,14 +219,14 @@ export default function DashboardPage() {
 
       {/* Usage badge – Desktop (top-right under toolbar) */}
       {!detailOpen && (
-        <div className="hidden md:block fixed top-16 right-3 z-10 rounded-full px-3 py-1 text-xs font-medium border border-slate-200 dark:border-slate-700 bg-white/90 dark:bg-slate-900/90 text-slate-700 dark:text-slate-200">
+        <div className="hidden md:block fixed top-16 right-3 z-10 rounded-full px-3 py-1 text-xs font-medium border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md text-slate-700 dark:text-slate-200 shadow">
           {usageLoading ? 'Kullanım yükleniyor…' : `Kalan: ${daily?.remaining ?? 0}/${daily?.limit ?? 20}`}
         </div>
       )}
 
       {/* Usage badge – Mobile (above bottom toolbar) */}
       {!detailOpen && (
-        <div className="md:hidden fixed bottom-16 right-3 z-10 rounded-full px-3 py-1 text-xs font-medium border border-slate-200 dark:border-slate-700 bg-white/90 dark:bg-slate-900/90 text-slate-700 dark:text-slate-200">
+        <div className="md:hidden fixed bottom-16 right-3 z-10 rounded-full px-3 py-1 text-xs font-medium border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md text-slate-700 dark:text-slate-200 shadow">
           {usageLoading ? 'Kullanım yükleniyor…' : `Kalan: ${daily?.remaining ?? 0}/${daily?.limit ?? 20}`}
         </div>
       )}
@@ -327,9 +328,16 @@ export default function DashboardPage() {
           )}
 
           {submitted && query.trim() && !isError && (companies.length + persons.length + historyEntries.length > 0) && (
-            <div className="mx-auto max-w-5xl space-y-8">
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, staggerChildren: 0.1 }}
+              className="mx-auto max-w-5xl space-y-8"
+            >
               {/* Şirketler */}
-              <CompaniesTable companies={companies} onSelectCompany={handleSelectCompany} />
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+                <CompaniesTable companies={companies} onSelectCompany={handleSelectCompany} />
+              </motion.div>
               {hasNextPage && (
                 <div className="flex justify-center mt-2">
                   <Button
@@ -353,12 +361,12 @@ export default function DashboardPage() {
 
               {/* Geçmiş / Gazette Entries */}
               {historyEntries.length > 0 && (
-                <section aria-label="Geçmiş sonuçları">
+                <motion.section aria-label="Geçmiş sonuçları" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
                   <div className="mb-2 text-sm font-semibold text-slate-700">Gazete Geçmişi</div>
                   <CompanyHistoryTable entries={historyEntries} />
-                </section>
+                </motion.section>
               )}
-            </div>
+            </motion.div>
           )}
         </section>
         {/* Davet Dialog */}

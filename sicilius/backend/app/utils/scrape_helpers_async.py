@@ -467,3 +467,145 @@ async def handle_pdf_popup(parent_page: Page, popup: Page) -> Tuple[Optional[byt
             return (None, False)
 
     return (None, False)
+
+async def handle_pdf_iframe(page: Page, pdf_href: str) -> Optional[bytes]:
+    """
+    Iframe injection stratejisi ile PDF indirir ve doğrulama kodunu çözer.
+    Mac'te odak (focus) çalınmasını tamamen engeller.
+    """
+    from urllib.parse import urljoin
+    absolute_pdf_url = urljoin(page.url, pdf_href)
+    
+    for master_round in range(1, 5):
+        await page.evaluate("""(url) => {
+            let oldFrame = document.getElementById('pdf-worker-frame');
+            if(oldFrame) oldFrame.remove();
+            
+            let iframe = document.createElement('iframe');
+            iframe.id = 'pdf-worker-frame';
+            iframe.src = url;
+            iframe.style.width = '1000px';
+            iframe.style.height = '800px';
+            iframe.style.position = 'fixed';
+            iframe.style.top = '50%';
+            iframe.style.left = '50%';
+            iframe.style.transform = 'translate(-50%, -50%)';
+            iframe.style.zIndex = '9999';
+            iframe.style.border = '5px solid blue';
+            iframe.style.background = 'white';
+            iframe.style.boxShadow = '0 0 20px rgba(0,0,0,0.8)';
+            document.body.appendChild(iframe);
+        }""", absolute_pdf_url)
+
+        await asyncio.sleep(4)
+        frame = page.frame(name="pdf-worker-frame")
+        
+        if not frame:
+            continue
+
+        form_el = await frame.query_selector('#FormGuvenlikKodu')
+        img_el = await frame.query_selector('#FormGuvenlikKodu #CaptchaImg')
+        if not img_el:
+            img_el = await frame.query_selector('#CaptchaImg')
+            
+        is_visible = False
+        if img_el:
+            is_visible = await frame.evaluate("""(img) => {
+                let style = window.getComputedStyle(img);
+                return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && img.offsetWidth > 0;
+            }""", img_el)
+            
+        if is_visible:
+            captcha_solved = False
+            for attempt in range(1, 5):
+                try:
+                    base64_str = await frame.evaluate("""(img) => {
+                        let canvas = document.createElement('canvas');
+                        canvas.width = img.naturalWidth || img.width || 130;
+                        canvas.height = img.naturalHeight || img.height || 50;
+                        let ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        return canvas.toDataURL('image/png').split(',')[1];
+                    }""", img_el)
+                    
+                    import base64
+                    shot = base64.b64decode(base64_str)
+                    code = ocr_from_bytes(shot) or ""
+                    
+                    target_input = None
+                    if form_el:
+                        target_input = await form_el.query_selector('#CaptchaIlan') or await form_el.query_selector('input[name="CaptchaIlan"]')
+                    if not target_input:
+                        target_input = await frame.query_selector('#FormGuvenlikKodu #CaptchaIlan') or await frame.query_selector('#CaptchaIlan')
+                    
+                    if target_input and code:
+                        await target_input.fill("", force=True)
+                        await asyncio.sleep(0.2)
+                        for ch in code:
+                            await target_input.type(ch, delay=50)
+                        await asyncio.sleep(0.5)
+                        
+                        submit_btn = None
+                        if form_el:
+                            submit_btn = await form_el.query_selector('button[type="submit"]')
+                        if not submit_btn:
+                            submit_btn = await frame.query_selector('button:has(i.fa-check)') or await frame.query_selector('button.c-theme-btn:has(i.fa-check)')
+                        
+                        if submit_btn:
+                            await submit_btn.click(force=True)
+                            await asyncio.sleep(4)
+                            
+                            toast = await frame.query_selector('div.toast.toast-error:has-text("Güvenlik Kodu Hatalı")')
+                            if toast:
+                                await frame.evaluate("location.reload()")
+                                await asyncio.sleep(3)
+                                img_el = await frame.query_selector('#FormGuvenlikKodu #CaptchaImg') or await frame.query_selector('#CaptchaImg')
+                                form_el = await frame.query_selector('#FormGuvenlikKodu')
+                                continue
+                            else:
+                                captcha_solved = True
+                                break
+                except Exception:
+                    pass
+            
+            if captcha_solved:
+                pass
+            else:
+                continue
+
+        pdf_url = None
+        try:
+            pdf_url = await extract_pdf_url_from_page(frame)
+        except Exception:
+            pass
+            
+        if not pdf_url:
+            await asyncio.sleep(3)
+            try:
+                pdf_url = await extract_pdf_url_from_page(frame)
+            except:
+                pass
+                
+        if not pdf_url:
+            try:
+                res2 = await page.context.request.get(frame.url, headers={"Referer": page.url})
+                ct = (res2.headers or {}).get("content-type", "").lower()
+                if "application/pdf" in ct and res2.ok:
+                    pdf_url = frame.url
+            except:
+                pass
+
+        if pdf_url:
+            resp = await page.context.request.get(pdf_url, headers={"Referer": frame.url})
+            if resp.ok:
+                content = await resp.body()
+                await page.evaluate("let f = document.getElementById('pdf-worker-frame'); if(f) f.remove();")
+                return content
+                
+        if master_round < 4:
+            await frame.evaluate("location.reload()")
+            await asyncio.sleep(4)
+            continue
+
+    await page.evaluate("let f = document.getElementById('pdf-worker-frame'); if(f) f.remove();")
+    return None

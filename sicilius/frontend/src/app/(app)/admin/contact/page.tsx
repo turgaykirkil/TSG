@@ -6,6 +6,14 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { Mail, MailOpen, RefreshCw } from 'lucide-react';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 
 interface ContactMessage {
     id: string;
@@ -16,6 +24,8 @@ interface ContactMessage {
     message: string;
     created_at: string;
     read: string;
+    reply_text?: string;
+    replied_at?: string;
 }
 
 export default function AdminContactMessagesPage() {
@@ -23,6 +33,14 @@ export default function AdminContactMessagesPage() {
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<'ALL' | 'UNREAD' | 'READ'>('ALL');
     const { toast } = useToast();
+
+    // Reply modal state
+    const [replyOpen, setReplyOpen] = useState(false);
+    const [replyMessageId, setReplyMessageId] = useState('');
+    const [replyEmail, setReplyEmail] = useState('');
+    const [replyName, setReplyName] = useState('');
+    const [replyMessage, setReplyMessage] = useState('');
+    const [replySubmitting, setReplySubmitting] = useState(false);
 
     const fetchMessages = async () => {
         setLoading(true);
@@ -81,6 +99,45 @@ export default function AdminContactMessagesPage() {
                 description: 'Mesaj işaretlenirken bir hata oluştu.',
                 variant: 'destructive',
             });
+        }
+    };
+
+    const handleSendReply = async () => {
+        const msg = replyMessage.trim();
+        if (!msg) {
+            toast({ title: 'Hata', description: 'Cevap metni boş olamaz.', variant: 'destructive' });
+            return;
+        }
+        setReplySubmitting(true);
+        try {
+            const baseUrl = process.env.NEXT_PUBLIC_API_URL || '';
+            const res = await fetch(`${baseUrl}/api/v1/contact/${replyMessageId}/reply`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: msg }),
+            });
+
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data?.detail || 'Cevap gönderilemedi');
+            }
+
+            toast({ title: 'Başarılı', description: 'Cevap e-postası başarıyla gönderildi.' });
+            setReplyOpen(false);
+            setReplyMessage('');
+            // Refresh list or update local state
+            setMessages(messages.map(m =>
+                m.id === replyMessageId ? { ...m, read: 'READ' } : m
+            ));
+        } catch (error: any) {
+            toast({
+                title: 'Hata',
+                description: error?.message || 'Cevap gönderilirken bir sorun oluştu.',
+                variant: 'destructive',
+            });
+        } finally {
+            setReplySubmitting(false);
         }
     };
 
@@ -179,15 +236,30 @@ export default function AdminContactMessagesPage() {
                                         </p>
                                     </div>
                                 </div>
-                                {message.read === 'UNREAD' && (
+                                <div className="flex items-center gap-2">
                                     <Button
-                                        variant="outline"
+                                        variant="default"
                                         size="sm"
-                                        onClick={() => markAsRead(message.id)}
+                                        onClick={() => {
+                                            setReplyMessageId(message.id);
+                                            setReplyEmail(message.email);
+                                            setReplyName(`${message.first_name} ${message.last_name}`);
+                                            setReplyMessage('');
+                                            setReplyOpen(true);
+                                        }}
                                     >
-                                        Okundu İşaretle
+                                        Cevap Yaz
                                     </Button>
-                                )}
+                                    {message.read === 'UNREAD' && (
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => markAsRead(message.id)}
+                                        >
+                                            Okundu İşaretle
+                                        </Button>
+                                    )}
+                                </div>
                             </div>
 
                             <div className="ml-9">
@@ -196,10 +268,55 @@ export default function AdminContactMessagesPage() {
                                     {message.message}
                                 </p>
                             </div>
+
+                            {message.reply_text && (
+                                <div className="ml-9 mt-4 border-l-2 border-blue-500 pl-4 py-1">
+                                    <h5 className="text-xs font-semibold text-blue-600 mb-1">
+                                        Gönderilen Cevap ({new Date(message.replied_at!).toLocaleString('tr-TR', {
+                                            dateStyle: 'long',
+                                            timeStyle: 'short'
+                                        })})
+                                    </h5>
+                                    <p className="text-sm text-muted-foreground whitespace-pre-wrap bg-blue-50/50 dark:bg-blue-950/20 p-4 rounded-lg">
+                                        {message.reply_text}
+                                    </p>
+                                </div>
+                            )}
                         </Card>
                     ))}
                 </div>
             )}
+
+            {/* Reply Modal */}
+            <Dialog open={replyOpen} onOpenChange={(o) => { setReplyOpen(o); if (!o) { setReplyMessage(""); } }}>
+                <DialogContent className="sm:max-w-[550px]">
+                    <DialogHeader>
+                        <DialogTitle>Mesajı Cevapla</DialogTitle>
+                        <DialogDescription>
+                            {replyName} ({replyEmail}) adresine gönderilecek yanıt e-postasını yazın.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-2">
+                        <div className="grid gap-2">
+                            <Label htmlFor="reply_content">E-posta İçeriği</Label>
+                            <textarea
+                                id="reply_content"
+                                rows={6}
+                                value={replyMessage}
+                                onChange={(e) => setReplyMessage(e.target.value)}
+                                placeholder="E-posta cevabınızı buraya yazın..."
+                                className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                            />
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <Button variant="outline" onClick={() => setReplyOpen(false)}>Kapat</Button>
+                            <Button onClick={handleSendReply} disabled={replySubmitting}>
+                                {replySubmitting ? "Gönderiliyor..." : "Cevabı Gönder"}
+                            </Button>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

@@ -19,3 +19,5 @@ class ContactMessage(Base):
     message = Column(Text, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     read = Column(String, default="UNREAD", nullable=False)  # UNREAD, READ
+    reply_text = Column(Text, nullable=True)
+    replied_at = Column(DateTime, nullable=True)

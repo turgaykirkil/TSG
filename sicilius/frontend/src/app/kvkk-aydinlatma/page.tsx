@@ -24,7 +24,7 @@ export default function KvkkAydinlatmaPage() {
         <section className="mt-8 space-y-3">
           <h2 className="text-xl font-semibold">1. Veri Sorumlusu</h2>
           <p>
-            Sicilius Platformu – İletişim: <a className="underline" href="mailto:kvkk@sicilius.local">kvkk@sicilius.local</a>
+            Sicilius Platformu – İletişim: <a className="underline" href="mailto:kvkk@sicilius.com.tr">kvkk@sicilius.com.tr</a>
           </p>
         </section>
 
@@ -72,7 +72,7 @@ export default function KvkkAydinlatmaPage() {
         <section className="mt-8 space-y-3">
           <h2 className="text-xl font-semibold">7. Başvuru</h2>
           <p>
-            Başvurular için: <a className="underline" href="mailto:kvkk@sicilius.local">kvkk@sicilius.local</a>
+            Başvurular için: <a className="underline" href="mailto:kvkk@sicilius.com.tr">kvkk@sicilius.com.tr</a>
           </p>
         </section>
       </main>

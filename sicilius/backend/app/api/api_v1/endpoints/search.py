@@ -797,6 +797,7 @@ def _announcement_to_dict(announcement: Announcement) -> Dict[str, Any]:
         "pdf_url": announcement.pdf_url,
         "hususlar": hususlar,
         "content": announcement.content, # New field for UI
+        "_ocr_id": announcement.ocr_result.id if announcement.ocr_result else None,
     }
 
 
@@ -1435,7 +1436,7 @@ def search_all(
 def company_detail(
     company_id: str = Query(..., description="UUID of the company"),
     db: Session = Depends(get_db),
-    _: None = Depends(enforce_daily_limit),
+    # _: None = Depends(enforce_daily_limit), # Limit is only deducted on search, not on viewing details
 ):
     try:
         cid = (company_id or "").strip()
@@ -1608,7 +1609,10 @@ def company_detail(
                 a["is_mersis_verified"] = _is_reliable_mersis_match(target_vkn, None, a.get("trade_registry_number")) # simplified or update logic
 
         linked_ocr_ids = {ann.get("_ocr_id") for ann in announcements if ann.get("_ocr_id")}
-        orphan_ocr_query = db.query(OcrResult).filter(OcrResult.company_id == company_uuid)
+        orphan_ocr_query = db.query(OcrResult).filter(
+            OcrResult.company_id == company_uuid,
+            OcrResult.announcement_id.is_(None)
+        )
         if linked_ocr_ids:
             orphan_ocr_query = orphan_ocr_query.filter(OcrResult.id.notin_(linked_ocr_ids))
             
@@ -2060,7 +2064,7 @@ def announcement_detail(
     company_id: Optional[str] = Query(None, description="Optional company scope for OCR results"),
     ocr_id: Optional[int] = Query(None, description="Direct OCR result integer ID for virtual announcements"),
     db: Session = Depends(get_db),
-    _: None = Depends(enforce_daily_limit),
+    # _: None = Depends(enforce_daily_limit), # Limit is only deducted on search, not on viewing details
 ):
     try:
         # If ocr_id is provided, skip announcement lookup and go straight to OCR

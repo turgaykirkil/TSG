@@ -27,8 +27,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create non-root user
 RUN useradd -m -u 1001 appuser
 
-# Copy requirements (Using the lightweight list)
-COPY requirements-api.txt /tmp/requirements.txt
+# Copy requirements (Using the full list)
+COPY requirements.txt /tmp/requirements.txt
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r /tmp/requirements.txt

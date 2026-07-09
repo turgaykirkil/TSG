@@ -24,10 +24,19 @@ class CRUDCompany(CRUDBase[Company, CompanyCreate, CompanyUpdate]):
         self, db: Session, *, query: str, skip: int = 0, limit: int = 100
     ) -> List[Company]:
         """Şirket adına veya ticari unvana göre arama yapar."""
-        search = f"%{query}%"
+        from app.core.search_tokens import tr_normalize_py
+        norm_query = tr_normalize_py(query)
+        search_term = f"%{norm_query}%"
+        raw_search = f"%{query}%"
+        
         return (
             db.query(Company)
-            .filter(Company.title.ilike(search) | Company.trade_name.ilike(search))
+            .filter(
+                Company.unvan_unaccent.ilike(search_term) |
+                Company.unvan.ilike(raw_search) |
+                Company.sicil_no.ilike(raw_search) |
+                Company.mersis_number.ilike(raw_search)
+            )
             .offset(skip)
             .limit(limit)
             .all()

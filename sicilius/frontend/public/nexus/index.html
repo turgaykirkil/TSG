@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NEXUS - Future of Credit Risk</title>
 
-    <!-- Tailwind CSS (CDN) -->
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -26,43 +26,13 @@
         }
     </script>
 
-    <!-- External Libs (Local & CDN for Fonts) -->
+    <!-- External Libs (defer: don't block DOMContentLoaded) -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js" defer></script>
 
-    <!-- Custom Styles (Lokal style.css bulunamadığı için sadece tailwind devrede) -->
-    <!-- <link rel="stylesheet" href="/nexus/css/style.css"> -->
-    <style>
-        body { background-color: #0B1120; color: #e2e8f0; }
-        .glass-panel {
-            background: rgba(15, 23, 42, 0.6);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(148, 163, 184, 0.1);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
-        }
-        .mist-container {
-            position: absolute; width: 100%; height: 100%; display: flex; 
-            align-items: center; justify-content: center; z-index: 10;
-            background: #0B1120;
-        }
-        .mist {
-            position: absolute; inset: 0;
-            background: radial-gradient(circle at center, rgba(14, 165, 233, 0.1) 0%, transparent 70%);
-        }
-        .nexus-logo-glow {
-            filter: drop-shadow(0 0 25px rgba(14, 165, 233, 0.6));
-        }
-        /* Gizleme & Gösterme (Splash ve App arası geçiş) */
-        #splash-screen { transition: opacity 1s ease-out; }
-        .hidden-fade { opacity: 0; pointer-events: none; }
-        /* Scrollbar */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #0f172a; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #475569; }
-    </style>
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="/nexus/css/style.css">
 </head>
 
 <body class="antialiased h-screen flex flex-col overflow-hidden">
@@ -1113,7 +1083,7 @@
                             <div id="result-overlay"
                                 class="absolute inset-0 z-20 bg-slate-950/90 backdrop-blur-sm p-4 hidden flex items-start justify-center overflow-y-auto py-8 md:py-12">
                                 <!-- Dynamic Content Injected Here -->
-                            </div>
+</div>
                         </div> <!-- Close Visualization Stage Area -->
                     </div> <!-- Close Right Column lg:col-span-8 -->
 
@@ -1133,267 +1103,44 @@
         </footer>
     </div>
 
-    <!-- Nexus Analytics & Simulation Dashboard Engine -->
+    <!-- App Scripts -->
+    <script src="/nexus/js/data.js?v=2.8"></script>
+    <script src="/nexus/js/charts.js?v=2.8"></script>
+    <script src="/nexus/js/simulation.js?v=2.8"></script>
+    <script src="/nexus/js/app.js?v=2.8"></script>
+
+    <!-- Bootstrap: splash geçişini CDN yüklenmesinden ayır -->
     <script>
-        // 1. AÇILIŞ VE KAYDIRMA KİLİDİ (Öncesi eklendi)
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                const splash = document.getElementById('splash-screen');
-                if (splash) {
-                    splash.style.transition = 'opacity 1s ease-out';
-                    splash.style.opacity = '0';
-                    setTimeout(() => {
-                        splash.style.display = 'none';
-                        document.body.classList.remove('overflow-hidden');
-                        initNexusSystem(); // Grafikleri ve verileri başlat
-                    }, 1000);
-                }
-            }, 1000);
-        });
-
-        // 2. SEKME GEÇİŞİ (Vizyon / Simülasyon)
-        function switchMode(mode) {
-            const pres = document.getElementById('view-presentation');
-            const sim = document.getElementById('view-simulation');
-            const btnPres = document.getElementById('btn-pres');
-            const btnSim = document.getElementById('btn-sim');
-            
-            if(mode === 'presentation' && pres) {
-                if(sim) sim.style.display = 'none';
-                pres.style.display = 'block';
-                if(btnPres) btnPres.className = "px-6 py-2 rounded-md text-sm font-medium transition-all duration-300 bg-blue-600 text-white shadow-lg";
-                if(btnSim) btnSim.className = "px-6 py-2 rounded-md text-sm font-medium transition-all duration-300 text-slate-400 hover:text-white hover:bg-slate-700";
-            } else if(mode === 'simulation' || mode === 'analysis') {
-                if(pres) pres.style.display = 'none';
-                if(sim) sim.style.display = 'block';
-                if(btnSim) btnSim.className = "px-6 py-2 rounded-md text-sm font-medium transition-all duration-300 bg-blue-600 text-white shadow-lg";
-                if(btnPres) btnPres.className = "px-6 py-2 rounded-md text-sm font-medium transition-all duration-300 text-slate-400 hover:text-white hover:bg-slate-700";
+        (function () {
+            var splashDone = false;
+            function showApp() {
+                if (splashDone) return;
+                splashDone = true;
+                var splash = document.getElementById('splash-screen');
+                var mainApp = document.getElementById('main-app');
+                if (splash) { splash.style.opacity = '0'; splash.style.visibility = 'hidden'; }
+                if (mainApp) { mainApp.style.opacity = '1'; }
             }
-        }
-
-        // 3. GRAFİK VE VERİ BAŞLATMA
-        function initNexusSystem() {
-            // A. Keşideci Firmaları Doldur (Eksik Liste)
-            const ds = document.getElementById('drawer-select');
-            if(ds) {
-                const data = ["Tekno Tedarik Sanayi A.Ş.", "Global Lojistik Lmt.", "Mega İnşaat (İstikrarlı)", "Paravan Dağıtım Grubu (Riskli!)"];
-                data.forEach(name => {
-                    let opt = document.createElement('option');
-                    opt.value = name; opt.textContent = name;
-                    ds.appendChild(opt);
-                });
+            function tryInitCharts() {
+                if (window.initCharts) { try { window.initCharts(); } catch(e) {} }
+                if (window.initRiskNetworkAnimation) { try { window.initRiskNetworkAnimation(); } catch(e) {} }
             }
 
-            // B. Plotly Sankey - Otomatik Karar Hunisi
-            if(document.getElementById('sankeyChart') && typeof Plotly !== 'undefined') {
-                const sankeyData = {
-                    type: "sankey", orientation: "h",
-                    node: { pad: 15, thickness: 20, line: { color: "black", width: 0.5 },
-                        label: ["Toplam Başvuru (1000)", "KKB Direnç Red (200)", "Şüpheli Ağ (300)", "Onaylanan Hızlı (500)", "NEXUS Uzman İncelemesi", "Kesin Dolandırıcılık Tespiti"],
-                        color: ["#475569", "#ef4444", "#eab308", "#22c55e", "#8b5cf6", "#dc2626"]
-                    },
-                    link: {
-                        source: [0, 0, 0, 2, 2],
-                        target: [1, 2, 3, 4, 5],
-                        value:  [200, 300, 500, 250, 50],
-                        color: ["rgba(239,68,68,0.3)", "rgba(234,179,8,0.3)", "rgba(34,197,94,0.3)", "rgba(139,92,246,0.3)", "rgba(220,38,38,0.4)"]
-                    }
-                };
-                Plotly.newPlot('sankeyChart', [sankeyData], {
-                    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', font: { color: "#94a3b8" }, margin: { l: 20, r: 20, t: 20, b: 20 }
-                }, {responsive: true});
-            }
-
-            // C. Chart.js Radar - Psikometrik Skor
-            const rc = document.getElementById('radarChart');
-            if(rc && typeof Chart !== 'undefined') {
-                new Chart(rc, {
-                    type: 'radar',
-                    data: {
-                        labels: ['İstikrar', 'Ödeme Niyeti', 'Sektör Uyumu', 'Öz Kontrol', 'Ağ Gücü'],
-                        datasets: [{
-                            label: 'Aday A (Güvenilir)', data: [85, 95, 75, 88, 92], backgroundColor: 'rgba(34,197,94,0.2)', borderColor: '#22c55e', borderWidth: 2
-                        }, {
-                            label: 'Aday B (Riskli)', data: [40, 30, 80, 20, 25], backgroundColor: 'rgba(239,68,68,0.2)', borderColor: '#ef4444', borderWidth: 2
-                        }]
-                    },
-                    options: { responsive: true, maintainAspectRatio: false, scales: { r: { backgroundColor: 'rgba(15,23,42,0.5)', grid: { color: '#334155' }, pointLabels: { color: '#94a3b8', font: {size: 10} }, ticks: { display: false } } }, plugins: { legend: { labels: { color: '#e2e8f0' } } } }
-                });
-            }
-
-            // D. Chart.js Bubble - Yapay Zeka Segmentasyonu
-            const bc = document.getElementById('bubbleChart');
-            if(bc && typeof Chart !== 'undefined') {
-                new Chart(bc, {
-                    type: 'bubble',
-                    data: {
-                        datasets: [{
-                            label: 'Küme 1 (Organik Büyüyen)', data: [{x: 80, y: 90, r: 15}, {x: 85, y: 85, r: 20}, {x: 95, y: 95, r: 10}, {x: 70, y: 80, r: 12}], backgroundColor: 'rgba(34,197,94,0.6)'
-                        }, {
-                            label: 'Küme 2 (Volatil/Riskli)', data: [{x: 20, y: 30, r: 25}, {x: 30, y: 20, r: 15}, {x: 15, y: 40, r: 20}, {x: 40, y: 15, r: 10}], backgroundColor: 'rgba(239,68,68,0.6)'
-                        }]
-                    },
-                    options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { color: '#1e293b' }, title: { display: true, text: 'Ödeme İstikrarı', color: '#94a3b8' }, ticks: { color: '#94a3b8' } }, y: { grid: { color: '#1e293b' }, title: { display: true, text: 'İşlem Hacmi', color: '#94a3b8' }, ticks: { color: '#94a3b8' } } }, plugins: { legend: { labels: { color: '#e2e8f0' } } } }
-                });
-            }
-
-            // E. Network Canvas Simülasyonu
-            const canvas = document.getElementById('networkRiskCanvas');
-            if(canvas) {
-                const ctx = canvas.getContext('2d');
-                canvas.width = canvas.parentElement.clientWidth; canvas.height = 300;
-                let nodes = Array.from({length: 40}, () => ({ x: Math.random()*canvas.width, y: Math.random()*canvas.height, vx: (Math.random()-0.5)*0.5, vy: (Math.random()-0.5)*0.5, risk: Math.random()>0.85 }));
-                function animate() {
-                    ctx.clearRect(0,0, canvas.width, canvas.height);
-                    nodes.forEach(n => { n.x+=n.vx; n.y+=n.vy; if(n.x<=0||n.x>=canvas.width)n.vx*=-1; if(n.y<=0||n.y>=canvas.height)n.vy*=-1; });
-                    ctx.lineWidth = 1;
-                    for(let i=0; i<nodes.length; i++){
-                        for(let j=i+1; j<nodes.length; j++){
-                            let d = Math.hypot(nodes[i].x-nodes[j].x, nodes[i].y-nodes[j].y);
-                            if(d < 60) {
-                                ctx.beginPath(); ctx.moveTo(nodes[i].x, nodes[i].y); ctx.lineTo(nodes[j].x, nodes[j].y);
-                                ctx.strokeStyle = (nodes[i].risk || nodes[j].risk) ? "rgba(239,68,68,0.4)" : "rgba(56,189,248,0.15)";
-                                ctx.stroke();
-                            }
-                        }
-                    }
-                    nodes.forEach(n => { ctx.beginPath(); ctx.arc(n.x, n.y, 3, 0, Math.PI*2); ctx.fillStyle = n.risk ? "#ef4444" : "#38bdf8"; ctx.fill(); });
-                    requestAnimationFrame(animate);
-                }
-                animate();
-            }
-        }
-
-        // 4. SİMÜLASYON İŞLEMLERİ
-        function simulateUpload() {
-            const st = document.getElementById('upload-status');
-            if(st) { st.textContent = "Bağlantı analizleri başlatılmaya hazır..."; st.style.color = "#38bdf8"; }
-        }
-
-        function resetSimulation() {
-            document.getElementById('drawer-select').selectedIndex = 0;
-            if(document.getElementById('amount-input')) document.getElementById('amount-input').value = "";
-            if(document.getElementById('issue-date')) document.getElementById('issue-date').value = "";
-            if(document.getElementById('upload-status')) { document.getElementById('upload-status').textContent = "veya sürükleyip bırakın"; document.getElementById('upload-status').style.color = "#475569"; }
-            
-            ['ocr', 'enrich', 'graph', 'decision'].forEach(step => {
-                let el = document.getElementById('step-'+step);
-                if(el) { el.className = "flex flex-col items-center justify-center space-y-2 p-4 rounded-xl border border-transparent transition-all duration-300 text-slate-600 min-w-[100px]"; }
+            document.addEventListener('DOMContentLoaded', function () {
+                if (window.generateData) { try { generateData(); } catch(e) {} }
+                setTimeout(function () {
+                    showApp();
+                    tryInitCharts();
+                }, 2200);
             });
-            
-            let simGraph = document.getElementById('simGraph');
-            let overlay = document.getElementById('result-overlay');
-            if(simGraph) simGraph.innerHTML = `<div class="absolute inset-0 flex items-center justify-center text-slate-600 text-sm flex-col"><i class="fa-solid fa-network-wired text-4xl mb-4 opacity-50"></i><span>NEXUS Ağ Motoru Bekleniyor...</span></div>`;
-            if(overlay) { overlay.classList.add('hidden'); overlay.style.display = ''; }
-        }
 
-        // Simülasyon sırasında harika bir hareketli graf çizen geçici fonksiyon
-        function drawActiveSimulation(container) {
-            container.innerHTML = '<canvas id="simActiveCanvas" class="w-full h-full"></canvas>';
-            const canvas = document.getElementById('simActiveCanvas');
-            const ctx = canvas.getContext('2d');
-            canvas.width = container.clientWidth; canvas.height = container.clientHeight;
-            
-            let particles = Array.from({length: 60}, () => ({
-                x: canvas.width/2, y: canvas.height/2,
-                vx: (Math.random()-0.5)*15, vy: (Math.random()-0.5)*15,
-                color: Math.random() > 0.7 ? '#ef4444' : '#38bdf8',
-                life: 0
-            }));
-
-            let loop = setInterval(() => {
-                ctx.fillStyle = 'rgba(15, 23, 42, 0.2)'; // trail effect
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                
-                // Merkezden dışa bağ çiz
-                ctx.beginPath();
-                particles.forEach(p => {
-                    ctx.moveTo(canvas.width/2, canvas.height/2);
-                    ctx.lineTo(p.x, p.y);
-                });
-                ctx.strokeStyle = "rgba(56, 189, 248, 0.1)";
-                ctx.stroke();
-
-                particles.forEach(p => {
-                    p.x += p.vx; p.y += p.vy;
-                    p.vx *= 0.95; p.vy *= 0.95; // sürtünme
-                    p.life++;
-                    if(p.life > 10 && Math.random()>0.8) {
-                        p.vx += (Math.random()-0.5)*5; p.vy += (Math.random()-0.5)*5;
-                    }
-                    ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2);
-                    ctx.fillStyle = p.color; ctx.fill();
-                });
-            }, 30);
-            return loop; // later to clear interval
-        }
-
-        function startAnalysis() {
-            const ds = document.getElementById('drawer-select');
-            if(ds.selectedIndex <= 0) { alert("Lütfen risk analizi için listenden bir keşideci firma seçin!"); return; }
-            
-            const steps = ['ocr', 'enrich', 'graph', 'decision'];
-            let delay = 0;
-            let simLoop;
-            
-            steps.forEach((step, idx) => {
-                setTimeout(() => {
-                    let el = document.getElementById('step-'+step);
-                    if(el) { el.classList.remove('text-slate-600', 'border-transparent'); el.classList.add('text-blue-400', 'bg-blue-900/20', 'border-blue-500/50'); }
-                    
-                    if(step === 'ocr') {
-                       document.getElementById('simGraph').innerHTML = `<div class="absolute inset-0 flex items-center justify-center text-blue-400 text-sm flex-col"><i class="fa-solid fa-file-invoice-dollar fa-beat-fade text-4xl mb-4"></i><span>Fatura Verisi Çıkarılıyor...</span></div>`;
-                    }
-                    if(step === 'enrich') {
-                       document.getElementById('simGraph').innerHTML = `<div class="absolute inset-0 flex items-center justify-center text-purple-400 text-sm flex-col"><i class="fa-solid fa-database fa-flip text-4xl mb-4"></i><span>KKB & Mernis Doğrulaması...</span></div>`;
-                    }
-                    if(step === 'graph') {
-                        // Burada o meşhur görsel simülasyonu başlatırız!
-                        simLoop = drawActiveSimulation(document.getElementById('simGraph'));
-                        
-                        // Üstüne ufak bir metin
-                        let textOverlay = document.createElement('div');
-                        textOverlay.className = "absolute inset-0 flex items-center justify-center text-white font-bold drop-shadow-md z-10 text-lg pointer-events-none";
-                        textOverlay.innerHTML = "<span class='bg-slate-900/50 px-4 py-2 rounded-lg backdrop-blur-md'><i class='fa-solid fa-spinner fa-spin mr-2'></i>Derin Ağ Bağlantıları Araştırılıyor...</span>";
-                        document.getElementById('simGraph').appendChild(textOverlay);
-                    }
-                    if(step === 'decision') {
-                        if(simLoop) clearInterval(simLoop);
-                        showResult(ds.value.includes('Riskli'));
-                    }
-                }, delay += 1000); // Her adım arası 1 saniye bekle
+            // CDN libs (Chart.js, Plotly) guaranteed ready after window load
+            window.addEventListener('load', function () {
+                showApp();
+                tryInitCharts();
             });
-        }
-
-        function showResult(isRisk) {
-            let overlay = document.getElementById('result-overlay');
-            overlay.classList.remove('hidden'); // Tailwind gizleme sınıfını kaldır!
-            overlay.style.display = 'flex';     // Görünür yap
-            
-            document.getElementById('simGraph').innerHTML = ''; // Arkaplanı temizle
-            
-            if(isRisk) {
-                overlay.innerHTML = `
-                <div class="glass-panel p-8 rounded-2xl max-w-sm w-full border border-red-500/50 text-center animate-[bounce_0.5s_ease-out]">
-                    <div class="w-20 h-20 mx-auto bg-red-500/20 rounded-full flex justify-center items-center mb-6 border border-red-500">
-                        <i class="fa-solid fa-triangle-exclamation text-4xl text-red-500"></i>
-                    </div>
-                    <h3 class="text-2xl font-bold text-white mb-2">RET: Ağda Şüpheli İşlem!</h3>
-                    <p class="text-slate-400 text-sm mb-6">Firma 3. derece paravan bağlantısında dolandırıcılık adımları tespit edildi.</p>
-                    <button onclick="resetSimulation()" class="w-full py-3 bg-red-900/40 border border-red-500 text-red-100 rounded-lg hover:bg-red-800 transition shadow-lg shadow-red-500/20">Anladım, Kapat</button>
-                </div>`;
-            } else {
-                overlay.innerHTML = `
-                <div class="glass-panel p-8 rounded-2xl max-w-sm w-full border border-green-500/50 text-center animate-[bounce_0.5s_ease-out]">
-                    <div class="w-20 h-20 mx-auto bg-green-500/20 rounded-full flex justify-center items-center mb-6 border border-green-500">
-                        <i class="fa-solid fa-check text-4xl text-green-500"></i>
-                    </div>
-                    <h3 class="text-2xl font-bold text-white mb-2">ONAY: Güvenilir Sistem</h3>
-                    <p class="text-slate-400 text-sm mb-6">Keşideci ağında herhangi bir risk faktörü bulunamadı. Tedarik zinciri stabil.</p>
-                    <button onclick="resetSimulation()" class="w-full py-3 bg-green-900/40 border border-green-500 text-green-100 rounded-lg hover:bg-green-800 transition shadow-lg shadow-green-500/20">Tamam, Kapat</button>
-                </div>`;
-            }
-        }
+        })();
     </script>
 </body>
+
 </html>

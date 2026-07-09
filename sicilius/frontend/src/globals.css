@@ -1307,3 +1307,13 @@ html {
 }
 .leaflet-control-zoom-in::before { content: '+'; font-size: 18px; font-weight: 800; }
 .leaflet-control-zoom-out::before { content: '−'; font-size: 20px; font-weight: 800; }
+
+/* ── NEXUS Component Animations ── */
+@keyframes nexus-spin {
+    to { transform: rotate(360deg); }
+}
+@keyframes nexus-slide {
+    0%   { transform: translateX(-200%); }
+    100% { transform: translateX(300%); }
+}
+

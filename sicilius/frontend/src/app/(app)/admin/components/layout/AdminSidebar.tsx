@@ -55,7 +55,7 @@ const adminNavigation: NavItem[] = [
   { name: 'Kullanıcılar', href: '/admin/users', icon: Users },
   { name: 'Hatalar', href: '/admin/errors', icon: AlertTriangle },
   { name: 'İletişim', href: '/admin/contact', icon: MessageSquare },
-  { name: 'Gelen Mailler', href: '/admin/inbox', icon: Mail },
+  { name: 'Mailbox', href: '/admin/mailbox', icon: Mail },
   { name: 'Operasyon Merkezi', href: '/admin/operations', icon: Activity },
   { name: 'Kaydedilenler', href: '/admin/favorites', icon: Bookmark },
   { name: 'Ayarlar', href: '/admin/settings', icon: Settings },

@@ -21,6 +21,9 @@ class IncomingEmail(Base):
     received_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     is_read = Column(Boolean, default=False, nullable=False, index=True)
     cloudflare_message_id = Column(String(255), nullable=True, index=True)
+    reply_text = Column(Text, nullable=True)
+    replied_at = Column(DateTime(timezone=True), nullable=True)
+    is_outbound = Column(Boolean, default=False, nullable=False, index=True)
 
     def __repr__(self):
         return f"<IncomingEmail {self.id} from={self.from_address} subject={self.subject[:50]}>"

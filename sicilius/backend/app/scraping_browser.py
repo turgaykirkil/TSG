@@ -39,6 +39,7 @@ from app.utils.scrape_helpers_async import (
     ensure_captcha,
     open_pdf_in_new_tab,
     handle_pdf_popup,
+    handle_pdf_iframe,
     random_human_delay,
     gentle_mouse_wiggle,
 )
@@ -209,8 +210,10 @@ class BrowserManager:
                 return {"status": "already_open", "message": msg, "context_status": self.get_status()}
 
             try:
+                print("DEBUG: Initializing Playwright...")
                 logger.info("Initializing Playwright...")
                 self._playwright = await async_playwright().start()
+                print("DEBUG: Playwright started")
                 
                 # Tarayıcıyı görünür modda daha küçük pencerede aç (geliştirme için konforlu boyut)
                 launch_args = [
@@ -237,13 +240,15 @@ class BrowserManager:
 
                 # Open a default page
                 page = await self.get_page()
-                await page.goto("https://www.ticaretsicil.gov.tr/", wait_until="domcontentloaded")
+                await page.goto("https://www.ticaretsicil.gov.tr/", wait_until="domcontentloaded", timeout=60000)
                 logger.info("Navigated to the target website.")
 
+                print(f"DEBUG: Browser opened successfully")
                 return {"status": "opened", "message": "Browser opened successfully for manual login."}
 
             except PlaywrightError as e:
                 error_msg = f"Failed to open browser: {e}"
+                print(f"DEBUG ERROR: {error_msg}")
                 logger.error(error_msg, exc_info=True)
                 await self.close_browser()
                 return {"status": "error", "message": error_msg}
@@ -270,7 +275,7 @@ class BrowserManager:
             except PlaywrightError as e:
                 logger.error(f"Error closing browser context: {e}", exc_info=True)
             
-            if self._playwright and self._playwright.is_connected():
+            if self._playwright:
                 logger.info("Stopping Playwright...")
                 await self._playwright.stop()
                 self._playwright = None
@@ -434,7 +439,8 @@ async def start_enhanced_scraping_process(
     city: Optional[str] = None, 
     mode: Optional[str] = 'normal', 
     strategy: Optional[str] = 'gap_fill', 
-    start_from: Optional[int] = None
+    start_from: Optional[int] = None,
+    year: int = 2021
 ):
     """
     Fetches unscraped companies, scrapes their announcements, and saves them to the database.
@@ -499,7 +505,7 @@ async def start_enhanced_scraping_process(
                     break
                 
                 try:
-                    found = await search_by_office_and_sicil(page, office_label, num)
+                    found = await search_by_office_and_sicil(page, office_label, num, year)
                     if found:
                         scraping_state.add_log(f"CITY_FILL_FOUND: {office_label} #{num} için sonuç bulundu.")
                         # Minimal company oluştur/çek ve detaylı scrape yap
@@ -512,12 +518,24 @@ async def start_enhanced_scraping_process(
                         try:
                             crud.company.mark_as_scraped(db, company_id=empty_company.id)
                         except Exception:
-                            pass
+                            db.rollback()
                 except Exception as e:
                     scraping_state.add_log(f"CITY_FILL_ERROR: {office_label} #{num} denemesinde hata: {e}")
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
+                    # Eğer SSH Tünel (veritabanı) anlık koptuysa, tekrar bağlanması için 5 saniye bekle
+                    if "Connection refused" in str(e) or "OperationalError" in str(e):
+                        await asyncio.sleep(6)
                 finally:
                     processed += 1
                     scraping_state.update_progress(processed)
+                    
+                    # Ticaret Sicil sunucularını yormamak ve 502 Bad Gateway yememek için bekle
+                    delay_sec = random.uniform(2, 4)
+                    await asyncio.sleep(delay_sec)
+                    
                     if processed >= count:
                         break
             return
@@ -552,6 +570,11 @@ async def start_enhanced_scraping_process(
             await scrape_company(page, db, company)
             company_processed_count += 1
             scraping_state.update_progress(company_processed_count)
+            
+            # Ticaret Sicil sunucularını yormamak ve 502 Bad Gateway yememek için her şirket sonrası 3-5 saniye bekle
+            delay_sec = random.uniform(3, 6)
+            scraping_state.add_log(f"SLEEP: Sunucuyu yormamak için {delay_sec:.1f} saniye bekleniyor...")
+            await asyncio.sleep(delay_sec)
 
     except Exception as e:
         error_message = f"An unexpected error occurred during the main scraping loop: {traceback.format_exc()}"
@@ -581,6 +604,8 @@ def _compute_candidate_sicil_numbers(
     - gap_fill: Boşlukları doldurur ve max'tan devam eder.
     - sequential: Boşlukları atlar, doğrudan başlangıç noktasından (veya max) ileri gider.
     """
+    if start_from is not None and start_from <= 0:
+        start_from = None
     try:
         # Ofis eşleşmesi: öncelik sicil_office_code, yoksa sicil_mudurluk ilk kelime eşleşmesi
         from app.models.company import Company
@@ -650,8 +675,8 @@ def _compute_candidate_sicil_numbers(
         return []
 
 
-async def search_by_office_and_sicil(page: Page, office_label: str, sicil_no: int) -> bool:
-    """Verilen ofis ve sicil numarası için ilan araması yapar. Sonuç varsa True, yoksa False döner.
+async def search_by_office_and_sicil(page: Page, office_label: str, sicil_no: int, year: int = 2021) -> bool:
+    """Verilen ofis ve sicil numarası için ilan araması yapar. Yıl filtresi varsa uygular.
     CAPTCHA ve ufak gecikmeler mevcut yardımcılarla yönetilir.
     """
     try:
@@ -660,6 +685,16 @@ async def search_by_office_and_sicil(page: Page, office_label: str, sicil_no: in
         await page.select_option('select#SicilMudurluguId', label=office_label)
         await random_human_delay(80, 180)
         await page.fill('input#TicSicNo', str(sicil_no))
+        await random_human_delay(80, 180)
+        
+        # Yıl filtresi (Kullanıcının girdiği yılı 1 Ocak olarak değerlendirir)
+        try:
+            # Tarih aralığı başlangıç alanını bulup doldurmayı dener
+            start_date = f"01.01.{year}"
+            await page.fill('input[name*="Baslangic"], input[id*="Baslangic"], input[id*="Date"]', start_date, timeout=2000)
+        except Exception:
+            pass # Alan bulunamazsa veya hata olursa yoksay ve devam et
+
         await random_human_delay(80, 180)
         await page.click('button[data-message="İlan Ara"]')
         try:
@@ -732,6 +767,7 @@ async def scrape_company(page: Page, db: Session, company):
                 break
 
             for row in rows:
+                pending_ocr_results = []
                 try:
                     cells = await row.query_selector_all('td')
                     if len(cells) < 8:
@@ -739,8 +775,30 @@ async def scrape_company(page: Page, db: Session, company):
 
                     publication_date_str = await cells[3].inner_text()
                     title = await cells[2].inner_text()
+                    trade_registry_name = await cells[0].inner_text()
+                    trade_registry_number = await cells[1].inner_text()
+
+                    row_sicil_no = trade_registry_number.strip()
+                    row_office_name = trade_registry_name.strip()
+                    row_office_code = normalize_office_freeform(row_office_name) or row_office_name
+
+                    # Resolve correct company for the row
+                    if row_sicil_no == company.sicil_no and row_office_code == company.sicil_office_code:
+                        row_company = company
+                    else:
+                        row_company = crud.company.get_or_create_minimal_by_sicil(
+                            db, office_label=row_office_code, sicil_no=row_sicil_no
+                        )
+
+                    # FIXED: Use title instead of trade_registry_name (which was just "İSTANBUL")
+                    if not row_company.unvan or row_company.unvan == "None":
+                        row_company.unvan = title.strip()
+                        db.add(row_company)
+                        db.commit()
+                        scraping_state.add_log(f"FIRM_IDENTIFIED: Firma Unvanı '{row_company.unvan}' olarak güncellendi.")
+
                     publication_date = datetime.strptime(publication_date_str.strip(), '%d.%m.%Y').date()
-                    
+
                     # Extract issue and page for composite deduplication
                     try:
                         issue_str = (await cells[4].inner_text()).strip()
@@ -773,56 +831,54 @@ async def scrape_company(page: Page, db: Session, company):
                         pdf_href = await pdf_link_element.get_attribute('href')
                         if pdf_href:
                             try:
-                                # Önce sayfadaki olası CAPTCHA'yı çöz (overlay/pop-up engel olmasın)
+                                # Önce sayfadaki olası CAPTCHA'yı çöz (overlay/pop-up engel olmasın) - Orijinal kural korundu
                                 await ensure_captcha(page)
-                                # İnsanî şekilde yeni sekme aç
-                                new_page = await open_pdf_in_new_tab(page, pdf_href)
-                                if not new_page:
-                                    scraping_state.add_log(f"PDF_WARN: Yeni sekme açılamadı. href={pdf_href}")
-                                    raise RuntimeError("Yeni sekme açılamadı.")
 
-                                content, captcha_solved = await handle_pdf_popup(page, new_page)
-                                # Sekme handle_pdf_popup içinde kapanır ya da burada kapatılır
-                                try:
-                                    if not new_page.is_closed():
-                                        await new_page.close()
-                                except Exception:
-                                    pass
-
-                                if content is None and captcha_solved:
-                                    # Aynı linki bir kez daha dene
-                                    await random_human_delay(300, 800)
-                                    await ensure_captcha(page)
-                                    retry_page = await open_pdf_in_new_tab(page, pdf_href)
-                                    if retry_page:
-                                        try:
-                                            content, _ = await handle_pdf_popup(page, retry_page)
-                                        finally:
-                                            try:
-                                                if not retry_page.is_closed():
-                                                    await retry_page.close()
-                                            except Exception:
-                                                pass
+                                # Yeni sekme (popup) açmak yerine Iframe stratejisini çağırıyoruz
+                                content = await handle_pdf_iframe(page, pdf_href)
 
                                 if content:
-                                    pending_ocr_results = []
                                     # GUARDIAN OCR: FAST BASELINE ONLY
                                     scraping_state.add_log(f"OCR_START: Starting FAST baseline OCR for '{title}'...")
                                     try:
                                         # Only Vision + Regex (no Llama here)
                                         ocr_baselines = get_ocr_baseline(content)
                                         scraping_state.add_log(f"OCR_SUCCESS: Found {len(ocr_baselines)} chunk(s). Status: pending_llm.")
-                                        
+
                                         # Save each baseline as a pending OcrResult
                                         for res in ocr_baselines:
                                             re_ent = res.get("regex_entities", {})
+
+                                            # Resolve chunk company
+                                            chunk_sicil = re_ent.get("registration_number") or re_ent.get("sicil_dosya_no")
+                                            chunk_office_raw = res.get("header") or row_office_code
+                                            chunk_office = normalize_office_freeform(chunk_office_raw) or chunk_office_raw
+
+                                            if chunk_sicil:
+                                                chunk_company = crud.company.get_or_create_minimal_by_sicil(
+                                                    db, office_label=chunk_office, sicil_no=str(chunk_sicil).strip()
+                                                )
+                                            else:
+                                                chunk_company = row_company
+
+                                            # Update chunk company unvan/mersis/address from regex entities if empty/placeholder
+                                            chunk_trade = re_ent.get("trade_name")
+                                            if chunk_trade and (not chunk_company.unvan or chunk_company.unvan == "None"):
+                                                chunk_company.unvan = chunk_trade.strip()
+                                            if re_ent.get("mersis_no") and not chunk_company.mersis_number:
+                                                chunk_company.mersis_number = re_ent.get("mersis_no").strip()
+                                            if re_ent.get("addresses") and not chunk_company.address:
+                                                chunk_company.address = " | ".join(re_ent.get("addresses"))
+                                            db.add(chunk_company)
+                                            db.flush()
+
                                             new_ocr = models.OcrResult(
                                                 announcement_id=None,
-                                                company_id=company.id,
+                                                company_id=chunk_company.id,
                                                 original_text=res.get("original_text"),
-                                                trade_name=re_ent.get("trade_name"),
+                                                trade_name=chunk_trade,
                                                 old_trade_name=re_ent.get("old_trade_name"),
-                                                sicil_dosya_no=re_ent.get("registration_number") or re_ent.get("sicil_dosya_no"),
+                                                sicil_dosya_no=chunk_sicil,
                                                 mersis_no=re_ent.get("mersis_no"),
                                                 addresses=re_ent.get("addresses"),
                                                 old_addresses=re_ent.get("old_addresses"),
@@ -833,24 +889,18 @@ async def scrape_company(page: Page, db: Session, company):
                                                 sicil_office_header=res.get("header"),
                                                 item_index=res.get("index"),
                                                 json_payload={"regex_entities": re_ent}, # SAVE FOR ENRICHMENT
-                                                status="pending_llm" # MARK AS PENDING
+                                                status="pending_llm", # MARK AS PENDING
+                                                publication_date=publication_date,
+                                                issue_number=issue_number,
+                                                page_number=page_number_val,
+                                                pdf_url=pdf_url
                                             )
                                             db.add(new_ocr)
                                             pending_ocr_results.append(new_ocr)
-                                            
-                                            # LLM kapalıysa veya asenkron çalışmıyorsa diye doğrudan Regex (Fallback) ile şirket verilerini dolduralım:
-                                            if not company.unvan and re_ent.get("trade_name"):
-                                                company.unvan = re_ent.get("trade_name")
-                                            if not company.mersis_number and re_ent.get("mersis_no"):
-                                                company.mersis_number = re_ent.get("mersis_no")
-                                            if not company.address and re_ent.get("addresses"):
-                                                company.address = " | ".join(re_ent.get("addresses"))
-                                            db.add(company)
-                                            
                                             db.flush()
                                     except Exception as ocr_err:
                                         scraping_state.add_log(f"OCR_ERROR: Baseline failed: {ocr_err}")
-                                        logger.error(f"OCR_ERROR for {company.unvan}", exc_info=True)
+                                        logger.error(f"OCR_ERROR for {row_company.unvan}", exc_info=True)
 
                                     # Temporary local storage (optional, user said no server upload)
                                     # We skip upload_bytes to satisfy the request.
@@ -861,12 +911,12 @@ async def scrape_company(page: Page, db: Session, company):
 
                             except Exception as pdf_error:
                                 scraping_state.add_log(f"PDF_ERROR: Failed to download/upload PDF for '{title}'. Reason: {pdf_error}")
-                                logger.error(f"PDF_ERROR for {company.unvan}", exc_info=True)
+                                logger.error(f"PDF_ERROR for {row_company.unvan}", exc_info=True)
 
                     announcement_data = schemas.AnnouncementCreate(
-                        company_id=company.id,
-                        trade_registry_name=await cells[0].inner_text(),
-                        trade_registry_number=await cells[1].inner_text(),
+                        company_id=row_company.id,
+                        trade_registry_name=row_office_code,
+                        trade_registry_number=row_sicil_no,
                         title=title,
                         publication_date=publication_date,
                         issue_number=issue_number,
@@ -878,17 +928,53 @@ async def scrape_company(page: Page, db: Session, company):
                     announcement = crud.announcement.create(db=db, obj_in=announcement_data)
                     scraping_state.add_log(f"DB_SUCCESS: Saved announcement: {title}")
 
-                    # Link OCR results to this announcement
+                    # Link OCR results to correct announcements (resolving correct target per chunk)
                     if 'pending_ocr_results' in locals() and pending_ocr_results:
                         for ocr in pending_ocr_results:
-                            ocr.announcement_id = announcement.id
+                            if ocr.company_id != row_company.id:
+                                existing_ann = db.query(models.Announcement).filter(
+                                    models.Announcement.company_id == ocr.company_id,
+                                    models.Announcement.publication_date == publication_date,
+                                    models.Announcement.issue_number == issue_number,
+                                    models.Announcement.page_number == page_number_val
+                                ).first()
+                                if existing_ann:
+                                    ocr.announcement_id = existing_ann.id
+                                else:
+                                    # Try to determine the correct type for this secondary announcement
+                                    chunk_hususlar = ocr.hususlar or re_ent.get("hususlar")
+                                    if chunk_hususlar and isinstance(chunk_hususlar, list):
+                                        chunk_type = ", ".join(chunk_hususlar)
+                                    else:
+                                        chunk_type = announcement_data.announcement_type
+                                    
+                                    target_company = db.query(models.Company).filter(models.Company.id == ocr.company_id).first()
+                                    target_unvan = target_company.unvan if (target_company and target_company.unvan and target_company.unvan != "None") else None
+                                    ann_title = ocr.trade_name or target_unvan or "Ticaret Sicil Gazetesi İlanı"
+
+                                    new_ann_data = schemas.AnnouncementCreate(
+                                        company_id=ocr.company_id,
+                                        trade_registry_name=ocr.sicil_office_header or row_office_code,
+                                        trade_registry_number=ocr.sicil_dosya_no or row_sicil_no,
+                                        title=ann_title,
+                                        publication_date=publication_date,
+                                        issue_number=issue_number,
+                                        page_number=page_number_val,
+                                        announcement_type=chunk_type,
+                                        newspaper_name=newspaper_text,
+                                        pdf_url=pdf_url
+                                    )
+                                    new_ann = crud.announcement.create(db=db, obj_in=new_ann_data)
+                                    ocr.announcement_id = new_ann.id
+                            else:
+                                ocr.announcement_id = announcement.id
                         db.flush()
                         scraping_state.add_log(f"OCR_LINK: Linked {len(pending_ocr_results)} OCR chunk(s) to announcement.")
 
                 except Exception as e:
                     db.rollback() # Rollback on row error
                     scraping_state.add_log(f"ROW_ERROR: Failed to process row. Reason: {e}")
-                    logger.error(f"ROW_ERROR for {company.unvan}", exc_info=True)
+                    logger.error(f"ROW_ERROR", exc_info=True)
                     continue # Continue to the next row
 
             next_page_button = await page.query_selector('li.paginate_button.next:not(.disabled) a')
@@ -909,3 +995,38 @@ async def scrape_company(page: Page, db: Session, company):
         crud.company.mark_as_scraped(db=db, company_id=company.id)
         scraping_state.add_log(f"PROCESSING_COMPLETE: Finished processing for '{company.unvan}'.")
         db.commit()
+
+
+if __name__ == "__main__":
+    import argparse
+    import asyncio
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--count", type=int, default=10)
+    parser.add_argument("--city", type=str, default="İSTANBUL")
+    parser.add_argument("--start", type=int, default=0)
+    parser.add_argument("--year", type=int, default=2021)
+    parser.add_argument("--show-browser", action="store_true")
+    
+    args = parser.parse_args()
+    
+    async def main_runner():
+        # Use the global browser_manager defined in this file
+        global browser_manager
+        
+        headless_mode = not args.show_browser
+        print(f"Browser başlatılıyor... (Headless: {headless_mode})")
+        await browser_manager.open_browser(headless=headless_mode)
+        
+        try:
+            await start_enhanced_scraping_process(
+                count=args.count,
+                city=args.city,
+                start_from=args.start if args.start > 0 else None,
+                year=args.year
+            )
+        finally:
+            print("Browser kapatılıyor...")
+            await browser_manager.close_browser()
+
+    asyncio.run(main_runner())

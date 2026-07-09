@@ -10,6 +10,12 @@ keys.txt
 tsg-platform-13d58-firebase-adminsdk-fbsvc-75ccd98f95.json
 .antigravityrules
 app-printer-main
+.agents
+deploy
+sicilius/deployment_script
+ssh-keys
+deploy_*.sh
+.cursor
 
 # Python
 __pycache__/
@@ -134,3 +140,20 @@ sicilius/backend/anomalies.txt
 patch_remote*.py
 Caddyfile.new
 MINIO_CONFIG_SIMPLE.txt
+
+# Standalone Desktop/Worker Application (Do not commit anything related to the desktop app)
+sicilius/standalone_worker/
+sicilius/sicilius_worker_mac/
+sicilius/sicilius_worker.py
+sicilius/worker_ui.html
+sicilius/worker_history.log
+*.spec
+
+# Local Scratch, Operational and Recovered Files
+kurtarilan_tsg_mesajlari.md
+sicilius/scratch/
+sicilius/scripts/backup_via_api.py
+sicilius/scripts/setup_remote_docker.sh
+sicilius/start_server.sh
+sicilius/.rsync-exclude
+

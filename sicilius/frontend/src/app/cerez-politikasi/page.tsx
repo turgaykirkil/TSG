@@ -56,7 +56,7 @@ export default function CerezPolitikasiPage() {
         <section className="mt-8 space-y-3">
           <h2 className="text-xl font-semibold">5. İletişim</h2>
           <p>
-            Çerezlere ilişkin sorularınız için: <a className="underline" href="mailto:privacy@sicilius.local">privacy@sicilius.local</a>
+            Çerezlere ilişkin sorularınız için: <a className="underline" href="mailto:privacy@sicilius.com.tr">privacy@sicilius.com.tr</a>
           </p>
         </section>
       </main>

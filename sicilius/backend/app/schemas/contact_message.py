@@ -20,6 +20,8 @@ class ContactMessage(ContactMessageBase):
     id: UUID
     created_at: datetime
     read: str = "UNREAD"
+    reply_text: Optional[str] = None
+    replied_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True

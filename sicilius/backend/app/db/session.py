@@ -37,8 +37,8 @@ else:
     # Regular pooling for local/managed Postgres
     engine_kwargs.update({
         "pool_recycle": 30,  # Recycle aggressively (30s) to avoid stale SSH tunnel connections
-        "pool_size": 5,
-        "max_overflow": 10,
+        "pool_size": 2,      # REDUCED from 5 to 2 to prevent remote server DOS (Error 521)
+        "max_overflow": 5,   # REDUCED from 10 to 5
     })
 
 # Add TCP Keepalive for Postgres to detect dead connections faster

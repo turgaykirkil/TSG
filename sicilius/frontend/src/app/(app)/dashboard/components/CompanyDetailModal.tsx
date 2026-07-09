@@ -351,6 +351,8 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
       });
       const nearbyList: any[] = Array.isArray(nearby) ? nearby : [];
 
+      const logoSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#0ea5e9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 12px;"><path d="M15.6 12.8c-1.2 1.2-2.8 2-4.6 2s-3.4-.8-4.6-2c-1.2-1.2-2-2.8-2-4.6s.8-3.4 2-4.6c1.2-1.2 2.8-2 4.6-2s3.4.8 4.6 2" /><path d="M8.4 11.2c1.2-1.2 2.8-2 4.6-2s3.4.8 4.6 2c1.2 1.2 2 2.8 2 4.6s-.8 3.4-2 4.6c-1.2 1.2-2.8 2-4.6 2s-3.4-.8-4.6-2" /></svg>`;
+
       const html = `<!doctype html>
 <html lang="tr">
 <head>
@@ -362,25 +364,34 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
     html, body { padding: 0; margin: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif; color: #0f172a; }
     .container { max-width: 800px; margin: 0 auto; }
+    .header-box { display: flex; align-items: center; padding-bottom: 16px; border-bottom: 2px solid #e2e8f0; margin-bottom: 24px; }
     h1 { font-size: 20px; margin: 0 0 8px 0; }
-    h2 { font-size: 16px; margin: 16px 0 8px 0; }
+    h2 { font-size: 16px; margin: 16px 0 8px 0; color: #1e293b; border-bottom: 1px solid #f1f5f9; padding-bottom: 4px; }
     .muted { color: #475569; font-size: 12px; }
     .row { margin: 4px 0; font-size: 13px; }
-    .section { margin-top: 14px; }
-    pre { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 12px; line-height: 1.5; background: #f8fafc; padding: 8px; border-radius: 4px; }
+    .section { margin-top: 14px; page-break-inside: avoid; }
+    pre { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 12px; line-height: 1.5; background: #f8fafc; padding: 10px; border-radius: 6px; border: 1px solid #e2e8f0; }
     ul { margin: 6px 0; padding-left: 18px; }
-    li { margin: 4px 0; }
+    li { margin: 6px 0; font-size: 13px; }
   </style>
   <style media="print">
     .container { max-width: none; }
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    pre { background: #f8fafc !important; border: 1px solid #e2e8f0 !important; }
   </style>
   </head>
   <body>
     <div class="container">
-      <h1>${esc(title)}</h1>
+      <div class="header-box">
+        ${logoSvg}
+        <div>
+          <h1 style="margin: 0; color: #0f172a;">${esc(title)}</h1>
+          <div style="font-size: 13px; color: #64748b; margin-top: 4px;">Sicilius Kurumsal Arama Raporu</div>
+        </div>
+      </div>
+      
       ${oldNames.length ? `<div class="row"><strong>Eski Ünvan:</strong></div>` + oldNames.map((n: string) => `<div class="row">${esc(n)}</div>`).join('') : ''}
-      <div class="row muted">Bu içerik yalnızca bilgilendirme amaçlıdır; ayrıntılı hükümler ve koşullar için Kullanıcı Sözleşmesi'ni inceleyiniz.</div>
+      <div class="row muted" style="margin-bottom: 16px;">Bu içerik yalnızca bilgilendirme amaçlıdır; ayrıntılı hükümler ve koşullar için Kullanıcı Sözleşmesi'ni inceleyiniz.</div>
 
       ${company ? `
       <div class="section">
@@ -776,7 +787,7 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="company-modal-print-target w-[min(100vw-1rem,1100px)] sm:w-[min(96vw,1100px)] max-w-[100vw] max-h-[85vh] bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 p-0 overflow-y-auto overflow-x-hidden break-words min-w-0" ref={printRef} style={{ hyphens: 'auto', WebkitHyphens: 'auto', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+      <DialogContent className="company-modal-print-target w-[min(100vw-1rem,1100px)] sm:w-[min(96vw,1100px)] max-w-[100vw] max-h-[85vh] bg-white/95 dark:bg-slate-900/90 backdrop-blur-md border border-slate-200/50 dark:border-slate-800/50 shadow-2xl rounded-2xl text-slate-900 dark:text-slate-100 p-0 overflow-y-auto overflow-x-hidden break-words min-w-0" ref={printRef} style={{ hyphens: 'auto', WebkitHyphens: 'auto', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
         <DialogHeader className="px-4 pt-4 overflow-hidden min-w-0">
           <DialogTitle className="text-slate-900 dark:text-slate-100 break-all sm:break-words whitespace-normal leading-snug min-w-0" style={{ hyphens: 'auto', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{headerTitle}</DialogTitle>
 
@@ -809,11 +820,11 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
                   tabIndex={0}
                   onClick={handlePrint}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handlePrint(); } }}
-                  className="inline-flex items-center gap-1 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                  aria-label="PDF olarak indir"
-                  title="PDF olarak indir"
+                  className="inline-flex items-center gap-1 rounded-full border border-sky-300 dark:border-sky-700 bg-sky-50 dark:bg-sky-900/30 px-3 py-1 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-800/50 transition-colors cursor-pointer font-medium"
+                  aria-label="PDF Olarak İndir"
+                  title="PDF Olarak İndir"
                 >
-                  <FileDown size={14} /> PDF
+                  <FileDown size={16} /> PDF İndir
                 </div>
                 <div
                   role="button"
