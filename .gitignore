@@ -157,3 +157,24 @@ sicilius/scripts/setup_remote_docker.sh
 sicilius/start_server.sh
 sicilius/.rsync-exclude
 
+# Sensitive Root Configuration and Guides
+.cloudflare_config
+BACKEND_ENV_UPDATE.md
+DNS_SETUP_GUIDE.md
+deploy_minio_tunnel.sh
+MINIO_CONFIG_SIMPLE.txt
+EDGE_CHROMIUM_DOWNLOAD.md
+build_backend.sh
+
+# Strict Exclusions: No shell scripts (.sh) & No markdown (.md) except README
+*.sh
+**/*.sh
+*.md
+**/*.md
+!README.md
+!**/README.md
+!/sicilius/README.md
+!/sicilius/frontend/README.md
+
+
+

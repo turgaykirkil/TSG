@@ -71,4 +71,13 @@ Caddyfile.new
 !tsconfig.json
 !components.json
 
+# Strict Exclusions: No shell scripts (.sh) & No markdown (.md) except README
+*.sh
+**/*.sh
+*.md
+**/*.md
+!README.md
+!**/README.md
+
+
 
