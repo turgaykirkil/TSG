@@ -376,17 +376,29 @@ def ingest_persons_and_relations(
     if not persons_data or not isinstance(persons_data, list):
         return
 
+    if company_id:
+        try:
+            db.query(CompanyPersonRelation).filter(
+                CompanyPersonRelation.company_id == company_id,
+                CompanyPersonRelation.source == "NLP_EXTRACTION"
+            ).delete(synchronize_session=False)
+        except Exception as ex_del:
+            logger.warning(f"Could not clear stale relations for company_id={company_id}: {ex_del}")
+
     seen_relations: Set[Tuple[Any, Any]] = set()
     for person_item in persons_data:
-        if not isinstance(person_item, dict):
+        if isinstance(person_item, str):
+            full_name = person_item.strip()
+            masked_id = None
+            address = None
+        elif isinstance(person_item, dict):
+            full_name = person_item.get("text") or person_item.get("full_name") or person_item.get("name")
+            masked_id = person_item.get("masked_ids") or person_item.get("masked_id") or person_item.get("tckn")
+            if isinstance(masked_id, list) and masked_id:
+                masked_id = masked_id[0]
+            address = person_item.get("address")
+        else:
             continue
-        
-        full_name = person_item.get("text") or person_item.get("full_name") or person_item.get("name")
-        masked_id = person_item.get("masked_ids") or person_item.get("masked_id")
-        if isinstance(masked_id, list) and masked_id:
-            masked_id = masked_id[0]
-        
-        address = person_item.get("address")
         
         if not full_name:
             continue
@@ -431,6 +443,7 @@ def ingest_persons_and_relations(
                 middle_name=middle_name,
                 last_name=last_name,
                 masked_id=masked_id,
+                nationality_id=masked_id,
                 address=address
             )
             db.add(person_obj)
@@ -442,6 +455,7 @@ def ingest_persons_and_relations(
             updated = False
             if not person_obj.masked_id and masked_id:
                 person_obj.masked_id = masked_id
+                person_obj.nationality_id = masked_id
                 updated = True
             if not person_obj.address and address:
                 person_obj.address = address

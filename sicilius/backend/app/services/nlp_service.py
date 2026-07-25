@@ -1255,9 +1255,26 @@ def extract_persons_from_keywords(text: str) -> List[dict]:
         # Ek başlık/alan gürültüleri
         "UYRUK", "TURKIYE", "CUMHURIYETI", "CUMHURIYET", "TC",
         "KIMLIK", "KIMLIK NO", "NO", "MERSIS", "MERSIS NO",
+        # Gelişmiş gürültüler
+        "İDARESİ", "İDARE", "TEKİRDAĞ", "TEKIRDAG", "ÇERKEZKÖY", "CERKEZKOY", "BAHÇELİEVLER", 
+        "BAHÇELİ", "BAHCE", "BAHCE LIEVLER", "ÜSKÜDAR", "USKUDAR", "GÜNGÖREN", "GUNGOREN", 
+        "EYÜPSULTAN", "EYUPSULLAN", "ESENYURT", "STANBUL", "ISTANBULT", "YOLU", "SOKAĞI", "SK", 
+        "CAD", "KAPI", "MAHALLESİ", "MAH", "RESMİ", "ILAN", "PORTALI", "BASIN", "KURUMU", 
+        "İLAN.GOV.TR", "KADIKOY", "ŞİŞL", "ŞİŞLİ", "İÇERİĞİ", "DEĞİŞEN", "MADDELERİN", "HALİ", 
+        "AMAÇ", "KONU", "EĞİTİM", "DANIŞMANLIK", "REKLAM", "ORGANİZASYON", "ORGANİZAS", "MÜZİK", 
+        "SİGORTA", "GENEL", "KURUL", "TASFİYE", "MADDESİ", "TÜRKİYE", "URKIYH", "CUMHUKITE", "SAYFA", "GAZETESİ",
+        # ASCII ve OCR varyantları
+        "GAZETESI", "SICILI", "TICARET", "TURKIYE", "MUDURLUGU", "MUDUR", "MUDURLER", "SECILENLER", 
+        "UDURLUGE", "MUDURLUGE", "SEÇİLENLER", "SECILENLER", "TICARETI", "TİCARETİ", "LIMITED", "LİMİTED", 
+        "SIRKETI", "ŞİRKETİ", "ANONIM", "ANONİM", "INSAAT", "İNŞAAT", "SANAYI", "SANAYİ", "PAZARLAMA", 
+        "ITHALAT", "IHRACAT", "TURIZM", "TURİZM", "YETKILILER", "YETKİLİLER", "BİLGİLER", "SECILEN",
+        "DEĞİŞİKLİK", "DEĞİŞİKLİĞİ", "GÖREV", "GOREV", "DAĞILIMINDAKİ", "DAGILIMINDAKI", "ORTAKLIK", 
+        "BİLGİSİ", "BİLGİ", "BİLGİLERİ", "BİLGİLER", "TEK"
     }
 
     def is_probable_person_name(nm: str) -> bool:
+        if "\n" in nm or "\r" in nm:
+            return False
         toks = [t for t in re.split(r"\s+", nm) if t]
         if not (2 <= len(toks) <= 4):
             return False
@@ -1400,6 +1417,22 @@ def extract_persons_near_masked_ids(text: str) -> List[dict]:
         "TURIZM", "TURİZM", "YAPI", "TEKSTIL", "TEKSTİL", "BANK", "BANKASI", "PAZARLAMA", "DIŞ", "DIS",
         # İşlem/idarî kelimeler
         "TESCIL", "TESCİL", "TARIHINDEN", "ITIBAREN", "ATANMISTIR", "ATANMIŞTIR", "MEMURU", "TASFIYE", "TASFİYE",
+        # Gelişmiş gürültüler
+        "İDARESİ", "İDARE", "TEKİRDAĞ", "TEKIRDAG", "ÇERKEZKÖY", "CERKEZKOY", "BAHÇELİEVLER", 
+        "BAHÇELİ", "BAHCE", "BAHCE LIEVLER", "ÜSKÜDAR", "USKUDAR", "GÜNGÖREN", "GUNGOREN", 
+        "EYÜPSULTAN", "EYUPSULLAN", "ESENYURT", "STANBUL", "ISTANBULT", "YOLU", "SOKAĞI", "SK", 
+        "CAD", "KAPI", "MAHALLESİ", "MAH", "RESMİ", "ILAN", "PORTALI", "BASIN", "KURUMU", 
+        "İLAN.GOV.TR", "KADIKOY", "ŞİŞL", "ŞİŞLİ", "İÇERİĞİ", "DEĞİŞEN", "MADDELERİN", "HALİ", 
+        "AMAÇ", "KONU", "EĞİTİM", "DANIŞMANLIK", "REKLAM", "ORGANİZASYON", "ORGANİZAS", "MÜZİK", 
+        "SİGORTA", "GENEL", "KURUL", "TASFİYE", "MADDESİ", "TÜRKİYE", "URKIYH", "CUMHUKITE", "SAYFA", "GAZETESİ",
+        "CUMHURİYET", "CUMHURİYETİ", "CUMHUR", "EYUPSULLAN", "ISTANBULT",
+        # ASCII ve OCR varyantları
+        "GAZETESI", "SICILI", "TICARET", "TURKIYE", "MUDURLUGU", "MUDUR", "MUDURLER", "SECILENLER", 
+        "UDURLUGE", "MUDURLUGE", "SEÇİLENLER", "SECILENLER", "TICARETI", "TİCARETİ", "LIMITED", "LİMİTED", 
+        "SIRKETI", "ŞİRKETİ", "ANONIM", "ANONİM", "INSAAT", "İNŞAAT", "SANAYI", "SANAYİ", "PAZARLAMA", 
+        "ITHALAT", "IHRACAT", "TURIZM", "TURİZM", "YETKILILER", "YETKİLİLER", "BİLGİLER", "SECILEN",
+        "DEĞİŞİKLİK", "DEĞİŞİKLİĞİ", "GÖREV", "GOREV", "DAĞILIMINDAKİ", "DAGILIMINDAKI", "ORTAKLIK", 
+        "BİLGİSİ", "BİLGİ", "BİLGİLERİ", "BİLGİLER", "TEK"
         # Bölüm başlıkları/bağlam sözcükleri (isim gövdesine sızmasın)
         "KISIYE", "KİŞİYE",
     }
@@ -1447,6 +1480,8 @@ def extract_persons_near_masked_ids(text: str) -> List[dict]:
         return " ".join(out)
 
     def is_probable_person_name(nm: str) -> bool:
+        if "\n" in nm or "\r" in nm:
+            return False
         nm = _clean_person_name(nm)
         nm = _merge_split_upper_tokens(nm)
         toks = [t for t in re.split(r"\s+", nm) if t]
@@ -2245,26 +2280,54 @@ def extract_tescil_sections(text: str) -> Tuple[List[str], Optional[str]]:
     return (hususlar, belgeler_text)
 
 def _dedup_entity_dicts(items: List[dict]) -> List[dict]:
-    """'text' anahtarına göre küçük harf normalize ederek deduplikasyon yapar."""
-    seen: Set[str] = set()
+    """'text' anahtarına göre küçük harf ve overlap kontrolüyle deduplikasyon yapar."""
     out: List[dict] = []
+    import unicodedata
+    
+    def norm_val(s: str) -> str:
+        s = unicodedata.normalize('NFD', s)
+        s = "".join([c for c in s if not unicodedata.combining(c)])
+        return re.sub(r"[^A-Z]", "", s.upper())
+        
     for it in items:
-        t = (it.get("text") or "").strip().lower()
-        if not t:
+        name = (it.get("text") or "").strip()
+        if not name or len(name) < 4:
             continue
-        if t in seen:
-            continue
-        seen.add(t)
-        out.append(it)
+            
+        norm_name = norm_val(name)
+        is_dup = False
+        
+        for i, existing in enumerate(out):
+            exist_name = existing.get("text") or ""
+            norm_exist = norm_val(exist_name)
+            
+            # Eğer isimler birbirinin alt kümesiyse veya ilk 5 karakteri aynıysa
+            if norm_name in norm_exist or norm_exist in norm_name or norm_name[:5] == norm_exist[:5]:
+                # Türkçe karakter zenginliği ve uzunluk bazlı daha doğru varyantı koru
+                tr_chars = set("ÇĞİÖŞÜçğiöşü")
+                count_new = sum(1 for c in name if c in tr_chars)
+                count_exist = sum(1 for c in exist_name if c in tr_chars)
+                
+                if len(name) > len(exist_name) or (count_new > count_exist and len(name) >= len(exist_name) - 2):
+                    out[i] = it
+                is_dup = True
+                break
+                
+        if not is_dup:
+            out.append(it)
+            
     return out
 
 def _dedup_persons_pref_masked(items: List[dict]) -> List[dict]:
     """Aynı kişiyi (text) tekilleştirirken PER_MASKED etiketi varsa onu tercih eder.
     Aksi halde ilk görüleni korur.
     """
+    # Önce genel zeki overlap/benzerlik tekilleştirmesini çalıştır
+    items = _dedup_entity_dicts(items or [])
+    
     chosen: Dict[str, dict] = {}
     order: List[str] = []
-    for it in items or []:
+    for it in items:
         key = (it.get("text") or "").strip().lower()
         if not key:
             continue
@@ -4172,6 +4235,35 @@ def split_announcements_with_offsets(text: str) -> List[dict]:
             merged.append(cur)
             i += 1
         out = merged
+
+    # --- Sayfa Taşması/Devamı Birleştirme Mantığı ---
+    # Eğer bir segmentin başında yeni bir ilana ait kimlikleyici alanlar (Unvan, Mersis, Sıra No, Sicil No) 
+    # geçmiyorsa, bu segment bir önceki ilanın sayfa sınırında bölünmüş devamıdır!
+    if len(out) >= 2:
+        merged_pages: List[dict] = []
+        for seg in out:
+            seg_text = seg["text"]
+            has_id = False
+            # Kimlikleyici alanları ara (büyük/küçük harf duyarsız)
+            if re.search(r"(?i)(?:ticaret\s+)?[üu]nvan[ıit]?\s*[:\s]", seg_text):
+                has_id = True
+            elif re.search(r"(?i)MERS[İI]S\s*(?:No)?\s*[:\s]", seg_text):
+                has_id = True
+            elif re.search(r"(?i)[İi]lan\s+S[ıi]ra\s+No\s*[:\s]", seg_text):
+                has_id = True
+            elif re.search(r"(?i)sicil(?:/Dosya)?\s*No\s*[:\s]", seg_text):
+                has_id = True
+                
+            if not has_id and merged_pages:
+                # Önceki ilanın devamı olarak birleştir
+                prev = merged_pages[-1]
+                prev["end"] = seg["end"]
+                prev["text"] = (prev["text"].rstrip() + "\n\n" + seg_text.lstrip()).strip()
+                prev["raw_text"] = prev.get("raw_text", "") + seg.get("raw_text", "")
+            else:
+                merged_pages.append(seg)
+        out = merged_pages
+
     return out
 
 def _autosave_results_to_ocr_ciktilari(results: List[dict], original_text: Optional[str] = None) -> Optional[str]:

@@ -136,3 +136,15 @@ async def start_scraping(
     # Default: normal mode
     background_tasks.add_task(start_enhanced_scraping_process, count=request.count)
     return {"message": f"Enhanced scraping process started in the background for {request.count} companies."}
+
+@router.post("/stop")
+async def stop_scraping(
+    current_user: User = Depends(deps.get_current_active_superuser)
+) -> Dict[str, str]:
+    """
+    Stops the active scraping process and closes the browser.
+    """
+    scraping_state.stop()
+    scraping_state.add_log("🛑 [KAZIMA] Kullanıcı tarafından durdurma isteği gönderildi.")
+    await browser_manager.close_browser()
+    return {"message": "Scraping process stop signal sent and browser closed."}

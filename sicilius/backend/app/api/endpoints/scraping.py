@@ -56,14 +56,35 @@ async def start_scraping(
     """
     try:
         count = int(payload.get("count", 10))
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid 'count' value")
+        city = payload.get("city")
+        mode = payload.get("mode", "normal")
+        strategy = payload.get("strategy", "gap_fill")
+        
+        raw_start = payload.get("start_from")
+        start_from = int(raw_start) if raw_start is not None and str(raw_start).strip().isdigit() else None
+        
+        year = int(payload.get("year", 2021))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid parameter in payload: {e}")
 
     try:
         # Tarayıcıyı aç (zaten açıksa no-op)
         await browser_manager.open_browser(headless=True)
-        # Arka planda scraping'i başlat
-        asyncio.create_task(start_enhanced_scraping_process(count))
-        return {"status": "started", "message": f"Scraping started for up to {count} companies."}
+        # Arka planda scraping'i tüm parametrelerle başlat
+        asyncio.create_task(
+            start_enhanced_scraping_process(
+                count=count,
+                city=city,
+                mode=mode,
+                strategy=strategy,
+                start_from=start_from,
+                year=year,
+            )
+        )
+        return {
+            "status": "started",
+            "message": f"Scraping started for {city or 'all'} (count={count}, start_from={start_from}, mode={mode}, strategy={strategy})."
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+

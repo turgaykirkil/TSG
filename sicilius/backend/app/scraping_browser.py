@@ -504,14 +504,20 @@ async def start_enhanced_scraping_process(
                     scraping_state.add_log("STOP_SIGNAL_RECEIVED: Stopping task.")
                     break
                 
+                # Tarayıcı kapandıysa veya sayfa kapalıysa kazıma işlemini durdur
+                if not page or getattr(page, "is_closed", lambda: True)():
+                    scraping_state.add_log("🛑 [KAZIMA] Tarayıcı kapatıldığı/çöktüğü için kazıma durduruldu.")
+                    scraping_state.stop()
+                    break
+
                 try:
                     found = await search_by_office_and_sicil(page, office_label, num, year)
-                    if found:
+                    if found is True:
                         scraping_state.add_log(f"CITY_FILL_FOUND: {office_label} #{num} için sonuç bulundu.")
                         # Minimal company oluştur/çek ve detaylı scrape yap
                         company = crud.company.get_or_create_minimal_by_sicil(db, office_label=office_label, sicil_no=str(num))
                         await scrape_company(page, db, company)
-                    else:
+                    elif found is False:
                         scraping_state.add_log(f"CITY_FILL_EMPTY: {office_label} #{num} için sonuç yok. Tekrar denememek için işaretleniyor.")
                         # Boş sonuçta da tekrar denememek için minimal şirket kaydı oluştur ve scraped olarak işaretle
                         empty_company = crud.company.get_or_create_minimal_by_sicil(db, office_label=office_label, sicil_no=str(num))
@@ -525,7 +531,10 @@ async def start_enhanced_scraping_process(
                         db.rollback()
                     except Exception:
                         pass
-                    # Eğer SSH Tünel (veritabanı) anlık koptuysa, tekrar bağlanması için 5 saniye bekle
+                    if "TargetClosedError" in str(type(e).__name__) or "closed" in str(e).lower():
+                        scraping_state.add_log("🛑 [KAZIMA] Tarayıcı kapandı. Kazıma işlemi durduruldu.")
+                        scraping_state.stop()
+                        break
                     if "Connection refused" in str(e) or "OperationalError" in str(e):
                         await asyncio.sleep(6)
                 finally:
@@ -635,26 +644,41 @@ def _compute_candidate_sicil_numbers(
             current_start = start_from if start_from is not None else max(1, int(min_threshold))
             return list(range(current_start, current_start + max(1, count)))[:count]
         
-        nums = sorted(set(nums))
+        nums_set = set(nums)
+        nums_sorted = sorted(nums_set)
         candidates: List[int] = []
 
-        # STRATEGY: Sequential (Directly from start_from or max_n + 1)
-        if strategy == 'sequential':
-            effective_start = start_from if start_from is not None else (nums[-1] + 1)
-            return list(range(effective_start, effective_start + count))
+        # If start_from is explicitly specified, start directly from start_from and skip numbers already in DB
+        if start_from is not None and start_from > 0:
+            n = start_from
+            while len(candidates) < count:
+                if n not in nums_set:
+                    candidates.append(n)
+                n += 1
+            return candidates
 
-        # STRATEGY: Gap Fill (Existing logic)
-        # Başlangıç boşluğu: start_from/min_threshold .. ilk mevcut-1
-        start_n = start_from if start_from is not None else max(1, int(min_threshold))
-        first = nums[0]
+        # STRATEGY: Sequential (From highest sicil + 1)
+        if strategy == 'sequential':
+            effective_start = nums_sorted[-1] + 1 if nums_sorted else max(1, int(min_threshold))
+            n = effective_start
+            while len(candidates) < count:
+                if n not in nums_set:
+                    candidates.append(n)
+                n += 1
+            return candidates
+
+        # STRATEGY: Gap Fill (Fill missing numbers from min_threshold onwards)
+        start_n = max(1, int(min_threshold))
+        first = nums_sorted[0]
         if first > start_n:
             for n in range(start_n, first):
                 candidates.append(n)
                 if len(candidates) >= count:
                     return candidates[:count]
-        # Aralıklardaki boşlukları sayac dolana kadar doldur
-        prev = nums[0]
-        for current in nums[1:]:
+        
+        # Fill gaps between existing numbers
+        prev = nums_sorted[0]
+        for current in nums_sorted[1:]:
             gap_start = prev + 1
             gap_end = current - 1
             if gap_end >= gap_start:
@@ -663,16 +687,19 @@ def _compute_candidate_sicil_numbers(
                     if len(candidates) >= count:
                         return candidates[:count]
             prev = current
-        # Gaps yetmezse max'tan itibaren devam
-        max_n = nums[-1]
+        
+        # If gaps are exhausted, continue after max_n
+        max_n = nums_sorted[-1]
         n = max_n + 1
         while len(candidates) < count:
-            candidates.append(n)
+            if n not in nums_set:
+                candidates.append(n)
             n += 1
         return candidates[:count]
-    except Exception:
-        logger.exception("Failed to compute candidate sicil numbers.")
-        return []
+    except Exception as e:
+        logger.exception(f"Failed to compute candidate sicil numbers: {e}")
+        current_start = start_from if start_from is not None else max(1, int(min_threshold))
+        return list(range(current_start, current_start + max(1, count)))[:count]
 
 
 async def search_by_office_and_sicil(page: Page, office_label: str, sicil_no: int, year: int = 2021) -> bool:
@@ -709,9 +736,11 @@ async def search_by_office_and_sicil(page: Page, office_label: str, sicil_no: in
         if "EŞLEŞEN KAYIT BULUNAMADI" in first_text:
             return False
         return True
-    except Exception:
-        # Ağır hatalarda False dön, üst katmanda loglanır
+    except PlaywrightTimeoutError:
         return False
+    except Exception as e:
+        logger.error(f"Error in search_by_office_and_sicil: {e}")
+        raise e
 
 
 
@@ -898,6 +927,12 @@ async def scrape_company(page: Page, db: Session, company):
                                             db.add(new_ocr)
                                             pending_ocr_results.append(new_ocr)
                                             db.flush()
+
+                                            try:
+                                                from app.services.ingest_service import sync_relational_data_from_nlp
+                                                sync_relational_data_from_nlp(db, chunk_company.id, re_ent)
+                                            except Exception as sync_err:
+                                                logger.warning(f"Immediate baseline relational sync failed: {sync_err}")
                                     except Exception as ocr_err:
                                         scraping_state.add_log(f"OCR_ERROR: Baseline failed: {ocr_err}")
                                         logger.error(f"OCR_ERROR for {row_company.unvan}", exc_info=True)
@@ -973,6 +1008,8 @@ async def scrape_company(page: Page, db: Session, company):
 
                 except Exception as e:
                     db.rollback() # Rollback on row error
+                    if "TargetClosedError" in str(type(e).__name__) or "closed" in str(e).lower():
+                        raise e
                     scraping_state.add_log(f"ROW_ERROR: Failed to process row. Reason: {e}")
                     logger.error(f"ROW_ERROR", exc_info=True)
                     continue # Continue to the next row
@@ -988,13 +1025,21 @@ async def scrape_company(page: Page, db: Session, company):
 
     except Exception as e:
         db.rollback()
+        if "TargetClosedError" in str(type(e).__name__) or "closed" in str(e).lower():
+            raise e
         error_message = f"COMPANY_CRITICAL_ERROR: Failed to process company '{company.unvan}'. Reason: {e}"
         logger.error(f"COMPANY_CRITICAL_ERROR for {company.unvan}", exc_info=True)
         scraping_state.add_log(error_message)
     finally:
-        crud.company.mark_as_scraped(db=db, company_id=company.id)
-        scraping_state.add_log(f"PROCESSING_COMPLETE: Finished processing for '{company.unvan}'.")
-        db.commit()
+        # Do not mark as scraped if browser crashed/closed
+        page_is_dead = not page or getattr(page, "is_closed", lambda: True)()
+        if not page_is_dead:
+            try:
+                crud.company.mark_as_scraped(db=db, company_id=company.id)
+                scraping_state.add_log(f"PROCESSING_COMPLETE: Finished processing for '{company.unvan}'.")
+                db.commit()
+            except Exception:
+                db.rollback()
 
 
 if __name__ == "__main__":

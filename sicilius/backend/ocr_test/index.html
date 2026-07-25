@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sicilius - Lokal Sandbox</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        :root {
+            /* Light mode defaults */
+            --bg-color: #f8fafc;
+            --text-color: #0f172a;
+            --border-color: #e2e8f0;
+            --panel-bg: #ffffff;
+            --panel-bg-alt: #f1f5f9;
+            --header-bg: #f8fafc;
+            --sidebar-bg: #f8fafc;
+            --card-bg: #f1f5f9;
+            --card-text: #334155;
+            --code-bg: #ffffff;
+            --code-text: #0f172a;
+            --stat-bg: #e2e8f0;
+            --stat-text: #475569;
+            --active-bg: #eff6ff;
+            --text-muted: #64748b;
+            --text-white: #000000;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                /* Dark mode overrides */
+                --bg-color: #0b0f19;
+                --text-color: #f1f5f9;
+                --border-color: #1e293b;
+                --panel-bg: #0f172a;
+                --panel-bg-alt: #020617;
+                --header-bg: #020617;
+                --sidebar-bg: #090d16;
+                --card-bg: #090d16;
+                --card-text: #94a3b8;
+                --code-bg: #020617;
+                --code-text: #e2e8f0;
+                --stat-bg: #0f172a;
+                --stat-text: #94a3b8;
+                --active-bg: #1e293b;
+                --text-muted: #64748b;
+                --text-white: #ffffff;
+            }
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+        }
+
+        /* Overrides to map Tailwind colors to theme variables */
+        .bg-slate-950\/80 {
+            background-color: var(--header-bg) !important;
+        }
+        .bg-slate-950\/60 {
+            background-color: var(--sidebar-bg) !important;
+        }
+        .bg-slate-950\/40, .bg-slate-950\/10 {
+            background-color: var(--panel-bg-alt) !important;
+        }
+        .bg-slate-950\/20 {
+            background-color: var(--panel-bg-alt) !important;
+        }
+        .bg-slate-950 {
+            background-color: var(--panel-bg-alt) !important;
+        }
+        .bg-slate-900, .bg-slate-900\/60 {
+            background-color: var(--header-bg) !important;
+        }
+        .bg-slate-900\/40 {
+            background-color: var(--panel-bg) !important;
+        }
+        .bg-slate-950 {
+            background-color: var(--code-bg) !important;
+            color: var(--code-text) !important;
+        }
+        
+        .border-slate-900, .border-slate-800, .border-slate-850 {
+            border-color: var(--border-color) !important;
+        }
+        
+        .text-white {
+            color: var(--text-white) !important;
+        }
+        .text-slate-200 {
+            color: var(--text-color) !important;
+        }
+        .text-slate-400, .text-slate-500, .text-slate-650 {
+            color: var(--text-muted) !important;
+        }
+
+        /* Forms inputs overrides */
+        input, select, textarea {
+            background-color: var(--panel-bg) !important;
+            color: var(--text-color) !important;
+            border-color: var(--border-color) !important;
+        }
+
+        .custom-scroll::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        .custom-scroll::-webkit-scrollbar-track {
+            background: var(--panel-bg-alt);
+        }
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+    </style>
+</head>
+<body class="font-sans antialiased overflow-hidden h-screen flex flex-col">
+
+    <!-- Top Navigation Header -->
+    <header class="bg-slate-950/80 backdrop-blur border-b border-slate-900 px-6 py-3 flex justify-between items-center z-10 flex-shrink-0">
+        <div class="flex items-center gap-3">
+            <span class="text-xl">🐹</span>
+            <div>
+                <h1 class="text-sm font-bold text-white tracking-wide uppercase">Sicilius Lokal OCR & Ayrıştırma Sandbox</h1>
+                <p class="text-[10px] text-slate-500">Çekmece Usulü İlan Kontrolü & Dosya Bazlı İlerleme Takibi</p>
+            </div>
+        </div>
+        
+        <!-- Stats and Reset -->
+        <div class="flex items-center gap-4">
+            <div class="text-[10px] font-bold text-slate-400 bg-slate-900/60 border border-slate-800 px-3 py-1.5 rounded-lg">
+                İncelenen İlan Sayısı: <span id="txtEvaluatedCount" class="text-blue-400">0</span>
+            </div>
+            <button onclick="confirmResetProgress()" class="px-3 py-1.5 bg-red-950/40 hover:bg-red-900/60 border border-red-500/20 hover:border-red-500/40 text-[11px] font-bold text-red-400 rounded-lg transition-all">
+                ⚠️ İlerlemeyi Sıfırla
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace Layout -->
+    <div class="flex-1 flex overflow-hidden min-h-0">
+        
+        <!-- Sidebar PDF list (Left Panel) -->
+        <div class="w-[20%] bg-slate-950/60 border-r border-slate-900 flex flex-col overflow-hidden flex-shrink-0">
+            <!-- Scraper Input Form -->
+            <div class="p-3 border-b border-slate-900 bg-slate-950/40 flex flex-col gap-2">
+                <span class="text-[9px] font-extrabold text-slate-500 uppercase tracking-wider">İnternetten Yeni İlan İndir</span>
+                <div class="flex flex-col gap-1.5">
+                    <select id="scrapeCity" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-blue-500">
+                        <option value="İSTANBUL">İstanbul</option>
+                        <option value="ANKARA">Ankara</option>
+                        <option value="İZMİR">İzmir</option>
+                        <option value="BURSA">Bursa</option>
+                        <option value="KOCAELİ">Kocaeli</option>
+                        <option value="ANTALYA">Antalya</option>
+                        <option value="ADANA">Adana</option>
+                    </select>
+                    <input type="text" id="scrapeSicilNo" placeholder="Sicil No (örn. 100000)" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs text-slate-200 placeholder-slate-650 focus:outline-none focus:border-blue-500">
+                    <button id="btnScrapeDownload" onclick="triggerScrapeDownload()" class="w-full py-1.5 bg-blue-600 hover:bg-blue-500 text-[10px] font-bold text-white rounded transition">
+                        🔍 Ara & PDF İndir
+                    </button>
+                </div>
+            </div>
+            
+            <div class="px-4 py-3 border-b border-slate-900 bg-slate-950/20">
+                <span class="text-[10px] font-extrabold text-slate-400 tracking-wider">LOKAL PDF DOSYALARI</span>
+            </div>
+            <div class="flex-1 overflow-y-auto custom-scroll" id="pdfFileList">
+                <!-- PDF list rendered here -->
+            </div>
+        </div>
+
+        <!-- Center Panel: PDF Viewer -->
+        <div class="w-[42%] border-r border-slate-900 flex flex-col overflow-hidden bg-slate-950/40">
+            <div class="bg-slate-900 px-4 py-2 border-b border-slate-800 text-[10px] font-bold text-slate-400 uppercase">
+                📄 PDF Önizleme Ekranı
+            </div>
+            <div class="flex-1 flex justify-center items-center" id="pdfViewerContainer">
+                <div class="text-center text-xs text-slate-500 italic p-6">
+                    Lütfen sol panelden incelemek istediğiniz bir PDF dosyasını seçin.
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel: OCR drawer announcements and Phase verification -->
+        <div class="w-[38%] flex flex-col overflow-hidden">
+            <div class="bg-slate-900 px-4 py-2 border-b border-slate-800 text-[10px] font-bold text-slate-400 uppercase flex-shrink-0">
+                ⚙️ İşlem ve Kontrol Bölgesi
+            </div>
+            <div class="flex-1 flex flex-col overflow-hidden" id="actionPanelContainer">
+                <div class="text-center text-xs text-slate-500 italic p-6 mt-12 flex-1 flex items-center justify-center">
+                    Dosya seçildiğinde OCR adımları burada belirecektir.
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- JS Logic -->
+    <script>
+        let pdfList = [];
+        let selectedPdf = null;
+        let ocrCompleted = false;
+        let ocrInProgress = false;
+        let announcements = [];
+        let activeAnnouncementIndex = null;
+        let activePhase = 1; // 1: OCR, 2: Parsing
+        let progressData = { results: [] };
+        let activeExtractionResults = null;
+
+        window.onload = async () => {
+            await loadProgress();
+            await loadPdfList();
+        };
+
+        async function triggerScrapeDownload() {
+            const city = document.getElementById("scrapeCity").value;
+            const sicilNo = document.getElementById("scrapeSicilNo").value.trim();
+            const btn = document.getElementById("btnScrapeDownload");
+            
+            if (!sicilNo) {
+                alert("Lütfen Sicil No girin!");
+                return;
+            }
+            
+            const originalText = btn.innerText;
+            btn.disabled = true;
+            btn.innerText = "⏳ İndiriliyor...";
+            btn.className = "w-full py-1.5 bg-slate-850 text-slate-500 text-[10px] font-bold rounded cursor-not-allowed";
+            
+            try {
+                const resp = await fetch("/api/scrape-download", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ sicil_no: sicilNo, city: city })
+                });
+                
+                const res = await resp.json();
+                if (resp.status === 200) {
+                    if (res.status === "empty") {
+                        alert("Bu sicil numarası için ilan bulunamadı.");
+                    } else {
+                        alert(`${res.files.length} adet yeni PDF başarıyla indirildi!`);
+                        await loadPdfList();
+                        if (res.files.length > 0) {
+                            selectPdfFile(res.files[0], false);
+                        }
+                    }
+                } else {
+                    alert("Kazıma Hatası: " + res.detail);
+                }
+            } catch (err) {
+                alert("Bağlantı Hatası: " + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = originalText;
+                btn.className = "w-full py-1.5 bg-blue-600 hover:bg-blue-500 text-[10px] font-bold text-white rounded transition";
+            }
+        }
+
+        async function loadProgress() {
+            try {
+                const resp = await fetch("/api/progress");
+                progressData = await resp.json();
+                document.getElementById("txtEvaluatedCount").innerText = progressData.results.length;
+            } catch (err) {
+                console.error("Failed to load progress data:", err);
+            }
+        }
+
+        async function loadPdfList() {
+            try {
+                const resp = await fetch("/api/pdfs");
+                pdfList = await resp.json();
+                renderPdfList();
+            } catch (err) {
+                console.error("Failed to load PDF files list:", err);
+            }
+        }
+
+        function renderPdfList() {
+            const list = document.getElementById("pdfFileList");
+            list.innerHTML = "";
+            
+            if (pdfList.length === 0) {
+                list.innerHTML = `<div class="p-6 text-center text-xs text-slate-600 italic">ocr_test/pdfs/ dizininde PDF bulunamadı.</div>`;
+                return;
+            }
+            
+            pdfList.forEach(pdf => {
+                const isSelected = pdf.filename === selectedPdf;
+                const div = document.createElement("div");
+                div.className = `p-3 border-b border-slate-900/60 hover:bg-slate-900/40 cursor-pointer transition-all ${isSelected ? 'bg-slate-900/80 border-l-4 border-l-blue-500' : ''}`;
+                div.onclick = () => selectPdfFile(pdf.filename, pdf.ocr_completed, pdf.ocr_in_progress);
+                
+                let badgeClass = "bg-slate-800 text-slate-500";
+                let badgeLabel = "OCR Yok";
+                if (pdf.ocr_completed) {
+                    badgeClass = "bg-blue-500/10 text-blue-400 border border-blue-500/20";
+                    badgeLabel = "OCR Hazır";
+                } else if (pdf.ocr_in_progress) {
+                    badgeClass = "bg-amber-500/10 text-amber-400 border border-amber-500/20";
+                    badgeLabel = "Geçici OCR";
+                }
+                
+                div.innerHTML = `
+                    <div class="flex justify-between items-center gap-2">
+                        <span class="text-xs font-bold text-slate-200 truncate flex-1">${pdf.filename}</span>
+                        <span class="px-1.5 py-0.5 text-[8px] font-black rounded-md ${badgeClass}">${badgeLabel}</span>
+                    </div>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        function selectPdfFile(filename, hasOcr, hasTmp) {
+            selectedPdf = filename;
+            ocrCompleted = hasOcr;
+            ocrInProgress = hasTmp;
+            announcements = [];
+            activeAnnouncementIndex = null;
+            activePhase = 1;
+            
+            // Set PDF viewer
+            const viewer = document.getElementById("pdfViewerContainer");
+            viewer.innerHTML = `<iframe src="/api/pdfs/${filename}" class="w-full h-full border-none"></iframe>`;
+            
+            renderPdfList();
+            renderActionPanel();
+        }
+
+        function renderActionPanel() {
+            const panel = document.getElementById("actionPanelContainer");
+            panel.innerHTML = "";
+            
+            if (!selectedPdf) return;
+            
+            if (!ocrCompleted && !ocrInProgress) {
+                // Show OCR runner trigger button
+                panel.innerHTML = `
+                    <div class="flex-1 flex flex-col items-center justify-center p-6">
+                        <div class="flex flex-col items-center justify-center p-8 gap-4 border border-dashed border-slate-800 rounded-xl bg-slate-950/20 max-w-sm w-full">
+                            <span class="text-5xl animate-pulse">📷</span>
+                            <div class="text-center">
+                                <h3 class="text-sm font-bold text-white">Apple Vision OCR Algoritması</h3>
+                                <p class="text-xs text-slate-500 mt-1 leading-relaxed">Bu PDF dosyası henüz Apple OCR motorundan geçmemiş. Yerel Vision API'yi başlatabilirsiniz.</p>
+                            </div>
+                            <button onclick="runAppleOcr()" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white rounded-lg shadow-lg shadow-blue-500/10 transition-all flex items-center justify-center gap-2">
+                                🚀 OCR ÇALIŞTIR (vision_ocr.swift)
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // If OCR completed or in progress, fetch and segment announcements into Drawers
+                loadAndSegmentOCR();
+            }
+        }
+
+        async function runAppleOcr() {
+            const panel = document.getElementById("actionPanelContainer");
+            panel.innerHTML = `
+                <div class="flex flex-col items-center justify-center p-8 gap-4 flex-1 flex items-center justify-center">
+                    <div class="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
+                    <div class="text-center">
+                        <h3 class="text-sm font-bold text-white">OCR İşlemi Çalışıyor...</h3>
+                        <p class="text-xs text-slate-500 mt-1">PDF sayfaları resimlere dönüştürülüyor ve vision_ocr.swift ile taranıyor. Lütfen bekleyin.</p>
+                    </div>
+                </div>
+            `;
+            
+            try {
+                const resp = await fetch("/api/run-ocr", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ filename: selectedPdf })
+                });
+                
+                if (resp.status === 200) {
+                    ocrCompleted = false;
+                    ocrInProgress = true;
+                    // Reload PDF status from list
+                    const found = pdfList.find(p => p.filename === selectedPdf);
+                    if (found) {
+                        found.ocr_completed = false;
+                        found.ocr_in_progress = true;
+                    }
+                    renderPdfList();
+                    
+                    await loadAndSegmentOCR();
+                } else {
+                    const error = await resp.json();
+                    alert("OCR Hata: " + error.detail);
+                    renderActionPanel();
+                }
+            } catch (err) {
+                alert("OCR Hatası: " + err.message);
+                renderActionPanel();
+            }
+        }
+
+        async function loadAndSegmentOCR() {
+            const panel = document.getElementById("actionPanelContainer");
+            panel.innerHTML = `
+                <div class="flex items-center justify-center p-6 gap-2 text-slate-400 text-xs">
+                    <div class="w-4 h-4 border-2 border-slate-600 border-t-slate-300 rounded-full animate-spin"></div>
+                    <span>İlanlar başlıklarına göre parçalanıyor...</span>
+                </div>
+            `;
+            
+            try {
+                const resp = await fetch("/api/segment", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ filename: selectedPdf })
+                });
+                
+                announcements = await resp.json();
+                renderDrawersList();
+            } catch (err) {
+                panel.innerHTML = `<div class="text-xs text-red-400 p-4">Çekmece ayrıştırma hatası: ${err.message}</div>`;
+            }
+        }
+
+        function renderDrawersList() {
+            const panel = document.getElementById("actionPanelContainer");
+            panel.innerHTML = "";
+            
+            if (announcements.length === 0) {
+                panel.innerHTML = `
+                    <div class="px-4 py-3 border-b border-slate-900 bg-slate-950/20 flex-shrink-0">
+                        <span class="text-[10px] font-extrabold text-slate-500 tracking-wider">BU DOSYADAN AYRIŞAN İLANLAR (0)</span>
+                    </div>
+                    <div class="text-xs text-slate-500 italic p-4 text-center flex-1 flex items-center justify-center">
+                        Bu PDF dosyasında başlık eşleşmesi bulunamadı.
+                    </div>
+                `;
+                return;
+            }
+            
+            // 1. Top Section: Scrollable announcements list
+            const listSection = document.createElement("div");
+            listSection.className = "flex flex-col h-[180px] min-h-[140px] border-b border-slate-900 bg-slate-950/20 flex-shrink-0 overflow-hidden";
+            listSection.innerHTML = `
+                <div class="px-3 py-1.5 bg-slate-900/60 border-b border-slate-900 text-[9px] font-extrabold text-slate-400 tracking-wider flex justify-between items-center flex-shrink-0">
+                    <span>BU DOSYADAN AYRIŞAN İLANLAR (${announcements.length})</span>
+                    <button onclick="runAppleOcr()" class="px-2 py-0.5 bg-blue-600 hover:bg-blue-500 text-white text-[8px] font-bold rounded shadow transition-all flex items-center gap-1 flex-shrink-0">
+                        🔄 Yeniden OCR Yap
+                    </button>
+                </div>
+                <div class="flex-1 overflow-y-auto custom-scroll p-2 space-y-1.5" id="announcementsListSubContainer"></div>
+            `;
+            panel.appendChild(listSection);
+            
+            const listSubContainer = listSection.querySelector("#announcementsListSubContainer");
+            
+            announcements.forEach((ann, idx) => {
+                const isSelected = idx === activeAnnouncementIndex;
+                const progressId = `${selectedPdf}_${idx}`;
+                const savedEval = progressData.results.find(r => r.eval_id === progressId);
+                
+                let checkBadge = `<span class="px-1 py-0.5 text-[8px] font-bold rounded bg-slate-900 text-slate-500 border border-slate-800">Bekliyor</span>`;
+                let bgBorderClass = "bg-slate-900/40 border-slate-900 hover:border-slate-800";
+                
+                if (savedEval) {
+                    if (savedEval.comparison && savedEval.comparison.status === "OCR_Failed") {
+                        checkBadge = `<span class="px-1.5 py-0.5 text-[8px] font-black rounded bg-red-500/10 text-red-400 border border-red-500/20">OCR Hatalı</span>`;
+                        bgBorderClass = "bg-red-950/5 border-red-900/20 hover:border-red-900/40";
+                    } else {
+                        checkBadge = `<span class="px-1.5 py-0.5 text-[8px] font-black rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">İncelendi</span>`;
+                        bgBorderClass = "bg-emerald-950/5 border-emerald-900/20 hover:border-emerald-900/40";
+                    }
+                }
+                
+                let incompleteBadge = "";
+                if (ann.is_incomplete) {
+                    incompleteBadge = `<span class="px-1.5 py-0.5 text-[8px] font-black rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 mr-1.5 flex items-center gap-0.5">⚠️ Devamı Var</span>`;
+                }
+
+                let missingSiraBadge = "";
+                if (ann.sira_no_missing) {
+                    missingSiraBadge = `<span class="px-1.5 py-0.5 text-[8px] font-black rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 mr-1.5 flex items-center gap-0.5">⚠️ Sıra No Yok</span>`;
+                }
+                
+                if (isSelected) {
+                    bgBorderClass = "bg-slate-900 border-blue-500/40 shadow-sm shadow-blue-500/5";
+                }
+                
+                const row = document.createElement("div");
+                row.className = `p-2 border rounded-lg cursor-pointer transition-all flex justify-between items-center gap-2 ${bgBorderClass}`;
+                row.onclick = () => {
+                    activeAnnouncementIndex = idx;
+                    activePhase = 1;
+                    activeExtractionResults = null;
+                    renderDrawersList();
+                };
+                
+                row.innerHTML = `
+                    <div class="flex flex-col min-w-0">
+                        <span class="text-xs font-bold ${isSelected ? 'text-blue-400' : 'text-slate-200'} truncate">${escapeHtml(ann.header)}</span>
+                        <span class="text-[9px] text-slate-500">İlan #${idx + 1} &nbsp;·&nbsp; ${ann.text.length} karakter</span>
+                    </div>
+                    <div class="flex items-center flex-shrink-0">
+                        ${missingSiraBadge}
+                        ${incompleteBadge}
+                        ${checkBadge}
+                    </div>
+                `;
+                listSubContainer.appendChild(row);
+            });
+            
+            // 2. Bottom Section: Details view with pinned buttons
+            const detailSection = document.createElement("div");
+            detailSection.className = "flex-1 flex flex-col overflow-hidden min-h-0 bg-slate-950/10";
+            panel.appendChild(detailSection);
+            
+            if (activeAnnouncementIndex === null) {
+                detailSection.innerHTML = `
+                    <div class="flex-1 flex flex-col items-center justify-center text-center p-6 text-slate-500 text-xs italic">
+                        Lütfen yukarıdaki listeden doğrulamak istediğiniz bir ilanı seçin.
+                    </div>
+                `;
+                return;
+            }
+            
+            const ann = announcements[activeAnnouncementIndex];
+            const activeProgressId = `${selectedPdf}_${activeAnnouncementIndex}`;
+            const activeSavedEval = progressData.results.find(r => r.eval_id === activeProgressId);
+            
+            if (activePhase === 1) {
+                let warningBanner = "";
+                if (ann.is_incomplete) {
+                    warningBanner = `
+                        <div class="bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-bold p-2.5 rounded-lg flex items-center gap-2 flex-shrink-0">
+                            <span>⚠️</span>
+                            <span>BU İLANIN DEVAMI BİR SONRAKİ SAYFADADIR. VERİLER EKSİK OLABİLİR!</span>
+                        </div>
+                    `;
+                }
+
+                let warningSiraBanner = "";
+                if (ann.sira_no_missing) {
+                    warningSiraBanner = `
+                        <div class="bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px] font-bold p-2.5 rounded-lg flex items-center gap-2 flex-shrink-0">
+                            <span>⚠️</span>
+                            <span>SIRA NUMARASI EKSİK: Bu ilan parçası içinde "İlan Sıra No" bulunamadı. Lütfen sağ sütundan veri sızıntısı veya sayfa kesilmesi olup olmadığını kontrol edin!</span>
+                        </div>
+                    `;
+                }
+                
+                detailSection.innerHTML = `
+                    <div class="flex-1 flex flex-col overflow-hidden min-h-0 p-4 gap-3">
+                        ${warningBanner}
+                        ${warningSiraBanner}
+                        <div class="flex flex-col gap-1 flex-1 overflow-hidden min-h-0">
+                            <span class="text-[9px] font-extrabold text-amber-500 tracking-wider uppercase flex-shrink-0">📜 Aşama 1: OCR Metin Kalitesi (İlan #${activeAnnouncementIndex + 1})</span>
+                            <div class="flex-1 bg-slate-950 p-3 rounded-lg text-xs font-mono text-slate-350 leading-relaxed whitespace-pre-wrap overflow-y-auto custom-scroll border border-slate-900 select-text">
+                                ${escapeHtml(ann.text)}
+                            </div>
+                        </div>
+                        
+                        <div class="flex flex-col gap-1 flex-shrink-0">
+                            <span class="text-[9px] font-extrabold text-slate-400 tracking-wider uppercase">OCR veya Parçalama Hatası/Notu:</span>
+                            <textarea id="txt_ocr_error_${activeAnnouncementIndex}" class="w-full bg-slate-900/60 border border-slate-800 text-xs text-slate-200 p-2 rounded focus:outline-none focus:border-red-500/50 h-16 resize-none" placeholder="Hatalı tescil başlığı spliti, OCR okuma hataları vb. varsa buraya yazın...">${activeSavedEval && activeSavedEval.user_note ? escapeHtml(activeSavedEval.user_note) : ""}</textarea>
+                        </div>
+                        
+                        <div class="flex gap-2 justify-end border-t border-slate-900 pt-3 flex-shrink-0">
+                            <button onclick="saveOcrFailed(${activeAnnouncementIndex})" class="px-4 py-2 bg-red-950/50 hover:bg-red-900 border border-red-500/20 hover:border-red-500/40 text-xs font-bold text-red-400 rounded-lg transition-all">
+                                ❌ OCR Hatalı
+                            </button>
+                            <button onclick="startPhase2Analysis(${activeAnnouncementIndex})" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white rounded-lg transition-all">
+                                ➡️ OCR Doğru - Analize İlerle
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else {
+                const isAnalyzing = !activeExtractionResults;
+                if (isAnalyzing) {
+                    detailSection.innerHTML = `
+                        <div class="flex-1 flex flex-col items-center justify-center p-6 gap-3 text-slate-400 text-xs">
+                            <div class="w-6 h-6 border-3 border-slate-600 border-t-blue-500 rounded-full animate-spin"></div>
+                            <span>Yapay zeka ve regex çıktısı karşılaştırılıyor...</span>
+                        </div>
+                    `;
+                } else {
+                    detailSection.innerHTML = `
+                        <div class="flex-1 flex flex-col overflow-hidden min-h-0 p-4 gap-3">
+                            <div class="text-[9px] font-extrabold text-emerald-400 tracking-wider uppercase flex-shrink-0">🛡️ Aşama 2: Parçalama ve Model Doğruluğu (İlan #${activeAnnouncementIndex + 1})</div>
+                            
+                            <div class="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto custom-scroll pr-1 select-text">
+                                <!-- Col 1: Regex output -->
+                                <div class="flex flex-col gap-1.5 bg-slate-950 p-2.5 rounded-lg border border-slate-900 select-text">
+                                    <div class="text-[8px] font-extrabold text-amber-500 uppercase pb-1 border-b border-slate-900/60 flex justify-between">
+                                        <span>⚡ Regex Sonucu</span>
+                                        <span>Masaüstü/Lokal</span>
+                                    </div>
+                                    <div class="space-y-1.5 text-[10px]">
+                                        ${renderComparativeCard(activeExtractionResults.ground_truth, null, false, 'regex')}
+                                    </div>
+                                </div>
+                                
+                                <!-- Col 2: Hybrid Output final checkbox validation -->
+                                <div class="flex flex-col gap-1.5 bg-slate-950 p-2.5 rounded-lg border border-slate-900 select-text">
+                                    <div class="text-[8px] font-extrabold text-emerald-400 uppercase pb-1 border-b border-slate-900/60 flex justify-between">
+                                        <span>🛡️ Hibrit Sonuç (Nihai)</span>
+                                        <span>Eşleştirme</span>
+                                    </div>
+                                    <div class="space-y-1.5 text-[10px]">
+                                        ${renderComparativeCard(activeExtractionResults.hybrid, activeExtractionResults.ground_truth, true, 'hybrid')}
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="flex flex-col gap-1 flex-shrink-0">
+                                <span class="text-[9px] font-extrabold text-slate-400 tracking-wider uppercase">Değerlendirme Notu:</span>
+                                <textarea id="txt_final_error_${activeAnnouncementIndex}" class="w-full bg-slate-900/60 border border-slate-800 text-xs text-slate-200 p-2 rounded focus:outline-none focus:border-blue-500 h-16 resize-none" placeholder="Veri parçalama doğruluğuna yönelik hata notu veya notlar...">${activeSavedEval && activeSavedEval.user_note ? escapeHtml(activeSavedEval.user_note) : ""}</textarea>
+                            </div>
+                            
+                            <div class="flex gap-2 justify-end border-t border-slate-900 pt-3 flex-shrink-0">
+                                <button onclick="backToPhase1()" class="px-4 py-2 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-xs font-bold text-slate-400 rounded-lg transition-all">
+                                    ⬅️ Geri Dön
+                                </button>
+                                <button onclick="saveExtractionProgress(${activeAnnouncementIndex})" class="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white rounded-lg transition-all shadow-lg hover:shadow-emerald-500/10">
+                                    💾 Değerlendirmeyi Kaydet
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+        }
+
+        function toggleDrawer(idx) {
+            activeAnnouncementIndex = idx;
+            activePhase = 1;
+            activeExtractionResults = null;
+            renderDrawersList();
+        }
+
+        function backToPhase1() {
+            activePhase = 1;
+            activeExtractionResults = null;
+            renderDrawersList();
+        }
+
+        async function saveOcrFailed(idx) {
+            const textarea = document.getElementById(`txt_ocr_error_${idx}`);
+            const noteValue = textarea ? textarea.value.trim() : "";
+            
+            const payload = {
+                filename: selectedPdf,
+                announcement_index: idx,
+                original_text: announcements[idx].text,
+                ground_truth: {
+                    trade_name: announcements[idx].header
+                },
+                llm_only: {},
+                hybrid: {},
+                comparison: {
+                    status: "OCR_Failed",
+                    reasons: ["User marked OCR text quality as faulty"]
+                },
+                user_note: noteValue,
+                field_notes: {},
+                field_notes_hybrid: {},
+                field_approvals_hybrid: {}
+            };
+            
+            try {
+                const resp = await fetch("/api/save-progress", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (resp.status === 200) {
+                    activeAnnouncementIndex = null;
+                    await loadProgress();
+                    renderDrawersList();
+                }
+            } catch (err) {
+                alert("Başarısız kayıt: " + err.message);
+            }
+        }
+
+        async function startPhase2Analysis(idx) {
+            activePhase = 2;
+            activeExtractionResults = null;
+            renderDrawersList();
+            
+            try {
+                const resp = await fetch("/api/extract", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ text: announcements[idx].text, filename: selectedPdf })
+                });
+                
+                if (resp.status === 200) {
+                    activeExtractionResults = await resp.json();
+                } else {
+                    const error = await resp.json();
+                    alert("Extraction error: " + error.detail);
+                    activePhase = 1;
+                }
+            } catch (err) {
+                alert("Bağlantı hatası: " + err.message);
+                activePhase = 1;
+            }
+            renderDrawersList();
+        }
+
+        async function saveExtractionProgress(idx) {
+            if (!activeExtractionResults) return;
+            
+            const textarea = document.getElementById(`txt_final_error_${idx}`);
+            const noteValue = textarea ? textarea.value.trim() : "";
+            
+            const fieldNotesHybrid = {};
+            const fieldApprovalsHybrid = {};
+            
+            document.querySelectorAll(".field-approve-checkbox").forEach(chk => {
+                const key = chk.id.replace("approve_hybrid_", "");
+                const isApproved = chk.checked;
+                fieldApprovalsHybrid[key] = isApproved;
+                
+                if (!isApproved) {
+                    const input = document.getElementById(`note_hybrid_${key}`);
+                    if (input && input.value.trim() !== '') {
+                        fieldNotesHybrid[key] = input.value.trim();
+                    }
+                }
+            });
+            
+            const payload = {
+                filename: selectedPdf,
+                announcement_index: idx,
+                original_text: announcements[idx].text,
+                ground_truth: activeExtractionResults.ground_truth,
+                llm_only: activeExtractionResults.llm_only,
+                hybrid: activeExtractionResults.hybrid,
+                latency: activeExtractionResults.latency,
+                comparison: {
+                    status: "Completed",
+                    reasons: ["User parsed validation results"]
+                },
+                user_note: noteValue,
+                field_notes: {},
+                field_notes_hybrid: fieldNotesHybrid,
+                field_approvals_hybrid: fieldApprovalsHybrid
+            };
+            
+            try {
+                const resp = await fetch("/api/save-progress", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (resp.status === 200) {
+                    activeAnnouncementIndex = null;
+                    activeExtractionResults = null;
+                    await loadProgress();
+                    renderDrawersList();
+                }
+            } catch (err) {
+                alert("Kayıt başarısız: " + err.message);
+            }
+        }
+
+        function renderStructuredRow(label, key, val, matchVal = null, showBadge = false, colName = '') {
+            let prefixIcon = showBadge ? "✓" : "•";
+            let prefixClass = showBadge ? "text-emerald-500 font-extrabold mr-1.5" : "text-slate-600 mr-1.5";
+            let borderClass = "border-slate-900 bg-slate-950/40";
+            
+            if (showBadge) {
+                const canonical = (v) => {
+                    if (v === null || v === undefined) return "";
+                    if (Array.isArray(v)) {
+                        return v.map(x => {
+                            if (typeof x === 'object' && x !== null) {
+                                return `${x.name || ''}:${x.tckn || ''}`.toLowerCase();
+                            }
+                            return String(x).trim().toLowerCase();
+                        }).sort().join("|");
+                    }
+                    if (typeof v === 'object' && v !== null) {
+                        return `${v.name || ''}:${v.tckn || ''}`.toLowerCase();
+                    }
+                    return String(v).trim().toLowerCase();
+                };
+                const isMatch = canonical(val) === canonical(matchVal);
+                if (isMatch) {
+                    prefixIcon = "✓";
+                    prefixClass = "text-emerald-400 font-extrabold mr-1.5";
+                    borderClass = "border-emerald-500/10 bg-slate-950/20";
+                } else {
+                    prefixIcon = "⚠️";
+                    prefixClass = "text-amber-400 font-extrabold mr-1.5";
+                    borderClass = "border-amber-500/10 bg-slate-950/20";
+                }
+            }
+
+            let valHtml = "";
+            let isEmpty = false;
+            if (Array.isArray(val)) {
+                if (val.length === 0) {
+                    isEmpty = true;
+                    valHtml = `<span class="text-slate-600 italic">Bulunamadı</span>`;
+                } else {
+                    valHtml = `<ul class="list-disc list-inside space-y-0.5 text-slate-350">
+                        ${val.map(x => {
+                            let pObj = x;
+                            if (typeof pObj === 'string' && pObj.trim().startsWith('{') && pObj.includes('name')) {
+                                try {
+                                    pObj = JSON.parse(pObj.replace(/'/g, '"'));
+                                } catch(e) {
+                                    try { pObj = eval('(' + pObj + ')'); } catch(e2){}
+                                }
+                            }
+                            if (typeof pObj === 'object' && pObj !== null) {
+                                const nameStr = pObj.name || pObj.text || pObj.full_name || '';
+                                const tcStr = pObj.tckn ? ` <span class="text-emerald-400/80 font-mono text-[9px]">(${escapeHtml(String(pObj.tckn))})</span>` : '';
+                                return `<li class="break-words text-slate-200 font-medium">${escapeHtml(nameStr)}${tcStr}</li>`;
+                            }
+                            return `<li class="break-words">${escapeHtml(String(x))}</li>`;
+                        }).join('')}
+                    </ul>`;
+                }
+            } else {
+                if (val === null || val === undefined || String(val).trim() === "" || String(val).toLowerCase() === "null") {
+                    isEmpty = true;
+                    valHtml = `<span class="text-slate-650 italic">Bulunamadı</span>`;
+                } else {
+                    valHtml = `<span class="text-slate-200 break-words">${escapeHtml(String(val))}</span>`;
+                }
+            }
+
+            // Compact row for empty/not-found fields
+            if (isEmpty && colName === 'hybrid') {
+                return `
+                    <div class="p-1 border rounded-lg flex flex-col gap-0.5 transition-colors ${borderClass}">
+                        <div class="flex items-center justify-between text-[10px] px-1">
+                            <div class="flex items-center">
+                                <span class="${prefixClass}">${prefixIcon}</span>
+                                <span class="text-[8px] font-extrabold tracking-wider text-slate-500 uppercase">${label}</span>
+                            </div>
+                            <span class="text-slate-650 italic text-[9px]">Bulunamadı</span>
+                        </div>
+                        <div class="flex items-center justify-between gap-2 mt-0.5 px-1 pb-0.5">
+                            <label class="flex items-center gap-1 text-[9px] text-slate-400 cursor-pointer select-none">
+                                <input type="checkbox" 
+                                       id="approve_hybrid_${key}" 
+                                       class="field-approve-checkbox h-3 w-3 rounded border-slate-800 bg-slate-900 text-emerald-500 focus:ring-0 focus:ring-offset-0 transition"
+                                       checked
+                                       onchange="toggleFieldNoteInput('${key}')">
+                                <span>Doğru</span>
+                            </label>
+                            <input type="text" 
+                                   id="note_hybrid_${key}" 
+                                   placeholder="Düzeltme..." 
+                                   class="field-error-note w-3/5 bg-slate-900/60 border border-slate-800 focus:border-red-500/40 rounded px-1.5 py-0.5 text-[9px] text-slate-350 placeholder-slate-650 focus:outline-none hidden">
+                        </div>
+                    </div>
+                `;
+            }
+
+            let noteHtml = "";
+            if (colName === 'hybrid') {
+                noteHtml = `
+                    <div class="mt-1 pt-1 border-t border-slate-900/60 flex items-center justify-between gap-3">
+                        <label class="flex items-center gap-1 text-[9px] text-slate-400 cursor-pointer select-none">
+                            <input type="checkbox" 
+                                   id="approve_hybrid_${key}" 
+                                   class="field-approve-checkbox h-3.5 w-3.5 rounded border-slate-800 bg-slate-900 text-emerald-500 focus:ring-0"
+                                   checked
+                                   onchange="toggleFieldNoteInput('${key}')">
+                            <span>Onayla</span>
+                        </label>
+                        <input type="text" 
+                               id="note_hybrid_${key}" 
+                               placeholder="Düzeltme..." 
+                               class="field-error-note w-1/2 bg-slate-900/60 border border-slate-800 focus:border-red-500/40 rounded px-1.5 py-0.5 text-[9px] text-slate-350 focus:outline-none hidden">
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="p-1.5 border rounded-lg flex flex-col gap-0.5 transition-colors ${borderClass}">
+                    <div class="flex items-center">
+                        <span class="${prefixClass}">${prefixIcon}</span>
+                        <span class="text-[8px] font-extrabold tracking-wider text-slate-500 uppercase">${label}</span>
+                    </div>
+                    <div class="text-[10px] leading-relaxed font-sans text-slate-350 pl-3">
+                        ${valHtml}
+                    </div>
+                    ${noteHtml}
+                </div>
+            `;
+        }
+
+        function renderComparativeCard(data, expectedData = null, showBadge = false, colName = '') {
+            return `
+                <div class="space-y-1.5">
+                    ${renderStructuredRow("Şirket Unvanı", "trade_name", data.trade_name, expectedData?.trade_name, showBadge, colName)}
+                    ${renderStructuredRow("Eski Unvan", "old_trade_name", data.old_trade_name, expectedData?.old_trade_name, showBadge, colName)}
+                    ${renderStructuredRow("MERSİS No", "mersis_no", data.mersis_no, expectedData?.mersis_no, showBadge, colName)}
+                    ${renderStructuredRow("Sicil No", "sicil_dosya_no", data.sicil_dosya_no, expectedData?.sicil_dosya_no, showBadge, colName)}
+                    ${renderStructuredRow("Kişiler", "persons", data.persons, expectedData?.persons, showBadge, colName)}
+                    ${renderStructuredRow("Adresler", "addresses", data.addresses, expectedData?.addresses, showBadge, colName)}
+                    ${renderStructuredRow("Eski Adresler", "old_addresses", data.old_addresses, expectedData?.old_addresses, showBadge, colName)}
+                    ${renderStructuredRow("Belgeler", "belgeler", data.belgeler, expectedData?.belgeler, showBadge, colName)}
+                    ${renderStructuredRow("Tescil Hususlar", "hususlar", data.hususlar, expectedData?.hususlar, showBadge, colName)}
+                    ${renderStructuredRow("İlan Sıra No", "ilan_sira_no", data.ilan_sira_no, expectedData?.ilan_sira_no, showBadge, colName)}
+                </div>
+            `;
+        }
+
+        function toggleFieldNoteInput(key) {
+            const chk = document.getElementById(`approve_hybrid_${key}`);
+            const input = document.getElementById(`note_hybrid_${key}`);
+            if (chk && input) {
+                if (chk.checked) {
+                    input.classList.add("hidden");
+                } else {
+                    input.classList.remove("hidden");
+                    input.focus();
+                }
+            }
+        }
+
+        async function confirmResetProgress() {
+            const confirmed = confirm("Tüm değerlendirme ilerlemesini sıfırlamak istiyor musunuz? Yedek (progress_backup.json) otomatik oluşturulacaktır.");
+            if (!confirmed) return;
+            
+            try {
+                const resp = await fetch("/api/reset-evaluation", { method: "POST" });
+                if (resp.status === 200) {
+                    alert("Sandbox ilerlemesi yedeklendi ve sıfırlandı!");
+                    selectedPdf = null;
+                    announcements = [];
+                    activeAnnouncementIndex = null;
+                    
+                    document.getElementById("pdfViewerContainer").innerHTML = `
+                        <div class="text-center text-xs text-slate-500 italic p-6">
+                            Lütfen sol panelden incelemek istediğiniz bir PDF dosyasını seçin.
+                        </div>
+                    `;
+                    
+                    document.getElementById("actionPanelContainer").innerHTML = `
+                        <div class="text-center text-xs text-slate-500 italic p-6 mt-12">
+                            Dosya seçildiğinde OCR adımları burada belirecektir.
+                        </div>
+                    `;
+                    
+                    await loadProgress();
+                    await loadPdfList();
+                }
+            } catch (err) {
+                alert("Sıfırlama hatası: " + err.message);
+            }
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            return text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+    </script>
+</body>
+</html>

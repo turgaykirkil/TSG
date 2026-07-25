@@ -511,17 +511,20 @@ def _extract_structured_persons_payload(structured: Any) -> List[Dict[str, Any]]
                 raw_persons = [raw_persons]
             if isinstance(raw_persons, list):
                 for item in raw_persons:
-                    if not isinstance(item, dict):
-                        continue
-                    name = _structured_person_name(item)
+                    name = None
+                    masked_candidates: List[str] = []
+                    if isinstance(item, str):
+                        name = _clean_person_name(item)
+                    elif isinstance(item, dict):
+                        name = _structured_person_name(item)
+                        masked_candidates = _extract_structured_masked_ids(item)
+                    
                     if not name:
-                        continue
-                    masked_candidates = _extract_structured_masked_ids(item)
-                    masked_arr = [m for m in masked_candidates if isinstance(m, str) and m.strip()]
-                    if not masked_arr:
                         continue
                     if not _plausible_person_name(name):
                         continue
+                    
+                    masked_arr = [m for m in masked_candidates if isinstance(m, str) and m.strip()]
                     persons_payload.append({
                         "full_name": name,
                         "mask_source": "structured",
@@ -585,6 +588,8 @@ def _extract_structured_masked_ids(item: Dict[str, Any]) -> List[str]:
     for key in (
         "masked_ids",
         "masked_id",
+        "tckn",
+        "tc",
         "maskedIdentity",
         "masked_identity",
         "masked_tc",
@@ -738,13 +743,18 @@ def _company_to_dict(
 
 
 def _person_to_dict(person: Person) -> Dict[str, Any]:
+    tc = person.nationality_id or person.masked_id
+    masked_list = [tc] if tc else []
     return {
         "id": str(person.id),
         "full_name": person.full_name,
         "first_name": person.first_name,
         "middle_name": person.middle_name,
         "last_name": person.last_name,
-        "nationality_id": person.nationality_id,
+        "nationality_id": tc,
+        "tckn": tc,
+        "masked_id": tc,
+        "masked_ids": masked_list,
         "passport_number": person.passport_number,
         "email": person.email,
         "phone": person.phone,
@@ -894,18 +904,15 @@ def _extract_persons_from_structured(structured: Any) -> List[Dict[str, Optional
         if not isinstance(candidates, list):
             return persons
         for item in candidates:
-            if not isinstance(item, dict):
-                continue
-            masked = item.get("masked_ids")
-            masked_ids: List[str] = []
-            if isinstance(masked, list):
-                masked_ids = [str(m).strip() for m in masked if str(m).strip()]
-            elif isinstance(masked, str) and masked.strip():
-                masked_ids = [masked.strip()]
-            name = _clean_person_name(item.get("full_name") or item.get("text"))
-            if not masked_ids:
-                continue
-            persons.append({"name": name, "masked_ids": masked_ids})
+            if isinstance(item, str):
+                name = _clean_person_name(item)
+                if name:
+                    persons.append({"name": name, "masked_ids": []})
+            elif isinstance(item, dict):
+                name = _structured_person_name(item)
+                masked_ids = _extract_structured_masked_ids(item)
+                if name:
+                    persons.append({"name": name, "masked_ids": masked_ids})
     except Exception:
         pass
     return persons
@@ -966,31 +973,51 @@ def _extract_ocr_entities(rows: List[OcrResult]) -> Dict[str, Any]:
             if isinstance(raw_persons, dict):
                 raw_persons = [raw_persons]
             if isinstance(raw_persons, list):
-                structured_persons = [item for item in raw_persons if isinstance(item, dict)]
+                structured_persons = raw_persons
         except Exception:
             structured_persons = []
 
         for item in structured_persons:
-            name = _structured_person_name(item)
-            masked_candidates = _extract_structured_masked_ids(item)
-            for masked_id in masked_candidates:
-                masked_id = masked_id.strip()
-                if not masked_id:
-                    continue
-                masked_ids.add(masked_id)
-                if name:
+            name = None
+            masked_candidates: List[str] = []
+            if isinstance(item, str):
+                name = _clean_person_name(item)
+            elif isinstance(item, dict):
+                name = _structured_person_name(item)
+                masked_candidates = _extract_structured_masked_ids(item)
+
+            if not name:
+                continue
+
+            if masked_candidates:
+                for masked_id in masked_candidates:
+                    masked_id = masked_id.strip()
+                    if not masked_id:
+                        continue
+                    masked_ids.add(masked_id)
                     masked_id_to_names.setdefault(masked_id, set()).add(name)
-                key = (masked_id, name)
-                if key in seen_person_keys:
-                    continue
-                seen_person_keys.add(key)
-                persons.append({
-                    "name": name,
-                    "full_name": name,  # Frontend expects full_name
-                    "masked_id": masked_id,
-                    "masked_ids": [masked_id],  # Frontend expects masked_ids as array
-                    "source": "structured",
-                })
+                    key = (masked_id, name)
+                    if key in seen_person_keys:
+                        continue
+                    seen_person_keys.add(key)
+                    persons.append({
+                        "name": name,
+                        "full_name": name,
+                        "masked_id": masked_id,
+                        "masked_ids": [masked_id],
+                        "source": "structured",
+                    })
+            else:
+                key = (None, name)
+                if key not in seen_person_keys:
+                    seen_person_keys.add(key)
+                    persons.append({
+                        "name": name,
+                        "full_name": name,
+                        "masked_id": None,
+                        "masked_ids": [],
+                        "source": "structured",
+                    })
 
         # Use flattened addresses column directly
         if row.addresses:
@@ -2002,19 +2029,72 @@ def company_detail(
                 f"[Company Detail] registry related lookup failed for company_id={company_id}: {exc_registry}"
             )
 
+        def _clean_old_address_text(raw_addr: str) -> str:
+            if not raw_addr:
+                return ""
+            addr = str(raw_addr).strip()
+            if re.search(r"(?i)\badresi\s*[:\s]?", addr):
+                addr = re.split(r"(?i)\badresi\s*[:\s]?", addr)[-1].strip()
+            addr = re.sub(r"^\s*[:\-\.]+", "", addr).strip()
+            return addr
+
+        if not old_addresses and ocr_rows:
+            from process_pdfs import extract_entities_regex
+            for row in ocr_rows:
+                if row.old_addresses:
+                    for oa in row.old_addresses:
+                        raw_str = oa.get("address") if isinstance(oa, dict) else str(oa)
+                        cleaned = _clean_old_address_text(raw_str)
+                        if cleaned:
+                            old_addresses.append({"address": cleaned})
+                elif row.original_text:
+                    regex_res = extract_entities_regex(row.original_text)
+                    for oa in regex_res.get("old_addresses", []):
+                        cleaned = _clean_old_address_text(oa)
+                        if cleaned:
+                            old_addresses.append({"address": cleaned})
+
+        cleaned_old_addresses = []
+        seen_oa = set()
+        for oa in old_addresses:
+            raw_str = oa.get("address") if isinstance(oa, dict) else str(oa)
+            c = _clean_old_address_text(raw_str)
+            if c and c not in seen_oa:
+                seen_oa.add(c)
+                cleaned_old_addresses.append({"address": c})
+        old_addresses = cleaned_old_addresses
+
+        company_payload["old_addresses"] = old_addresses
+        company_payload["old_trade_names"] = old_trade_names
+
         if not persons_payload and ocr_rows:
-            # --- DATA INTEGRITY FIX: Filter OCR entities by sicil number ---
-            target_ocr_rows = ocr_rows
-            if company_sicil:
-                # Only extract entities from OCR results that match our sicil number
-                target_ocr_rows = [r for r in ocr_rows if str(r.sicil_dosya_no or "").strip() == company_sicil]
+            target_ocr_rows = [r for r in ocr_rows if str(r.sicil_dosya_no or "").strip() == company_sicil] if company_sicil else ocr_rows
+            if not target_ocr_rows:
+                target_ocr_rows = ocr_rows
             
-            if target_ocr_rows:
-                relevant_entities = _extract_ocr_entities(target_ocr_rows)
-                persons_payload = relevant_entities["persons"]
-            else:
-                persons_payload = []
-                
+            relevant_entities = _extract_ocr_entities(target_ocr_rows)
+            persons_payload = relevant_entities.get("persons", [])
+
+            if not persons_payload:
+                from process_pdfs import extract_entities_regex
+                extracted_dynamic = []
+                for row in target_ocr_rows:
+                    if row.original_text:
+                        regex_res = extract_entities_regex(row.original_text)
+                        for p_item in regex_res.get("persons", []):
+                            p_name = p_item.get("name")
+                            p_tc = p_item.get("tckn")
+                            if p_name:
+                                extracted_dynamic.append({
+                                    "full_name": p_name,
+                                    "name": p_name,
+                                    "masked_id": p_tc,
+                                    "masked_ids": [p_tc] if p_tc else [],
+                                    "source": "ocr_regex_dynamic"
+                                })
+                if extracted_dynamic:
+                    persons_payload = extracted_dynamic
+
         # Deduplicate persons by name and masked_id
         if persons_payload:
             seen_persons = {}
@@ -2184,72 +2264,4 @@ def announcement_detail(
             f"[Announcement Detail] Error for announcement_id '{announcement_id}': {e}",
             exc_info=True,
         )
-        raise HTTPException(status_code=500, detail="An error occurred while fetching announcement detail.")
-        try:
-            import re as _re
-            if not _re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", announcement_id, flags=_re.IGNORECASE):
-                raise HTTPException(status_code=400, detail="announcement_id must be a UUID")
-        except HTTPException:
-            raise
-        except Exception:
-            pass
-        # 1) İlan kaydını getir
-        try:
-            ann_q = (
-                supabase
-                .postgrest.schema('app').table("announcements")
-                .select("*")
-                .eq("id", announcement_id)
-                .limit(1)
-                .execute()
-            )
-            ann_q = ann_q.data or []
-            ann = ann_q[0] if ann_q else None
-            if not ann:
-                raise HTTPException(status_code=404, detail="İlan bulunamadı")
-        except HTTPException:
-            raise
-        except Exception as ex_ann:
-            logger.error(f"[Announcement Detail] Fetch announcement failed: {ex_ann}")
-            raise HTTPException(status_code=500, detail="İlan getirilemedi")
-
-        # 2) OCR metni — SADECE hedef şirkete ait olacak şekilde
-        original_text = None
-        try:
-            # company scope belirle
-            scope_company_id = None
-            if company_id and isinstance(company_id, str) and company_id.strip():
-                scope_company_id = company_id.strip()
-            elif isinstance(ann, dict) and ann.get("company_id"):
-                scope_company_id = ann.get("company_id")
-
-            qb = (
-                supabase
-                .postgrest.schema('app').table("ocr_results")
-                .select("id, original_text, created_at, company_id, mersis_no")
-                .eq("announcement_id", announcement_id)
-            )
-            if scope_company_id:
-                qb = qb.eq("company_id", scope_company_id)
-            elif mersis_no and isinstance(mersis_no, str) and mersis_no.strip():
-                qb = qb.eq("mersis_no", mersis_no.strip())
-            else:
-                # Şirket bağlamı yoksa yanlış şirkete ait metin döndürmemek için OCR sorgusunu çalıştırma
-                qb = None
-
-            if qb is not None:
-                ocr_q = qb.order("created_at", desc=True).limit(1).execute()
-                if ocr_q.data:
-                    original_text = (ocr_q.data[0] or {}).get("original_text")
-        except Exception as ex_ocr:
-            logger.warning(f"[Announcement Detail] OCR scoped fetch failed: {ex_ocr}")
-
-        return {
-            "announcement": ann,
-            "original_text": original_text,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[Announcement Detail] Error for announcement_id '{announcement_id}': {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An error occurred while fetching announcement detail.")

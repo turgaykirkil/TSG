@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sicilius - NLP Değerlendirme Sihirbazı</title>
+    <!-- Tailwind CSS (Direct from CDN for rapid styling) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        body {
+            background-color: #0b0f19;
+            color: #f1f5f9;
+        }
+        .custom-scroll::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        .custom-scroll::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 4px;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+        .view-mode-active {
+            border-bottom: 2px solid #3b82f6;
+            color: #3b82f6;
+        }
+    </style>
+</head>
+<body class="font-sans antialiased overflow-hidden h-screen flex flex-col">
+
+    <!-- Top Navigation Header -->
+    <header class="bg-slate-950/80 backdrop-blur border-b border-slate-900 px-6 py-3 flex justify-between items-center z-10">
+        <div class="flex items-center gap-3">
+            <span class="text-xl">🐹</span>
+            <div>
+                <h1 class="text-sm font-bold text-white tracking-wide uppercase">Sicilius NLP Değerlendirme Sihirbazı</h1>
+                <p class="text-[10px] text-slate-500">Doğruluk oranı tespiti ve LoRA eğitim kümesi geri besleme paneli</p>
+            </div>
+        </div>
+        
+        <!-- Action Buttons -->
+        <div class="flex items-center gap-4">
+            <div class="flex bg-slate-900 p-0.5 rounded-lg border border-slate-800 text-[11px] font-bold">
+                <button id="btnViewCard" onclick="setViewMode('CARD')" class="px-3 py-1 rounded-md transition-all view-mode-active">🗂️ Kart Görünümü</button>
+                <button id="btnViewJson" onclick="setViewMode('JSON')" class="px-3 py-1 rounded-md transition-all text-slate-400">☕ Ham JSON</button>
+            </div>
+            
+            <button onclick="confirmResetDatabase()" class="px-3 py-1.5 bg-red-950/40 hover:bg-red-900/60 border border-red-500/20 hover:border-red-500/40 text-[11px] font-bold text-red-400 rounded-lg transition-all flex items-center gap-1.5">
+                ⚠️ Verileri Sıfırla
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="flex-1 flex overflow-hidden min-h-0">
+        
+        <!-- Left Panel: Evaluation Progress & List -->
+        <div class="w-[18%] bg-slate-950/60 border-r border-slate-900 flex flex-col overflow-hidden">
+            
+            <!-- Statistics Card -->
+            <div class="p-4 border-b border-slate-900 bg-slate-950/40 flex flex-col gap-3">
+                <div class="flex justify-between items-center">
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Değerlendirme İlerlemesi</span>
+                    <span id="txtPercentage" class="text-xs font-black text-blue-400">0%</span>
+                </div>
+                <div class="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden">
+                    <div id="progressBar" class="bg-gradient-to-r from-blue-500 to-indigo-500 h-full rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <div class="grid grid-cols-2 gap-2 text-center text-[10px]">
+                    <div class="bg-slate-900/50 p-1.5 rounded border border-slate-850">
+                        <div id="txtCompletedCount" class="text-xs font-bold text-slate-200">0</div>
+                        <div class="text-slate-500">Tamamlanan</div>
+                    </div>
+                    <div class="bg-slate-900/50 p-1.5 rounded border border-slate-850">
+                        <div id="txtSuccessRate" class="text-xs font-bold text-emerald-400">0%</div>
+                        <div class="text-slate-500">OCR Başarı</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- List Header -->
+            <div class="px-4 py-2 border-b border-slate-900 bg-slate-950/20 flex justify-between items-center">
+                <span class="text-[10px] font-extrabold text-slate-400 tracking-wider">İNCELENMİŞ KAYITLAR</span>
+                <span id="txtListCount" class="px-1.5 py-0.5 bg-slate-900 text-slate-500 text-[9px] rounded font-bold">0</span>
+            </div>
+            
+            <!-- Scrollable Case List -->
+            <div class="flex-1 overflow-y-auto custom-scroll" id="caseList">
+                <!-- Evaluated Cases list dynamically loaded here -->
+            </div>
+        </div>
+
+        <!-- Right Workspace: Multi-stage Wizard & Comparison View -->
+        <div class="w-[82%] flex flex-col bg-slate-900/10 h-full overflow-hidden" id="workspaceContainer">
+            
+            <!-- Default Welcome State -->
+            <div class="flex-1 p-6 overflow-hidden flex flex-col justify-center items-center gap-4" id="playZone">
+                <div class="text-center flex flex-col items-center gap-3">
+                    <span class="text-6xl animate-bounce">🚀</span>
+                    <h2 class="text-xl font-bold text-white font-sans">Canlı Değerlendirmeye Hazır mısınız?</h2>
+                    <p class="text-xs text-slate-500 max-w-md leading-relaxed font-sans">
+                        Veritabanındaki ilanları sırasıyla getirir. Önce ham PDF ve OCR metin eşleşmesini doğrular, ardından regex ve hibrit model kıyaslamasını gösterir.
+                    </p>
+                </div>
+                <button onclick="fetchAndStartNext()" class="px-8 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-sm font-extrabold text-white rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center gap-2">
+                    🎯 DEĞERLENDİRMEYİ BAŞLAT
+                </button>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- JS Logic -->
+    <script>
+        let savedResults = [];
+        let currentActiveCase = null; // Holds the fetched case metadata (un-evaluated or semi-evaluated)
+        let selectedCompletedId = null;
+        let currentViewMode = 'CARD';
+        let wizardPhase = 1; // 1: OCR Verify, 2: Extraction/Hybrid Verify
+
+        // On Page Load
+        async function init() {
+            await refreshStats();
+        }
+
+        function setViewMode(mode) {
+            currentViewMode = mode;
+            document.getElementById('btnViewCard').classList.toggle('view-mode-active', mode === 'CARD');
+            document.getElementById('btnViewCard').classList.toggle('text-slate-400', mode !== 'CARD');
+            document.getElementById('btnViewJson').classList.toggle('view-mode-active', mode === 'JSON');
+            document.getElementById('btnViewJson').classList.toggle('text-slate-400', mode !== 'JSON');
+            
+            if (currentActiveCase) {
+                if (wizardPhase === 1) {
+                    renderPhase1Workspace();
+                } else {
+                    renderPhase2Workspace();
+                }
+            } else if (selectedCompletedId) {
+                showCompletedCase(selectedCompletedId);
+            }
+        }
+
+        async function refreshStats() {
+            try {
+                const resp = await fetch('/api/v1/nlp/evaluation-stats');
+                const data = await resp.json();
+                
+                savedResults = data.results || [];
+                
+                // Update UI Counters
+                document.getElementById('txtCompletedCount').innerText = savedResults.length;
+                document.getElementById('txtListCount').innerText = savedResults.length;
+                
+                // Calculate percentage
+                const totalTarget = 2000; // Benchmark target
+                const percentage = Math.min(100, Math.round((savedResults.length / totalTarget) * 100));
+                document.getElementById('txtPercentage').innerText = percentage + "%";
+                document.getElementById('progressBar').style.width = percentage + "%";
+                
+                // OCR Success Rate: percentage of completed cases where ocr was flagged as correct
+                const failedOcr = savedResults.filter(r => r.comparison && r.comparison.status === 'OCR_Failed').length;
+                const successfulOcr = savedResults.length - failedOcr;
+                const ocrSuccessRate = savedResults.length > 0 ? Math.round((successfulOcr / savedResults.length) * 100) : 100;
+                document.getElementById('txtSuccessRate').innerText = ocrSuccessRate + "%";
+                
+                renderSidebarList();
+            } catch (err) {
+                console.error("Failed to load evaluation stats:", err);
+            }
+        }
+
+        function renderSidebarList() {
+            const listContainer = document.getElementById('caseList');
+            listContainer.innerHTML = '';
+            
+            if (savedResults.length === 0) {
+                listContainer.innerHTML = `
+                    <div class="p-6 text-center text-xs text-slate-650 italic">
+                        Henüz tamamlanmış kayıt yok.
+                    </div>
+                `;
+                return;
+            }
+            
+            // Render descending
+            const reversed = [...savedResults].reverse();
+            reversed.forEach(item => {
+                const isSelected = String(item.id) === String(selectedCompletedId);
+                const div = document.createElement('div');
+                div.id = `item_${item.id}`;
+                div.className = `p-3 border-b border-slate-950 hover:bg-slate-900/40 cursor-pointer transition-all ${isSelected ? 'bg-slate-800/40' : ''}`;
+                div.onclick = () => showCompletedCase(item.id);
+                
+                let badgeClass = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+                let statusLabel = "Tamamlandı";
+                if (item.comparison && item.comparison.status === 'OCR_Failed') {
+                    badgeClass = "bg-red-500/10 text-red-400 border border-red-500/20";
+                    statusLabel = "OCR Hatalı";
+                }
+                
+                div.innerHTML = `
+                    <div class="flex justify-between items-center gap-1.5">
+                        <span class="text-xs font-bold text-slate-200 truncate flex-1">${item.ground_truth?.trade_name || item.hybrid?.trade_name || 'Unvansız'}</span>
+                        <span class="px-1.5 py-0.5 text-[8px] font-black rounded-md ${badgeClass}">${statusLabel}</span>
+                    </div>
+                    <div class="text-[10px] text-slate-500 mt-1 flex justify-between">
+                        <span>ID: ${item.id}</span>
+                        <span>Not: ${item.user_note ? item.user_note.slice(0, 15) + '...' : 'Boş'}</span>
+                    </div>
+                `;
+                listContainer.appendChild(div);
+            });
+        }
+
+        async function fetchAndStartNext() {
+            const workspace = document.getElementById('workspaceContainer');
+            
+            // Show premium loading spinner
+            workspace.innerHTML = `
+                <div class="flex-1 flex flex-col justify-center items-center gap-4">
+                    <div class="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
+                    <div class="text-center">
+                        <h3 class="text-sm font-bold text-white">Sıradaki İlan Veritabanından Getiriliyor...</h3>
+                        <p class="text-xs text-slate-500 mt-1">Görsel PDF ve OCR ham metni hazırlanıyor.</p>
+                    </div>
+                </div>
+            `;
+            
+            try {
+                const getResp = await fetch('/api/v1/nlp/get-next-announcement');
+                if (getResp.status === 404) {
+                    workspace.innerHTML = `
+                        <div class="flex-1 flex flex-col justify-center items-center gap-3">
+                            <span class="text-6xl">🎉</span>
+                            <h3 class="text-lg font-bold text-white">Tebrikler!</h3>
+                            <p class="text-xs text-slate-500">Veritabanındaki incelenecek tüm yeni ilanları tamamladınız!</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                currentActiveCase = await getResp.json();
+                selectedCompletedId = null; // Unselect sidebar selection
+                wizardPhase = 1; // Start in phase 1 (OCR verification)
+                
+                renderPhase1Workspace();
+            } catch (err) {
+                workspace.innerHTML = `
+                    <div class="flex-1 flex flex-col justify-center items-center gap-3 text-red-400">
+                        <span class="text-4xl">⚠️</span>
+                        <h3 class="text-sm font-bold">Veri çekme sırasında hata oluştu</h3>
+                        <p class="text-xs text-slate-500">${err.message || err}</p>
+                        <button onclick="fetchAndStartNext()" class="mt-4 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs text-white rounded">Tekrar Dene</button>
+                    </div>
+                `;
+            }
+        }
+
+        // Render Phase 1: Side by Side PDF and Raw OCR Text
+        function renderPhase1Workspace() {
+            if (!currentActiveCase) return;
+            const workspace = document.getElementById('workspaceContainer');
+            
+            // Endpoint to load PDF file directly
+            const pdfSrc = `/api/v1/nlp/announcement-pdf/${currentActiveCase.id}`;
+            
+            workspace.innerHTML = `
+                <div class="flex-1 p-6 overflow-hidden flex flex-col gap-4">
+                    
+                    <!-- Header -->
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3 flex-shrink-0">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h2 class="text-lg font-bold text-white">${currentActiveCase.trade_name || 'Unvansız'}</h2>
+                                <span class="px-2 py-0.5 text-[9px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded">AŞAMA 1: OCR DOĞRULAMA</span>
+                            </div>
+                            <p class="text-xs text-slate-500 mt-0.5">ID: ${currentActiveCase.id} &nbsp;·&nbsp; MERSİS: ${currentActiveCase.mersis_no || 'Yok'} &nbsp;·&nbsp; Sicil No: ${currentActiveCase.sicil_dosya_no || 'Yok'}</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Side-by-Side Area -->
+                    <div class="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-hidden min-h-0">
+                        
+                        <!-- Left Panel: Original PDF File Viewer -->
+                        <div class="flex flex-col bg-slate-950 border border-slate-800/60 rounded-lg overflow-hidden h-full">
+                            <div class="bg-slate-900 px-3 py-1.5 border-b border-slate-800 text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1.5">
+                                📄 Orijinal PDF Dosyası
+                            </div>
+                            <div class="flex-1 bg-slate-900">
+                                <iframe src="${pdfSrc}" class="w-full h-full border-none" type="application/pdf"></iframe>
+                            </div>
+                        </div>
+                        
+                        <!-- Right Panel: Raw OCR Output Text -->
+                        <div class="flex flex-col bg-slate-950 border border-slate-800/60 rounded-lg overflow-hidden h-full">
+                            <div class="bg-slate-900 px-3 py-1.5 border-b border-slate-800 text-[10px] font-bold text-amber-500 uppercase flex items-center gap-1.5">
+                                📝 Ham OCR Çıktısı (Okunan Metin)
+                            </div>
+                            <div class="flex-1 p-3 overflow-y-auto custom-scroll text-xs font-mono text-slate-350 leading-relaxed whitespace-pre-wrap select-text">
+                                ${escapeHtml(currentActiveCase.original_text)}
+                            </div>
+                        </div>
+                        
+                    </div>
+                    
+                    <!-- Bottom Action Control Bar for Phase 1 -->
+                    <div class="bg-slate-950/80 p-4 border border-slate-800 rounded-lg flex flex-col md:flex-row gap-4 items-center justify-between flex-shrink-0">
+                        <div class="flex-1 w-full">
+                            <textarea id="ocr_note_input" placeholder="OCR veya segmentasyon hatalarını buraya not edebilirsiniz..." class="w-full bg-slate-950 border border-slate-850 text-xs text-slate-200 p-2 rounded focus:outline-none focus:border-red-500/50 h-14 resize-none"></textarea>
+                        </div>
+                        <div class="flex gap-3 flex-shrink-0 w-full md:w-auto">
+                            <button onclick="submitOcrFailed()" class="w-full md:w-auto px-6 py-3.5 bg-red-600 hover:bg-red-500 text-xs font-bold text-white rounded-lg shadow-lg hover:shadow-red-500/10 transition-all flex items-center justify-center gap-1.5">
+                                ❌ OCR Hatalı - Değerlendirmeyi Tamamla
+                            </button>
+                            <button onclick="proceedToPhase2()" class="w-full md:w-auto px-8 py-3.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white rounded-lg shadow-lg hover:shadow-blue-500/10 transition-all flex items-center justify-center gap-1.5">
+                                ➡️ OCR Doğru - Analize İlerle
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+            `;
+        }
+
+        // Action when OCR is flagged as failed: skip analysis, save only ocr failed note
+        async function submitOcrFailed() {
+            if (!currentActiveCase) return;
+            
+            const noteInput = document.getElementById('ocr_note_input');
+            const noteValue = noteInput ? noteInput.value.trim() : "";
+            
+            // Build placeholder structure to satisfy Save Payload schemas
+            const failedPayload = {
+                id: currentActiveCase.id,
+                original_text: currentActiveCase.original_text,
+                ground_truth: {
+                    trade_name: currentActiveCase.trade_name,
+                    mersis_no: currentActiveCase.mersis_no,
+                    sicil_dosya_no: currentActiveCase.sicil_dosya_no,
+                    belgeler: currentActiveCase.belgeler
+                },
+                llm_only: {},
+                hybrid: {},
+                latency: 0.0,
+                comparison: {
+                    status: "OCR_Failed",
+                    reasons: ["User marked OCR quality as bad"]
+                },
+                user_note: noteValue,
+                field_notes: {},
+                field_notes_regex: {},
+                field_notes_hybrid: {},
+                field_approvals_hybrid: {}
+            };
+            
+            try {
+                const saveResp = await fetch('/api/v1/nlp/save-evaluation-result', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(failedPayload)
+                });
+                
+                if (saveResp.status === 200) {
+                    currentActiveCase = null;
+                    await refreshStats();
+                    await fetchAndStartNext(); // Auto trigger next case
+                }
+            } catch (err) {
+                alert("Hata kaydı kaydedilemedi: " + err.message);
+            }
+        }
+
+        // Action to trigger LLM & Regex comparisons and enter Phase 2
+        async function proceedToPhase2() {
+            if (!currentActiveCase) return;
+            const workspace = document.getElementById('workspaceContainer');
+            
+            // Preserve note from Phase 1 if any
+            const noteInput = document.getElementById('ocr_note_input');
+            const savedOcrNote = noteInput ? noteInput.value.trim() : "";
+            currentActiveCase.user_note = savedOcrNote;
+            
+            // Show loading screen for Phase 2 inference
+            workspace.innerHTML = `
+                <div class="flex-1 flex flex-col justify-center items-center gap-4">
+                    <div class="w-12 h-12 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
+                    <div class="text-center">
+                        <h3 class="text-sm font-bold text-white">Yapay Zeka ve Regex Modülleri Çalıştırılıyor...</h3>
+                        <p class="text-xs text-slate-500 mt-1">Bu işlem yerel model analizini (Llama 3.2:3b) tetikler ve 5-10 saniye sürebilir.</p>
+                    </div>
+                </div>
+            `;
+            
+            try {
+                const evalResp = await fetch('/api/v1/nlp/evaluate-announcement', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        case_id: String(currentActiveCase.id),
+                        original_text: currentActiveCase.original_text,
+                        trade_name: currentActiveCase.trade_name,
+                        addresses: currentActiveCase.addresses || [],
+                        old_addresses: currentActiveCase.old_addresses || [],
+                        persons: currentActiveCase.persons || [],
+                        mersis_no: currentActiveCase.mersis_no,
+                        sicil_dosya_no: currentActiveCase.sicil_dosya_no,
+                        belgeler: currentActiveCase.belgeler,
+                        hususlar: currentActiveCase.hususlar || [],
+                        ilan_sira_no: currentActiveCase.ilan_sira_no || []
+                    })
+                });
+                
+                const evaluationResult = await evalResp.json();
+                
+                // Inherit OCR note from Phase 1
+                evaluationResult.user_note = savedOcrNote;
+                currentActiveCase = evaluationResult;
+                
+                wizardPhase = 2; // Advance to Phase 2
+                renderPhase2Workspace();
+            } catch (err) {
+                alert("Modül eşleştirme analizi başarısız oldu: " + err.message);
+                // Fallback to Phase 1
+                renderPhase1Workspace();
+            }
+        }
+
+        // Render Phase 2: Comparative columns layout (OCR, Regex, and Hybrid)
+        function renderPhase2Workspace() {
+            if (!currentActiveCase) return;
+            const workspace = document.getElementById('workspaceContainer');
+            
+            workspace.innerHTML = `
+                <div class="flex-1 p-6 overflow-hidden flex flex-col gap-4">
+                    
+                    <!-- Header -->
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3 flex-shrink-0">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h2 class="text-lg font-bold text-white">${currentActiveCase.ground_truth?.trade_name || 'Unvansız'}</h2>
+                                <span class="px-2 py-0.5 text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">AŞAMA 2: AYRIŞTIRMA DOĞRULAMA</span>
+                            </div>
+                            <p class="text-xs text-slate-500 mt-0.5">ID: ${currentActiveCase.id} &nbsp;·&nbsp; MERSİS: ${currentActiveCase.ground_truth?.mersis_no || 'Yok'} &nbsp;·&nbsp; Durum: ${currentActiveCase.comparison?.status} &nbsp;·&nbsp; Süre: ${currentActiveCase.latency?.toFixed(2)}s</p>
+                        </div>
+                    </div>
+                    
+                    <!-- 3-Column Side-by-Side View -->
+                    <div class="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4 overflow-hidden min-h-0 select-text">
+                        
+                        <!-- Col 1: Original OCR Text -->
+                        <div class="flex flex-col bg-slate-950 border border-slate-800/60 rounded-lg overflow-hidden h-full">
+                            <div class="bg-slate-900 px-3 py-1.5 border-b border-slate-800 text-[10px] font-bold text-slate-400 uppercase">📜 Orijinal OCR Metni</div>
+                            <div class="flex-1 p-3 overflow-y-auto custom-scroll text-xs font-mono text-slate-300 leading-relaxed whitespace-pre-wrap select-text">
+                                ${escapeHtml(currentActiveCase.original_text)}
+                            </div>
+                        </div>
+
+                        <!-- Col 2: Regex Result -->
+                        <div class="flex flex-col bg-slate-950 border border-slate-800/60 rounded-lg overflow-hidden h-full">
+                            <div class="bg-slate-900 px-3 py-1.5 border-b border-slate-800 text-[10px] font-bold text-amber-500 uppercase">⚡ Regex + NLP Çıktısı</div>
+                            <div class="flex-1 p-3 overflow-y-auto custom-scroll text-[11px] whitespace-normal">
+                                ${renderColumnContent(currentActiveCase.ground_truth, null, false, 'regex')}
+                            </div>
+                        </div>
+
+                        <!-- Col 3: Hybrid Output (Nihai) -->
+                        <div class="flex flex-col bg-slate-950 border border-slate-800/60 rounded-lg overflow-hidden h-full">
+                            <div class="bg-slate-900 px-3 py-1.5 border-b border-slate-800 text-[10px] font-bold text-emerald-400 uppercase">🛡️ Hibrit Çıktı (Nihai Doğrulama)</div>
+                            <div class="flex-1 p-3 overflow-y-auto custom-scroll text-[11px] whitespace-normal">
+                                ${renderColumnContent(currentActiveCase.hybrid, currentActiveCase.ground_truth, true, 'hybrid', currentActiveCase.field_notes_hybrid || {}, currentActiveCase.field_approvals_hybrid || {})}
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- Footer Annotation Box -->
+                    <div class="bg-slate-950/80 p-4 border border-slate-800 rounded-lg flex flex-col md:flex-row gap-4 items-center justify-between flex-shrink-0">
+                        <div class="flex-1 w-full">
+                            <textarea id="final_user_note" placeholder="Değerlendirme notunuzu buraya yazabilirsiniz..." class="w-full bg-slate-950 border border-slate-850 text-xs text-slate-200 p-2.5 rounded focus:outline-none focus:border-blue-500 h-16 resize-none">${escapeHtml(currentActiveCase.user_note || '')}</textarea>
+                        </div>
+                        <div class="flex gap-2 flex-shrink-0 w-full md:w-auto">
+                            <button onclick="submitEvaluation()" class="w-full md:w-auto px-8 py-3.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white rounded-lg shadow transition flex items-center justify-center gap-1.5">
+                                💾 Kaydet ve Sıradakine Geç →
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+            `;
+        }
+
+        // Structural Comparative Renderer (Variable Prefix Icon Style)
+        function renderStructuredCard(label, key, val, matchVal = null, showBadge = false, colName = '', fieldNotes = {}, fieldApprovals = {}) {
+            let prefixIcon = "";
+            let borderClass = "border-slate-800 bg-slate-950/40";
+            
+            if (showBadge) {
+                const canonical = (v) => {
+                    if (v === null || v === undefined) return "";
+                    if (Array.isArray(v)) {
+                        return v.map(x => String(x).trim().toLowerCase()).sort().join("|");
+                    }
+                    return String(v).trim().toLowerCase();
+                };
+                const isMatch = canonical(val) === canonical(matchVal);
+                if (isMatch) {
+                    prefixIcon = `<span class="text-emerald-400 font-extrabold mr-1.5">✓</span>`;
+                    borderClass = "border-emerald-500/10 bg-slate-950/30";
+                } else {
+                    prefixIcon = `<span class="text-amber-400 font-extrabold mr-1.5">⚠️</span>`;
+                    borderClass = "border-amber-500/20 bg-slate-950/30";
+                }
+            } else {
+                prefixIcon = `<span class="text-slate-600 mr-1.5">•</span>`;
+            }
+
+            let valHtml = "";
+            let isEmpty = false;
+            if (Array.isArray(val)) {
+                if (val.length === 0) {
+                    isEmpty = true;
+                    valHtml = `<span class="text-slate-600 italic">Bulunamadı</span>`;
+                } else {
+                    valHtml = `<ul class="list-disc list-inside space-y-1 text-slate-350">
+                        ${val.map(x => `<li class="break-words">${escapeHtml(String(x))}</li>`).join('')}
+                    </ul>`;
+                }
+            } else {
+                if (val === null || val === undefined || String(val).trim() === "" || String(val).toLowerCase() === "null") {
+                    isEmpty = true;
+                    valHtml = `<span class="text-slate-600 italic">Bulunamadı</span>`;
+                } else {
+                    valHtml = `<span class="text-slate-200 break-words">${escapeHtml(String(val))}</span>`;
+                }
+            }
+
+            // COMPACT ROW FOR EMPTY / NOT-FOUND FIELDS
+            if (isEmpty) {
+                if (colName === 'hybrid') {
+                    if (currentActiveCase) {
+                        const isApproved = fieldApprovals[key] !== false; // checked by default
+                        return `
+                            <div class="p-1 border rounded-lg flex flex-col gap-0.5 transition-colors ${borderClass}">
+                                <div class="flex items-center justify-between text-[10px] px-1">
+                                    <div class="flex items-center">
+                                        ${prefixIcon}
+                                        <span class="text-[8px] font-extrabold tracking-wider text-slate-500 uppercase">${label}</span>
+                                    </div>
+                                    <span class="text-slate-600 italic text-[10px]">Bulunamadı</span>
+                                </div>
+                                <div class="flex items-center justify-between gap-2 mt-0.5 px-1 pb-0.5">
+                                    <label class="flex items-center gap-1 text-[9px] text-slate-400 cursor-pointer select-none">
+                                        <input type="checkbox" 
+                                               id="approve_hybrid_${key}" 
+                                               class="field-approve-checkbox h-3 w-3 rounded border-slate-800 bg-slate-900 text-emerald-500 focus:ring-0 focus:ring-offset-0 transition"
+                                               ${isApproved ? 'checked' : ''}
+                                               onchange="toggleFieldNoteInput('${key}')">
+                                        <span>Doğru</span>
+                                    </label>
+                                    <input type="text" 
+                                           id="note_hybrid_${key}" 
+                                           placeholder="Düzeltme..." 
+                                           class="field-error-note w-3/5 bg-slate-900/60 border border-slate-800 focus:border-red-500/40 rounded px-1.5 py-0.5 text-[9px] text-slate-350 placeholder-slate-650 focus:outline-none ${isApproved ? 'hidden' : ''}"
+                                           value="${fieldNotes[key] || ''}">
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        const isApproved = fieldApprovals[key] !== false;
+                        if (isApproved) {
+                            return `
+                                <div class="px-2 py-0.5 border border-slate-900 rounded-md flex items-center justify-between text-[10px] bg-slate-950/20">
+                                    <div class="flex items-center">
+                                        ${prefixIcon}
+                                        <span class="text-[8px] font-extrabold tracking-wider text-slate-500 uppercase">${label}</span>
+                                    </div>
+                                    <span class="text-emerald-500/80 text-[9px]">✓ Boş (Onaylı)</span>
+                                </div>
+                            `;
+                        } else if (fieldNotes && fieldNotes[key]) {
+                            return `
+                                <div class="p-1 border border-red-500/20 rounded-lg flex flex-col gap-0.5 bg-slate-950/30">
+                                    <div class="flex items-center justify-between text-[10px] px-1">
+                                        <div class="flex items-center">
+                                            ${prefixIcon}
+                                            <span class="text-[8px] font-extrabold tracking-wider text-slate-500 uppercase">${label}</span>
+                                        </div>
+                                        <span class="text-slate-600 italic text-[10px]">Bulunamadı</span>
+                                    </div>
+                                    <div class="px-1.5 py-0.5 bg-red-500/10 border border-red-500/20 text-red-450 text-[9px] rounded font-medium mx-1 mb-0.5">
+                                        🚩 Hata: ${escapeHtml(fieldNotes[key])}
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    }
+                } else {
+                    return `
+                        <div class="px-2 py-0.5 border border-slate-900 rounded-md flex items-center justify-between text-[10px] bg-slate-950/20">
+                            <div class="flex items-center">
+                                ${prefixIcon}
+                                <span class="text-[8px] font-extrabold tracking-wider text-slate-500 uppercase">${label}</span>
+                            </div>
+                            <span class="text-slate-650 italic text-[9px]">Bulunamadı</span>
+                        </div>
+                    `;
+                }
+            }
+
+            // REGULAR CARD LAYOUT FOR POPULATED FIELDS
+            let noteHtml = "";
+            if (colName === 'hybrid') {
+                if (currentActiveCase) {
+                    const isApproved = fieldApprovals[key] !== false; // checked by default
+                    noteHtml = `
+                        <div class="mt-1 pt-1 border-t border-slate-900/60 flex items-center justify-between gap-3">
+                            <label class="flex items-center gap-1.5 text-[10px] text-slate-400 cursor-pointer select-none">
+                                <input type="checkbox" 
+                                       id="approve_hybrid_${key}" 
+                                       class="field-approve-checkbox h-3.5 w-3.5 rounded border-slate-800 bg-slate-900 text-emerald-500 focus:ring-0 focus:ring-offset-0 transition"
+                                       ${isApproved ? 'checked' : ''}
+                                       onchange="toggleFieldNoteInput('${key}')">
+                                <span>Doğru (Onayla)</span>
+                            </label>
+                            <input type="text" 
+                                   id="note_hybrid_${key}" 
+                                   placeholder="Hata / Düzeltme..." 
+                                   class="field-error-note w-1/2 bg-slate-900/60 border border-slate-800 focus:border-red-500/40 rounded px-2 py-0.5 text-[10px] text-slate-350 placeholder-slate-650 focus:outline-none ${isApproved ? 'hidden' : ''}"
+                                   value="${fieldNotes[key] || ''}">
+                        </div>
+                    `;
+                } else {
+                    const isApproved = fieldApprovals[key] !== false;
+                    if (isApproved) {
+                        noteHtml = `
+                            <div class="mt-1 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[9px] rounded font-medium w-max">
+                                ✓ Onaylandı
+                            </div>
+                        `;
+                    } else if (fieldNotes && fieldNotes[key]) {
+                        noteHtml = `
+                            <div class="mt-1 px-2 py-1 bg-red-500/10 border border-red-500/20 text-red-450 text-[9px] rounded font-medium">
+                                🚩 Hata: ${escapeHtml(fieldNotes[key])}
+                            </div>
+                        `;
+                    }
+                }
+            }
+
+            return `
+                <div class="p-1.5 border rounded-lg flex flex-col gap-0.5 transition-colors ${borderClass}">
+                    <div class="flex items-center">
+                        ${prefixIcon}
+                        <span class="text-[9px] font-extrabold tracking-wider text-slate-500 uppercase">${label}</span>
+                    </div>
+                    <div class="text-[11px] leading-relaxed font-sans text-slate-350 pl-4">
+                        ${valHtml}
+                    </div>
+                    ${noteHtml}
+                </div>
+            `;
+        }
+
+        // Render structured visual comparison or fallback JSON
+        function renderColumnContent(data, expectedData = null, showBadge = false, colName = '', fieldNotes = {}, fieldApprovals = {}) {
+            if (currentViewMode === 'JSON') {
+                return `<pre class="text-[11px] font-mono whitespace-pre-wrap break-all text-slate-300 leading-normal">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+            }
+            
+            return `
+                <div class="space-y-1.5">
+                    ${renderStructuredCard("Şirket Unvanı", "trade_name", data.trade_name, expectedData?.trade_name, showBadge, colName, fieldNotes, fieldApprovals)}
+                    ${renderStructuredCard("Eski Şirket Unvanı", "old_trade_name", data.old_trade_name, expectedData?.old_trade_name, showBadge, colName, fieldNotes, fieldApprovals)}
+                    ${renderStructuredCard("MERSİS No", "mersis_no", data.mersis_no, expectedData?.mersis_no, showBadge, colName, fieldNotes, fieldApprovals)}
+                    ${renderStructuredCard("Sicil/Dosya No", "sicil_dosya_no", data.sicil_dosya_no, expectedData?.sicil_dosya_no, showBadge, colName, fieldNotes, fieldApprovals)}
+                    ${renderStructuredCard("Kişiler", "persons", data.persons, expectedData?.persons, showBadge, colName, fieldNotes, fieldApprovals)}
+                    ${renderStructuredCard("Mevcut Adresler", "addresses", data.addresses, expectedData?.addresses, showBadge, colName, fieldNotes, fieldApprovals)}
+                    ${renderStructuredCard("Eski Adresler", "old_addresses", data.old_addresses, expectedData?.old_addresses, showBadge, colName, fieldNotes, fieldApprovals)}
+                    ${renderStructuredCard("Noter / Karar Belgesi", "belgeler", data.belgeler, expectedData?.belgeler, showBadge, colName, fieldNotes, fieldApprovals)}
+                    ${renderStructuredCard("Tescil Edilen Hususlar", "hususlar", data.hususlar, expectedData?.hususlar, showBadge, colName, fieldNotes, fieldApprovals)}
+                    ${renderStructuredCard("İlan Sıra No", "ilan_sira_no", data.ilan_sira_no, expectedData?.ilan_sira_no, showBadge, colName, fieldNotes, fieldApprovals)}
+                </div>
+            `;
+        }
+
+        function toggleFieldNoteInput(key) {
+            const chk = document.getElementById(`approve_hybrid_${key}`);
+            const input = document.getElementById(`note_hybrid_${key}`);
+            if (chk && input) {
+                if (chk.checked) {
+                    input.classList.add('hidden');
+                } else {
+                    input.classList.remove('hidden');
+                    input.focus();
+                }
+            }
+        }
+
+        async function submitEvaluation() {
+            if (!currentActiveCase) return;
+            
+            const textarea = document.getElementById('final_user_note');
+            const noteValue = textarea ? textarea.value.trim() : "";
+            
+            const fieldNotesHybrid = {};
+            const fieldApprovalsHybrid = {};
+            
+            document.querySelectorAll('.field-approve-checkbox').forEach(chk => {
+                const key = chk.id.replace('approve_hybrid_', '');
+                const isApproved = chk.checked;
+                fieldApprovalsHybrid[key] = isApproved;
+                
+                if (!isApproved) {
+                    const input = document.getElementById(`note_hybrid_${key}`);
+                    if (input && input.value.trim() !== '') {
+                        fieldNotesHybrid[key] = input.value.trim();
+                    }
+                }
+            });
+            
+            currentActiveCase.user_note = noteValue;
+            currentActiveCase.field_notes = {};
+            currentActiveCase.field_notes_regex = {};
+            currentActiveCase.field_notes_hybrid = fieldNotesHybrid;
+            currentActiveCase.field_approvals_hybrid = fieldApprovalsHybrid;
+            
+            try {
+                const saveResp = await fetch('/api/v1/nlp/save-evaluation-result', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentActiveCase)
+                });
+                
+                if (saveResp.status === 200) {
+                    currentActiveCase = null;
+                    wizardPhase = 1;
+                    await refreshStats();
+                    await fetchAndStartNext(); // Auto trigger next case
+                }
+            } catch (err) {
+                alert("Kayıt işlemi başarısız: " + err.message);
+            }
+        }
+
+        function showCompletedCase(id) {
+            selectedCompletedId = id;
+            currentActiveCase = null; // Exit active annotation mode
+            
+            // Highlight list item in sidebar
+            document.querySelectorAll('[id^="item_"]').forEach(el => el.classList.remove('bg-slate-800/40'));
+            const activeItem = document.getElementById(`item_${id}`);
+            if (activeItem) activeItem.classList.add('bg-slate-800/40');
+            
+            const item = savedResults.find(r => String(r.id) === String(id));
+            if (!item) return;
+            
+            const workspace = document.getElementById('workspaceContainer');
+            
+            let statusBadge = `<span class="px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">İNCELENMİŞ KAYIT</span>`;
+            if (item.comparison && item.comparison.status === 'OCR_Failed') {
+                statusBadge = `<span class="px-2 py-0.5 text-[10px] font-semibold bg-red-500/10 text-red-400 border border-red-500/20 rounded">OCR HATALI KAYIT</span>`;
+            }
+            
+            workspace.innerHTML = `
+                <div class="flex-1 p-6 overflow-hidden flex flex-col gap-4">
+                    
+                    <!-- Header -->
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-3 flex-shrink-0">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h2 class="text-lg font-bold text-white">${item.ground_truth?.trade_name || item.hybrid?.trade_name || 'Unvansız'}</h2>
+                                ${statusBadge}
+                            </div>
+                            <p class="text-xs text-slate-500 mt-0.5">ID: ${id} &nbsp;·&nbsp; MERSİS: ${item.ground_truth?.mersis_no || 'Yok'} &nbsp;·&nbsp; Durum: ${item.comparison?.status}</p>
+                        </div>
+                        <button onclick="fetchAndStartNext()" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white rounded shadow transition">
+                            🎯 Canlı Değerlendirmeye Dön
+                        </button>
+                    </div>
+                    
+                    <!-- 3-Column Side-by-Side View -->
+                    <div class="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4 overflow-hidden min-h-0 select-text">
+                        
+                        <!-- Col 1: Original OCR Text -->
+                        <div class="flex flex-col bg-slate-950 border border-slate-800/60 rounded-lg overflow-hidden h-full">
+                            <div class="bg-slate-900 px-3 py-1.5 border-b border-slate-800 text-[10px] font-bold text-slate-400 uppercase">📜 Orijinal OCR Metni</div>
+                            <div class="flex-1 p-3 overflow-y-auto custom-scroll text-xs font-mono text-slate-300 leading-relaxed whitespace-pre-wrap select-text">
+                                ${escapeHtml(item.original_text)}
+                            </div>
+                        </div>
+
+                        <!-- Col 2: Regex Result -->
+                        <div class="flex flex-col bg-slate-950 border border-slate-800/60 rounded-lg overflow-hidden h-full">
+                            <div class="bg-slate-900 px-3 py-1.5 border-b border-slate-800 text-[10px] font-bold text-amber-500 uppercase">⚡ Regex + NLP Çıktısı</div>
+                            <div class="flex-1 p-3 overflow-y-auto custom-scroll text-[11px] whitespace-normal">
+                                ${renderColumnContent(item.ground_truth, null, false, 'regex')}
+                            </div>
+                        </div>
+
+                        <!-- Col 3: Hybrid Output -->
+                        <div class="flex flex-col bg-slate-950 border border-slate-800/60 rounded-lg overflow-hidden h-full">
+                            <div class="bg-slate-900 px-3 py-1.5 border-b border-slate-800 text-[10px] font-bold text-emerald-400 uppercase">🛡️ Hibrit Çıktı (Nihai)</div>
+                            <div class="flex-1 p-3 overflow-y-auto custom-scroll text-[11px] whitespace-normal">
+                                ${renderColumnContent(item.hybrid, item.ground_truth, true, 'hybrid', item.field_notes_hybrid || {}, item.field_approvals_hybrid || {})}
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- Footer Note Frame -->
+                    <div class="bg-slate-950/80 p-4 border border-slate-800 rounded-lg flex flex-col gap-2 flex-shrink-0">
+                        <div class="text-xs font-bold text-slate-400">Girdiğiniz Değerlendirme Notu:</div>
+                        <div class="text-xs font-mono text-slate-200 bg-slate-900 p-2.5 rounded border border-slate-800 leading-relaxed whitespace-pre-wrap select-text">${escapeHtml(item.user_note || "Bu ilan için bir hata veya not bırakılmamış.")}</div>
+                    </div>
+
+                </div>
+            `;
+        }
+
+        async function confirmResetDatabase() {
+            const confirmed = confirm("Tüm değerlendirme verilerini sıfırlamak istediğinize emin misiniz? Mevcut verilerin yedeği (evaluation_progress_backup.json) otomatik alınacaktır.");
+            if (!confirmed) return;
+            
+            try {
+                const resp = await fetch('/api/v1/nlp/reset-evaluation', { method: 'POST' });
+                const res = await resp.json();
+                if (resp.status === 200) {
+                    alert("Veritabanı sıfırlandı ve yedeklendi!");
+                    currentActiveCase = null;
+                    selectedCompletedId = null;
+                    wizardPhase = 1;
+                    
+                    // Reset Workspace to Welcome Zone
+                    document.getElementById('workspaceContainer').innerHTML = `
+                        <div class="flex-1 p-6 overflow-hidden flex flex-col justify-center items-center gap-4" id="playZone">
+                            <div class="text-center flex flex-col items-center gap-3">
+                                <span class="text-6xl animate-bounce">🚀</span>
+                                <h2 class="text-xl font-bold text-white">Canlı Değerlendirmeye Hazır mısınız?</h2>
+                                <p class="text-xs text-slate-500 max-w-md leading-relaxed">
+                                    Veritabanındaki ilanları sırasıyla getirir. Önce ham PDF ve OCR metin eşleşmesini doğrular, ardından regex ve hibrit model kıyaslamasını gösterir.
+                                </p>
+                            </div>
+                            <button onclick="fetchAndStartNext()" class="px-8 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-sm font-extrabold text-white rounded-xl shadow-lg shadow-blue-500/20 transition-all flex items-center gap-2">
+                                🎯 DEĞERLENDİRMEYİ BAŞLAT
+                            </button>
+                        </div>
+                    `;
+                    
+                    await refreshStats();
+                } else {
+                    alert("Sıfırlama başarısız: " + res.detail);
+                }
+            } catch (err) {
+                alert("Sıfırlama hatası: " + err.message);
+            }
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            return text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>

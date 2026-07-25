@@ -993,19 +993,30 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
                   {data.persons.map((p: any, i: number) => {
                     const nameRaw = p.full_name || `${p.first_name || ''} ${p.last_name || ''}`.trim();
                     const name = nameRaw && nameRaw.length > 0 ? nameRaw : 'Ad Bilinmiyor';
-                    const roleRaw = p.relation_type || p.position || '';
-                    const role = (roleRaw === 'MASKELI_KIMLIK' || roleRaw === 'OCR') ? '' : roleRaw;
-                    const mids: string[] = Array.isArray(p.masked_ids) ? p.masked_ids : [];
+                    const roleRaw = (p.relation_type || p.position || '').toLowerCase();
+                    const roleMap: Record<string, string> = {
+                      shareholder: 'Ortak',
+                      manager: 'Müdür',
+                      board_member: 'Yönetim Kurulu Üyesi',
+                      executive: 'Yönetici',
+                      founding_partner: 'Kurucu Ortak',
+                      partner: 'Ortak',
+                    };
+                    const role = roleMap[roleRaw] || ((roleRaw === 'maskeli_kimlik' || roleRaw === 'ocr') ? '' : p.relation_type || p.position || '');
+                    const rawTc = p.nationality_id || p.masked_id || p.tckn;
+                    const mids: string[] = (Array.isArray(p.masked_ids) && p.masked_ids.length > 0)
+                      ? p.masked_ids
+                      : (rawTc ? [rawTc] : []);
                     return (
                       <li key={`${p.id}-${i}`} className="flex items-center justify-between">
-                        <div className="min-w-0 pr-2">
+                        <div className="min-w-0 pr-2 flex items-center flex-wrap gap-2">
                           <span className="font-medium truncate inline-block max-w-[16rem] align-middle" title={maskUiName(name)}>{maskUiName(name)}</span>
-                          {role ? <span className="ml-2 text-xs text-slate-500 align-middle">{role}</span> : null}
-                          {p.is_starred ? <Badge variant="secondary" className="ml-2 align-middle">Yıldızlı</Badge> : null}
+                          {role ? <Badge variant="secondary" className="text-xs font-normal align-middle">{role}</Badge> : null}
+                          {p.is_starred ? <Badge variant="secondary" className="align-middle">Yıldızlı</Badge> : null}
                           {mids.length ? (
-                            <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">
+                            <span className="inline-flex flex-wrap gap-1 align-middle">
                               {mids.map((m, mi) => (
-                                <Badge key={`${p.id}-mid-${mi}`} variant="outline" className="dark:border-slate-700 dark:text-slate-300">Kimlik: {m}</Badge>
+                                <Badge key={`${p.id}-mid-${mi}`} variant="outline" className="dark:border-slate-700 dark:text-slate-300 font-mono">Kimlik: {m}</Badge>
                               ))}
                             </span>
                           ) : null}
@@ -1027,7 +1038,10 @@ export default function CompanyDetailModal({ open, onOpenChange, companyId, onOp
                 {(data as any).old_addresses.length ? (
                   <ul className="mt-2 space-y-2 text-sm max-h-60 overflow-auto pr-1">
                     {(data as any).old_addresses.map((oa: any, idx: number) => {
-                      const addr = oa?.address || '-';
+                      const rawAddr = oa?.address || '-';
+                      const addrMatch = String(rawAddr).match(/adresi\s+([\s\S]+)$/i);
+                      const cleanedStr = addrMatch ? addrMatch[1].trim() : String(rawAddr).trim();
+                      const addr = cleanedStr.replace(/^[:\-\.]+\s*/, '').trim();
                       const mcid = oa?.matched_company_id as string | undefined;
                       const mcomp = oa?.matched_company as any | undefined;
                       const title = mcomp?.firma_unvani || mcomp?.unvan || '';

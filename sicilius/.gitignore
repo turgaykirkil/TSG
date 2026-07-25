@@ -77,7 +77,12 @@ Caddyfile.new
 *.md
 **/*.md
 !README.md
-!**/README.md
+# OCR Test Outputs & PDFs
+backend/ocr_test/ocr_output/
+backend/ocr_test/pdfs/
+backend/models/
+backend/adapters/
+
 
 
 

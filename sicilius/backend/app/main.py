@@ -152,8 +152,8 @@ async def log_requests(request: Request, call_next):
     # If request logging is disabled, just continue
     if not REQUEST_LOGGING:
         return await call_next(request)
-    # Skip verbose logs for frequent polling endpoint
-    if request.url.path == f"{settings.API_V1_STR}/scraping/browser/status":
+    # Skip verbose HTTP logs for frequent status polling endpoints
+    if request.url.path.endswith("/status") or "status" in request.url.path:
         return await call_next(request)
     logger.info(f"--> {request.method} {request.url.path}")
     response = await call_next(request)
@@ -196,7 +196,7 @@ origins = [str(origin) for origin in settings.CORS_ORIGINS]
 if "http://localhost:3000" not in origins:
     origins.append("http://localhost:3000")
 # Also ensure production domains are allowed even if env parsing fails
-for _o in ("https://sicilius.com.tr", "https://www.sicilius.com.tr"):
+for _o in ("https://sicilius.com.tr", "https://www.sicilius.com.tr", "null"):
     if _o not in origins:
         origins.append(_o)
 

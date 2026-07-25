@@ -33,6 +33,7 @@ LIMIT = 10  # Test aşamasında limitli
 OUTPUT_DIR = os.path.join(BACKEND_DIR, "test_ocr_vizualisation")
 VISION_TOOL_PATH = os.path.join(BACKEND_DIR, "vision_ocr.swift")
 OLLAMA_URL = "http://localhost:11434/api/generate"
+DEFAULT_MODEL = "llama3.2:3b"
 
 # Dual-model: Sıralı çalışır, aynı anda yük binmez
 MODELS = ["gemma4:e4b", "llama3:8b"]
@@ -60,10 +61,21 @@ def normalize_ocr_text(raw: str) -> str:
 # ============================================================================
 
 # Header segmentasyonu: "T.C. ... TİCARET SİCİLİ MÜDÜRLÜĞÜ'NDEN" veya "MAHKEMES'NDEN"
-RE_HEADER = re.compile(
-    r"(?mi)^\s*(?:T\.?C\.?\s*)?.*?"
-    r"(?:T[İI]CARET\s+S[İI]C[İI]L[İI]\s+(?:M[ÜU]D[ÜU]RL[ÜU][ĞG][ÜU]|MEMURLU[ĞG][UÜ])(?:[''\u2019]?N[DT]EN)?|"
-    r"MAHKEMES[İI]['\u2019]?N[DdTt]EN)\s*$"
+RE_HEADER_ADVANCED = re.compile(
+    r"(?i)(?<!Merkezin Kayıtlı Olduğu\s)"
+    r"(?<!Eski\s)"
+    r"(?:T\.?C\.?\s*)?"
+    r"(?:[A-ZÇĞİÖŞÜa-zçğıöşü\s]*?)"
+    r"(?:T[İIÍiı]CARET\s+S[İIÍiı]C[İIÍiı]L[İIÍiı]\s+(?:M[ÜUÚu]D[ÜUÚu]RL[ÜUÚu][ĞGGg][ÜUÚu]|MEMURLU[ĞGGg][UÜÚu])(?:[''\u2019]?[NNDDTt][FEENNDDTt]+)?|"
+    r"MAHKEMES[İIÍiı][''\u2019]?[NNDDTt][FEENNDDTt]+)"
+)
+
+RE_METADATA_ANCHOR = re.compile(
+    r"(?i)(?:"
+    r"(?:[İiIı]lan\s+S[ıiİI]ra\s*(?:No)?\s*[:\s]*\d+)|"
+    r"(?:MERS[İIÍiı]S\s*(?:No)?\s*[:\s]*\d{14,18})|"
+    r"(?:ticaret\s+sicil(?:/dosya)?\s*(?:no)?\s*[:\s]*[0-9/\- ]+)"
+    r")"
 )
 
 # Ticaret Unvanı (OCR typo toleranslı: Unvam, Unvanı, Unvan, Unvant)
@@ -77,12 +89,12 @@ RE_TRADE_NAME = re.compile(
 # Eski Ticaret Unvanı
 RE_OLD_TRADE_NAME = re.compile(
     r"(?i)(?:eski\s+ticaret\s+[üu]nvan[ıit]?)\s*[:\s]\s*\n?"
-    r"(?P<name>.+?)(?:\n\s*(?:Adres|Yukarıda|Tescil)|$)",
+    r"(?P<name>.+?)(?:\n\s*(?:Adres|Adresi|İsdan|Isdan|Yukarıda|Tescil|İşletme|Isletme)|$)",
     re.DOTALL
 )
 
-# MERSIS No: 16 haneli, 0 ile başlayan
-RE_MERSIS = re.compile(r"\b0\d{15}\b")
+# MERSIS No: 16 haneli
+RE_MERSIS = re.compile(r"\b\d{16}\b")
 
 # Ticaret Sicil/Dosya No
 RE_SICIL_NO = re.compile(
@@ -104,7 +116,7 @@ RE_ADDRESS = re.compile(
 
 # Adres değişikliği: "X adresinden, Y adresine taşınmıştır"
 RE_ADDRESS_CHANGE = re.compile(
-    r"([^.]*?)\s+adresinden,?\s+([^.]*?)\s+adresine\s+(?:taşınmıştır|nakledilmiştir)",
+    r"(.{8,250}?)\s+adresinden,?\s+(.{8,250}?)\s+adresine\s+(?:taşınmıştır|nakledilmiştir|taşınmasına|nakline)",
     re.IGNORECASE | re.DOTALL
 )
 
@@ -183,67 +195,239 @@ def extract_entities_regex(text: str) -> dict:
         entities["registration_number"] = sicil
         entities["sicil_dosya_no"] = sicil
 
-    # MERSIS no
+    persons_list = []
+    seen = set()
+
+    def normalize_tckn_typos(tc_raw: str) -> str:
+        if not tc_raw:
+            return ""
+        tc = tc_raw.strip()
+        if len(tc) == 11:
+            if tc[-1] in "({[OoD":
+                tc = tc[:-1] + "0"
+            elif tc[-1] in "sS":
+                tc = tc[:-1] + "8"
+        return tc
+
+    def is_valid_tckn_format(tc_str: str) -> bool:
+        if not tc_str:
+            return False
+        tc_clean = normalize_tckn_typos(tc_str)
+        if len(tc_clean) != 11:
+            return False
+        if tc_clean[0] == '0':
+            return False
+        if tc_clean[-1] not in "02468":
+            return False
+        return True
+
+LEGAL_FINANCIAL_WORDS = [
+    "sermaye", "tl", "pay", "şube", "sube", "tasfiye", "akçe", "akce", "ayrılması", "ayrilmasi",
+    "noter", "noterliği", "noterligi", "kimlik", "numarası", "numarasi", "mersis", "sicil",
+    "madde", "fıkra", "fikra", "bent", "sayı", "sayi", "tarih", "tarihi", "tarihine", "yol",
+    "cadde", "caddesi", "sokak", "sokağı", "mahalle", "mahallesi", "blok", "daire", "no",
+    "telsiz", "temsil", "temsile", "karar", "aksi", "alınıncaya", "alıncaya", "kadar",
+    "üyeliğine", "uyeligine", "yönetim", "yonetim", "kurul", "kurulu", "başkana", "başkan",
+    "baskan", "müdür", "mudur", "müdürlük", "müdürlüğü", "müdürlüğe", "seçilenler", "secilenler",
+    "değişiklik", "degisiklik", "dağılımındaki", "dagilimindaki", "görev", "gorev", "dağılım",
+    "dagilim", "yetkililer", "müdürler", "mudurler", "devreden", "devralan", "devri", "bilgisi",
+    "ortaklık", "ortaklik", "şirket", "sirket", "unvan", "unvanı", "ticaret", "limited", "anonim",
+    "kooperatif", "tüzük", "tuzuk", "gazete", "gazetesi", "ilan", "tescil", "terkin", "hissesi",
+    "ikamet", "eden", "adresinde", "adresine", "uyruklu", "uyruğu", "uyrugu", "yerleşim",
+    "yerlesim", "yeri", "yerleşim yeri", "kimlik no", "türkiye", "turkiye", "cumhuriyeti"
+]
+
+DISTRICT_CITY_PREFIXES = [
+    "ISTANBUL", "İSTANBUL", "ANKARA", "İZMİR", "BURSA", "ANTALYA", "ADANA", "KONYA",
+    "GAZIOSMAN", "BAŞAKŞEHİR", "BASAKSEHIR", "ESENLER", "ZEYTİNBURNU", "ZEYTINBURNU",
+    "BAĞCILAR", "BAGCILAR", "KADIKÖY", "KADIKOY", "ÜSKÜDAR", "USKUDAR", "ŞİŞLİ", "SISLI",
+    "BEŞİKTAŞ", "BESIKTAS", "ÜMRANİYE", "UMRANIYE", "PENDİK", "PENDIK", "KARTAL", "MALTEPE",
+    "TUZLA", "BEYLİKDÜZÜ", "BEYLIKDUZU", "AVCILAR", "BÜYÜKÇEKMECE", "BUYUKCEKMECE",
+    "KÜÇÜKÇEKMECE", "KUCUKCEKMECE", "BAKIRKÖY", "BAKIRKOY", "SARIYER", "BEYOĞLU", "BEYOGLU",
+    "FATİH", "FATIH", "EYÜP", "EYUP", "EYÜPSULTAN", "SULTANGAZİ", "SULTANGAZI", "ARNAVUTKÖY",
+    "ARNAVUTKOY", "ÇATALCA", "CATALCA", "ŞİLE", "SILE", "SILIVRI", "SİLİVRİ"
+]
+
+def is_valid_tckn_format(tc: str) -> bool:
+    if not tc:
+        return False
+    s = str(tc).strip()
+    if len(s) == 11 and (s.isdigit() or re.match(r"^[1-9]\d{2}[\*\d]{4,6}\d{2}$", s)):
+        return True
+    return False
+
+def clean_person_name(name_raw: str) -> str:
+    if not name_raw:
+        return ""
+    name_clean = re.sub(r"(?i)\b(?:TÜRKİYE|CUMHUR[İI]YET[İI]|CUMHUKIIEI|TURK|TÜRK|UYRUK|TC|T\.C\.)\b.*$", "", str(name_raw)).strip()
+    name_clean = re.sub(r"[^\w\s\-]", " ", name_clean, flags=re.UNICODE).strip()
+    name_clean = re.sub(r"\s+", " ", name_clean).strip()
+    
+    if re.search(r"\d", name_clean):
+        return ""
+        
+    words = [w for w in name_clean.split()]
+    if len(words) < 2 or len(words) > 4:
+        return ""
+        
+    FORBIDDEN_ROOTS = [
+        "tasfiy", "alacakl", "cagr", "cagn", "dolay", "noter", "sermay", "tescil", "terkin", 
+        "unvan", "sirket", "limited", "anonim", "adres", "mudur", "temsil", "karar", "ilan",
+        "turk", "cumhur", "gazet", "sicil", "mersis", "faaliyet", "durum"
+    ]
+    
+    for w in words:
+        w_lower = w.lower()
+        w_norm = (
+            w_lower.replace("ı", "i").replace("g", "g").replace("ğ", "g")
+            .replace("ş", "s").replace("ü", "u").replace("ö", "o").replace("ç", "c")
+        )
+        w_upper = w.upper()
+        if w_lower in LEGAL_FINANCIAL_WORDS:
+            return ""
+        if any(w_norm.startswith(root) for root in FORBIDDEN_ROOTS):
+            return ""
+        if any(w_upper.startswith(prefix) for prefix in DISTRICT_CITY_PREFIXES):
+            return ""
+            
+    if any(len(w) < 2 for w in words):
+        return ""
+        
+    return " ".join(words)
+
+def extract_entities_regex(text: str) -> dict:
+    entities = {
+        "trade_name": None,
+        "old_trade_name": None,
+        "registration_number": None,
+        "sicil_dosya_no": None,
+        "mersis_no": None,
+        "addresses": [],
+        "old_addresses": [],
+        "persons": [],
+        "hususlar": [],
+        "belgeler": [],
+        "ilan_sira_no": [],
+    }
+    persons_list = []
+    seen = set()
+
+    def add_person(name, tc):
+        cleaned_name = clean_person_name(name)
+        tc_clean = tc.strip() if tc else None
+        
+        if not cleaned_name:
+            return
+            
+        if tc_clean and not is_valid_tckn_format(tc_clean):
+            return
+            
+        key = (cleaned_name.upper(), tc_clean)
+        if key not in seen:
+            seen.add(key)
+            persons_list.append({"name": cleaned_name, "tckn": tc_clean})
+
+    # MERSIS
     m = RE_MERSIS.search(text)
     if m:
         entities["mersis_no"] = m.group(0)
+        mersis_val = m.group(0)
+        if mersis_val[0] in "123456789":
+            owner_tckn = mersis_val[:11]
+            if is_valid_tckn_format(owner_tckn):
+                add_person("İşletme Sahibi", owner_tckn)
 
-    # Adres (değişiklik varsa eski/yeni ayır)
+    # Address change
     change = RE_ADDRESS_CHANGE.search(text)
     if change:
         old_addr = re.sub(r"\s+", " ", change.group(1)).strip()
+        old_addr = re.sub(r"^.*?\badresi\s+", "", old_addr, flags=re.IGNORECASE).strip()
         new_addr = re.sub(r"\s+", " ", change.group(2)).strip()
         entities["addresses"] = [new_addr]
         entities["old_addresses"] = [old_addr]
     else:
         m = RE_ADDRESS.search(text)
         if m:
-            addr = re.sub(r"\s+", " ", m.group("addr")).strip(" .-\n")
-            if len(addr) > 5:
-                entities["addresses"] = [addr]
+            entities["addresses"] = [re.sub(r"\s+", " ", m.group("addr")).strip()]
+
+    # Strategy 0: Direct TCKN + Name parser (handles "Kimlik Numaralı NAME", "Kimlik No'lu ... adresinde ikamet eden, NAME")
+    direct_tc_pattern = re.compile(
+        r"([1-9]\d{2}[\*\d]{4,6}\d{2})\s*(?:Kimlik\s+Numaralı|Kimlik\s+No['’]?lu)[,\s]+"
+        r"(?:[^\n]*?adresinde\s+ikamet\s+eden[,\s]+)?"
+        r"([A-ZÖÇŞİĞÜIİ][A-ZÖÇŞİĞÜIİa-zöçşığü]+(?:\s+[A-ZÖÇŞİĞÜIİ][A-ZÖÇŞİĞÜIİa-zöçşığü]+){1,3})",
+        re.IGNORECASE
+    )
+    for m in direct_tc_pattern.finditer(text):
+        tc_val, name_cand = m.group(1), m.group(2).strip()
+        name_cand = re.sub(r"['’](?:e|a|in|ın|un|ün|den|dan)\b", "", name_cand, flags=re.IGNORECASE).strip()
+        add_person(name_cand, tc_val)
+
+    # Strategy 1: Appointment Sentence Parser (TCKN -> FORWARD search for ALL CAPS / TitleCase NAME before role title)
+    app_pattern = re.compile(
+        r"([1-9]\d{2}[\*\d]{4,6}\d{2}).{2,250}?\b"
+        r"([A-ZÖÇŞİĞÜIİ][A-ZÖÇŞİĞÜIİa-zöçşığü]+(?:\s+[A-ZÖÇŞİĞÜIİ][A-ZÖÇŞİĞÜIİa-zöçşığü]+){1,3})\s+"
+        r"(?:Müdür|Müdürlüğü|Yönetim|Başkan|Başkanı|Temsil|Temsile|olarak|seçilmiştir|seçilmişlerdir|seçilmeleri)",
+        re.DOTALL
+    )
+    for m in app_pattern.finditer(text):
+        tc_val, name_cand = m.group(1), m.group(2).strip()
+        name_cand = re.sub(r"(?i)\b(?:Müdür|Yönetim|Başkan|Temsile|olarak|seçilmiştir)\b.*$", "", name_cand).strip()
+        add_person(name_cand, tc_val)
+
+    # Strategy 2: Founder Table Line Parser (handles multiline wrapped names/surnames like FATMA BEYZA \n ÖZDEMİR)
+    CITY_WORDS = ["ISTANBUL", "İSTANBUL", "ANKARA", "İZMİR", "SILIVRI", "SİLİVRİ", "SİLIVRİ", "SILIVRİ", "BURSA", "ANTALYA", "ADANA", "KONYA", "BESIKIAS", "BEŞİKTAŞ"]
+    lines = text.split("\n")
+    for idx, line in enumerate(lines):
+        m_tc = re.search(r"(\d{3}[\*\d]{4,6}\d{2})", line)
+        if m_tc and not any(kw in line.lower() for kw in ["mersis", "sicil", "müdürlüğü", "dosya no"]):
+            tc_val = m_tc.group(1)
+            before = line[:m_tc.start()].strip()
+            before = re.sub(r"^\d+\.?\s*", "", before).strip()
+            before = re.sub(r"(?i)\b(?:TÜRKİYE|CUMHUR[İI]YET[İI]|CUMHUKIIEI|TURK|TÜRK|UYRUK|TC|T\.C\.|ITÜRKİYE)\b.*$", "", before).strip()
+            if "/" in before:
+                before = before.split("/")[0].strip()
+            words_curr = [w.strip() for w in before.split() if w.strip() and w.upper() not in CITY_WORDS]
+            
+            # Check UPWARDS (idx-1, idx-2) for first name (e.g. FATMA BEYZA above ÖZDEMİR on TCKN line)
+            prev_name = ""
+            for offset in [1, 2]:
+                if idx - offset >= 0:
+                    prev_line = lines[idx - offset].strip()
+                    if prev_line and not any(kw in prev_line.lower() for kw in ["şirketin", "unvanı", "mersis", "sicil", "amaç", "konu", "madde", "sura", "sıra", "kurucu", "adres", "uyruk", "kimlik"]):
+                        prev_clean = re.sub(r"(?i)\b(?:TÜRKİYE|CUMHUR[İI]YET[İI]|CUMHUKIIEI|TURK|TÜRK|UYRUK|TC|T\.C\.|ITÜRKİYE)\b.*$", "", prev_line).strip()
+                        prev_clean = re.sub(r"[^\w\s\-]", " ", prev_clean, flags=re.UNICODE).strip()
+                        p_words = [w for w in prev_clean.split() if w.upper() not in CITY_WORDS]
+                        if p_words and all(w[0].isupper() for w in p_words if len(w) > 1):
+                            prev_name = " ".join(p_words)
+                            break
+                            
+            if prev_name:
+                final_name = prev_name + " " + " ".join(words_curr)
+            else:
+                surname = ""
+                if idx + 1 < len(lines):
+                    next_line = lines[idx+1].strip()
+                    if next_line and not any(kw in next_line.lower() for kw in ["şirketin", "unvanı", "mersis", "sicil", "amaç", "konu", "madde"]):
+                        next_words = [w.strip() for w in next_line.split() if w.strip()]
+                        if next_words and next_words[0].isupper() and len(next_words[0]) >= 2:
+                            first_w = next_words[0]
+                            if not any(k in first_w.lower() for k in ["türkiye", "cumhuriyeti", "uyruk", "adres", "kimlik", "sira", "sıra"]):
+                                surname = first_w
+                if surname:
+                    final_name = " ".join(words_curr) + " " + surname
+                else:
+                    if len(words_curr) >= 3 and words_curr[-1].isupper():
+                        final_name = " ".join(words_curr[:2])
+                    else:
+                        final_name = " ".join(words_curr[:3]) if len(words_curr) > 3 else " ".join(words_curr)
+                        
+            add_person(final_name, tc_val)
+
+    entities["persons"] = persons_list
 
     # İlan Sıra No
     for m in RE_ILAN_SIRA.finditer(text):
         entities["ilan_sira_no"].append(m.group(1))
-
-    # Kişiler (Ders #6: Sadece Kimlik No ile eşleşen isimler)
-    seen_persons = set()
-    for m in RE_PERSON.finditer(text):
-        tc = m.group(1)
-        name = re.sub(r"\s+", " ", m.group(2)).strip()
-        key = f"{name}_{tc}"
-        if key not in seen_persons and len(name) > 2:
-            seen_persons.add(key)
-            entities["persons"].append({
-                "text": name,
-                "label": "PERSON",
-                "masked_ids": tc
-            })
-
-    # Tablo formatındaki kişiler (yedek mekanizma)
-    if not entities["persons"]:
-        for m in RE_PERSON_TABLE.finditer(text):
-            name = m.group("name").strip()
-            tc = m.group("tc")
-            key = f"{name}_{tc}"
-            if key not in seen_persons and len(name) > 2:
-                seen_persons.add(key)
-                entities["persons"].append({
-                    "text": name,
-                    "label": "PERSON",
-                    "masked_ids": tc
-                })
-
-    # Hususlar
-    m = RE_HUSUSLAR.search(text)
-    if m:
-        hususlar_raw = m.group(1).strip()
-        entities["hususlar"] = [h.strip() for h in re.split(r"[,;]", hususlar_raw) if h.strip()]
-
-    # Belgeler
-    m = RE_BELGELER.search(text)
-    if m:
-        entities["belgeler"] = re.sub(r"\s+", " ", m.group(1)).strip()
 
     return entities
 
@@ -253,21 +437,57 @@ def extract_entities_regex(text: str) -> dict:
 
 def split_by_headers(raw_text: str) -> list:
     """
-    Raw OCR metnini "T.C. ... TİCARET SİCİLİ MÜDÜRLÜĞÜ'NDEN" başlıklarına göre parçalar.
+    Raw OCR metnini "T.C. ... TİCARET SİCİLİ MÜDÜRLÜĞÜ'NDEN" ve metadata bloklarına göre parçalar.
     Her parça bir ayrı ilan (announcement) ifade eder.
     """
-    matches = list(RE_HEADER.finditer(raw_text))
-    if not matches:
-        return [("", raw_text.strip())] if raw_text.strip() else []
+    if not raw_text or not raw_text.strip():
+        return []
+        
+    candidates = []
+    
+    # 1. Find all potential header matches
+    for m in RE_HEADER_ADVANCED.finditer(raw_text):
+        start_pos = m.start()
+        ahead = raw_text[start_pos:start_pos + 350]
+        
+        # Exclude body mentions like "tescili için ... müdürlüğüne"
+        if re.search(r"(?i)(?:tescili\s+için|müracaat\s+edilmiş|kayıtlı\s+olduğu)", raw_text[max(0, start_pos-40):start_pos]):
+            continue
+            
+        # Must have metadata anchor ahead
+        if (re.search(r"(?i)MERS[İIÍiı]S\s*(?:No)?\s*[:\s]", ahead) or
+            re.search(r"(?i)sicil(?:/Dosya)?\s*No\s*[:\s]", ahead) or
+            re.search(r"(?i)(?:ticaret\s+)?[üu]nvan[ıit]?\s*[:\s]", ahead) or
+            re.search(r"(?i)[İiIı]lan\s+S[ıiİI]ra\s*(?:No)?\s*[:\s]", ahead)):
+            candidates.append((start_pos, m.group(0).strip()))
 
+    # 2. Find metadata anchors without a header preceding them
+    for m in RE_METADATA_ANCHOR.finditer(raw_text):
+        start_pos = m.start()
+        if any(abs(start_pos - c[0]) < 150 for c in candidates):
+            continue
+            
+        ahead = raw_text[start_pos:start_pos + 300]
+        if re.search(r"(?i)(?:ticaret\s+)?[üu]nvan[ıit]?\s*[:\s]", ahead) or re.search(r"(?i)yukarıda\s+bilgileri\s+verilen", ahead):
+            candidates.append((start_pos, "T.C. TİCARET SİCİLİ MÜDÜRLÜĞÜ'NDEN"))
+            
+    candidates.sort(key=lambda x: x[0])
+    
+    if not candidates:
+        return [("T.C. TİCARET SİCİLİ MÜDÜRLÜĞÜ'NDEN", raw_text.strip())]
+        
+    filtered = []
+    for c in candidates:
+        if not filtered or (c[0] - filtered[-1][0]) >= 100:
+            filtered.append(c)
+            
     chunks = []
-    for i, match in enumerate(matches):
-        header = match.group(0).strip()
-        start = match.start()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(raw_text)
-        chunk_text = raw_text[start:end].strip()
-        if chunk_text:
-            chunks.append((header, chunk_text))
+    for i, (pos, header) in enumerate(filtered):
+        next_pos = filtered[i+1][0] if i + 1 < len(filtered) else len(raw_text)
+        chunk_txt = raw_text[pos:next_pos].strip()
+        if chunk_txt:
+            chunks.append((header, chunk_txt))
+            
     return chunks
 
 # ============================================================================
@@ -300,7 +520,7 @@ def ocr_all_pages(doc) -> tuple:
 
     for page_num in range(doc.page_count):
         page = doc.load_page(page_num)
-        pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0))
+        pix = page.get_pixmap(matrix=fitz.Matrix(3.0, 3.0))
         temp_img = os.path.join("/tmp", f"_ocr_page_{page_num}.png")
         pix.save(temp_img)
         page_images.append(temp_img)
@@ -373,25 +593,32 @@ def query_llm(model: str, chunk: str, regex_entities: dict) -> dict | None:
         "prompt": f"Aşağıdaki Türk Ticaret Sicili Gazetesi metnini analiz et ve JSON olarak çıkar:\n\n{chunk[:4000]}",
         "stream": False,
         "format": "json",
+        "options": {
+            "temperature": 0.0,
+            "seed": 42,
+            "num_thread": 4
+        }
     }
 
-    try:
-        r = requests.post(OLLAMA_URL, json=payload, timeout=300)
-        if r.status_code != 200:
-            print(f"    [LLM] HTTP {r.status_code}")
+    for attempt in range(2):
+        try:
+            r = requests.post(OLLAMA_URL, json=payload, timeout=120)
+            if r.status_code == 200:
+                response_text = r.json().get("response", "{}")
+                parsed = json.loads(response_text)
+                return parsed
+            else:
+                print(f"    [LLM] HTTP {r.status_code} (deneme {attempt+1})")
+        except json.JSONDecodeError as e:
+            print(f"    [LLM] JSON parse error: {e}")
             return None
-        response_text = r.json().get("response", "{}")
-        parsed = json.loads(response_text)
-        return parsed
-    except json.JSONDecodeError as e:
-        print(f"    [LLM] JSON parse error: {e}")
-        return None
-    except requests.exceptions.Timeout:
-        print(f"    [LLM] Timeout (300s)")
-        return None
-    except Exception as e:
-        print(f"    [LLM] Error: {e}")
-        return None
+        except requests.exceptions.Timeout:
+            print(f"    [LLM] Timeout 120s (deneme {attempt+1})")
+            time.sleep(2)
+        except Exception as e:
+            print(f"    [LLM] Error: {e} (deneme {attempt+1})")
+            time.sleep(1)
+    return None
 
 # ============================================================================
 # GUARDIAN OVERRIDE + SCHEMA VALIDATOR
@@ -418,21 +645,49 @@ def guardian_override(llm_result: dict, regex_entities: dict) -> dict:
         if regex_entities.get(key):
             result[key] = regex_entities[key]
 
-    # Liste alanlar: regex varsa ezer
-    for key in ["addresses", "old_addresses", "ilan_sira_no", "hususlar"]:
+    # Liste alanlar: Regex varsa birleştirir ve temizler
+    for key in ["addresses", "ilan_sira_no", "hususlar"]:
         if regex_entities.get(key):
             result[key] = regex_entities[key]
 
-    # Persons: SIFIR HALÜSİNASYON kuralı
-    # Regex Kimlik No pattern ile doğrulanmış kişileri yakalar.
-    # Eğer regex kişi bulamadıysa, LLM'in OCR gürültüsünden kişi üretme
-    # riski çok yüksek (örn: "Ierkeze AIl Digner"). Bu yüzden:
-    #   - Regex buldu → regex sonuçlarını kullan
-    #   - Regex bulamadı → BOŞ LISTE (LLM halüsinasyonu engellenir)
-    if regex_entities.get("persons"):
-        result["persons"] = regex_entities["persons"]
-    else:
-        result["persons"] = []  # LLM halüsinasyonunu engelle
+    # old_addresses: LLM + Regex harmanlama ve ön metin temizliği
+    combined_oa = []
+    seen_oa = set()
+    for oa in (regex_entities.get("old_addresses") or []) + (llm_result.get("old_addresses") or []):
+        raw = oa.get("address") if isinstance(oa, dict) else str(oa)
+        addr = str(raw).strip()
+        match = re.search(r"(?i)\badresi\s*[:\s]?", addr)
+        if match:
+            addr = addr[match.end():].strip()
+        addr = re.sub(r"^\s*[:\-\.]+", "", addr).strip()
+        if addr and addr not in seen_oa:
+            seen_oa.add(addr)
+            combined_oa.append({"address": addr})
+    result["old_addresses"] = combined_oa
+
+    # persons: LLM + Regex harmanlama ve clean_person_name doğrulaması
+    combined_persons = []
+    seen_p = set()
+    raw_p_list = (regex_entities.get("persons") or []) + (llm_result.get("persons") or [])
+    for p_item in raw_p_list:
+        if isinstance(p_item, str):
+            p_name = p_item.strip()
+            p_tc = None
+        elif isinstance(p_item, dict):
+            p_name = p_item.get("name") or p_item.get("text") or p_item.get("full_name")
+            p_tc = p_item.get("tckn") or p_item.get("masked_ids") or p_item.get("masked_id")
+            if isinstance(p_tc, list) and p_tc:
+                p_tc = p_tc[0]
+        else:
+            continue
+            
+        c_name = clean_person_name(p_name)
+        if c_name:
+            p_key = (c_name.upper(), str(p_tc).strip() if p_tc else "")
+            if p_key not in seen_p:
+                seen_p.add(p_key)
+                combined_persons.append({"name": c_name, "tckn": p_tc})
+    result["persons"] = combined_persons
 
     return result
 
@@ -465,7 +720,7 @@ def validate_schema(result: dict, index: int, header: str, original_text: str) -
 # ============================================================================
 
 # Llama 3 setup (Final model choice)
-DEFAULT_MODEL = "llama3:8b"
+DEFAULT_MODEL = "llama3.2:3b"
 MODELS = [DEFAULT_MODEL]
 
 def get_ocr_baseline(pdf_bytes: bytes) -> list:
