@@ -1,0 +1,6 @@
+module Pods_RouteIQ_RouteIQTests {
+  umbrella header "Pods-RouteIQ-RouteIQTests-umbrella.h"
+
+  export *
+  module * { export * }
+}

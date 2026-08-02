@@ -1,0 +1,51 @@
+# RouteIQ Proje Kuralları
+
+# Geliştirme Ortamı
+.DS_Store
+.env
+.vscode/
+.idea/
+
+# Bağımlılıklar
+node_modules/
+vendor/
+*.log
+
+# Derleme Çıktıları
+build/
+dist/
+android/app/build/
+ios/build/
+
+# Güvenlik
+*.key
+*.pem
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Test ve Performans
+coverage/
+*.test.js
+*.test.ts
+.nyc_output/
+
+# Platform Özgü Dosyalar
+.bundle/
+.watchmanconfig
+
+# Geçici Dosyalar
+*.swp
+*.swo
+*~
+.tmp/
+
+# Xcode
+*.xcuserstate
+ios/RouteIQ.xcworkspace/xcuserdata/
+
+# Proje Özel Kurallar
+screenshots/local/
+db.local.json
+RULES.md

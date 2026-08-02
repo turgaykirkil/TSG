@@ -1,0 +1,6 @@
+module Pods_RouteIQ {
+  umbrella header "Pods-RouteIQ-umbrella.h"
+
+  export *
+  module * { export * }
+}
