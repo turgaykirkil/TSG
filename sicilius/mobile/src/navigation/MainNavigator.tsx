@@ -9,6 +9,8 @@ import CustomerNavigator from './CustomerNavigator';
 import RouteOptimizationScreen from '../screens/route/RouteOptimizationScreen';
 import SettingsNavigator from './SettingsNavigator';
 
+import LeaderboardScreen from '../screens/gamification/LeaderboardScreen';
+
 import { MainTabParamList } from './types';
 import { BottomTabNavigationOptions } from '@react-navigation/bottom-tabs';
 import { lightColors } from '../theme';
@@ -19,7 +21,7 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 const TAB_ICONS: Record<keyof MainTabParamList, string> = Object.freeze({
   'Home': 'home-variant',
   'Tasks': 'clipboard-check-outline',
-  'Map': 'map-marker-radius-outline',
+  'Gamification': 'trophy-outline',
   'Route': 'map-marker-path',
   'Customers': 'account-group-outline',
   'Settings': 'cog-outline'
@@ -81,6 +83,14 @@ const MainNavigator = () => {
         component={TaskNavigator} 
         options={{ 
           title: 'Görevler',
+          lazy: true 
+        }} 
+      />
+      <Tab.Screen 
+        name="Gamification" 
+        component={LeaderboardScreen} 
+        options={{ 
+          title: 'Saha Ligi',
           lazy: true 
         }} 
       />

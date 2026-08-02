@@ -14,6 +14,7 @@ func NewRouter(
 	nexusH *handler.NexusHandler,
 	signalH *handler.SignalHandler,
 	authH *handler.AuthHandler,
+	gamificationH *handler.GamificationHandler,
 	authUseCase domain.AuthUseCase,
 ) *gin.Engine {
 	r := gin.New()
@@ -40,6 +41,15 @@ func NewRouter(
 		v1.GET("/companies/nearby", companyH.GetNearby)
 		v1.GET("/companies/:id", companyH.GetByID)
 		v1.GET("/nlp/leads/nearby", leadH.GetNearby)
+
+		// Gamification Endpoints
+		gamificationGroup := v1.Group("/gamification")
+		{
+			gamificationGroup.POST("/check-in", gamificationH.CheckIn)
+			gamificationGroup.POST("/self-correct-coordinate", gamificationH.SelfCorrectCoordinate)
+			gamificationGroup.GET("/leaderboard", gamificationH.GetLeaderboard)
+			gamificationGroup.GET("/daily-quests", gamificationH.GetDailyQuests)
+		}
 	}
 
 	// Sicilius B2B Enterprise API v2 Group (Protected by Security Layer)

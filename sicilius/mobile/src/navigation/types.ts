@@ -19,7 +19,7 @@ export type AuthStackNavigationProp = NativeStackNavigationProp<AuthStackParamLi
 export type MainTabParamList = {
   Home: undefined;
   Tasks: undefined;
-  Map: undefined;
+  Gamification: undefined;
   Route: undefined;
   Customers: undefined;
   Settings: undefined;

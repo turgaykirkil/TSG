@@ -15,3 +15,10 @@ from .company_error import CompanyError
 from .contact_message import ContactMessage
 from .geocoding_cache import GeocodingCache
 from .b2b_customer import B2BCustomer, APIKey
+from .gamification import (
+    UserGamificationStats,
+    XPAuditLog,
+    Badge,
+    UserBadge,
+    UserDailyQuest
+)

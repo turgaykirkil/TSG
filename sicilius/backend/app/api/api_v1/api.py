@@ -33,6 +33,7 @@ from app.api.api_v1.endpoints import (
     worker_node,
     b2b_customers,
     tasks,
+    gamification,
 )
 
 api_router = APIRouter()
@@ -61,6 +62,7 @@ api_router.include_router(contact_messages.router, prefix="/contact", tags=["Con
 api_router.include_router(nexus.router, prefix="/nexus", tags=["NEXUS Risk Engine"])
 api_router.include_router(b2b_customers.router, prefix="/b2b-customers", tags=["B2B Customers"])
 api_router.include_router(tasks.router, prefix="/tasks", tags=["Tasks"])
+api_router.include_router(gamification.router, prefix="/gamification", tags=["Gamification Engine"])
 
 # Functionality
 # OCR/Parsing endpointleri yalnızca API_ONLY=False iken ve ilgili bayraklar true ise dahil edilir

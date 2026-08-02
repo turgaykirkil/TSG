@@ -52,6 +52,7 @@ func main() {
 	personRepo := repository.NewPostgresPersonRepository(dbPool)
 	nexusRepo := repository.NewPostgresNexusRepository(dbPool)
 	signalRepo := repository.NewPostgresSignalRepository(dbPool)
+	gamificationRepo := repository.NewPostgresGamificationRepository(dbPool)
 
 	companyUC := usecase.NewCompanyUseCase(companyRepo)
 	leadUC := usecase.NewLeadUseCase(leadRepo)
@@ -59,6 +60,7 @@ func main() {
 	personUC := usecase.NewPersonUseCase(personRepo)
 	nexusUC := usecase.NewNexusUseCase(nexusRepo)
 	signalUC := usecase.NewSignalUseCase(signalRepo)
+	gamificationUC := usecase.NewGamificationUseCase(gamificationRepo)
 
 	companyH := handler.NewCompanyHandler(companyUC)
 	leadH := handler.NewLeadHandler(leadUC)
@@ -66,9 +68,10 @@ func main() {
 	nexusH := handler.NewNexusHandler(nexusUC)
 	signalH := handler.NewSignalHandler(signalUC)
 	authH := handler.NewAuthHandler(authUC)
+	gamificationH := handler.NewGamificationHandler(gamificationUC)
 
 	// Router setup with Security Layer & Enterprise Endpoints
-	router := deliveryHTTP.NewRouter(companyH, leadH, personH, nexusH, signalH, authH, authUC)
+	router := deliveryHTTP.NewRouter(companyH, leadH, personH, nexusH, signalH, authH, gamificationH, authUC)
 
 	server := &http.Server{
 		Addr:         ":" + cfg.Port,

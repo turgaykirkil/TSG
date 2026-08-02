@@ -475,6 +475,29 @@ const HomeScreen = () => {
           />
         </View>
 
+        {/* ─── Oyunlaştırma (Saha Ligi) Banner ─── */}
+        <TouchableOpacity 
+          style={styles.gamificationBanner}
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('Gamification' as any)}>
+          <View style={styles.gamificationHeader}>
+            <View style={styles.gamificationTitleBox}>
+              <Icon name="trophy" size={24} color="#F59E0B" />
+              <Text style={styles.gamificationTitle}>Saha Ligi & Rozetler 🏆</Text>
+            </View>
+            <View style={styles.streakPill}>
+              <Icon name="fire" size={16} color="#FF5722" />
+              <Text style={styles.streakPillText}>Seri 🔥</Text>
+            </View>
+          </View>
+          <Text style={styles.gamificationSubtitle}>
+            GPS doğrulamalı ziyaretler yaparak XP kazan, gizli ligde yüksel ve rozetleri topla!
+          </Text>
+          <View style={styles.gamificationFooter}>
+            <Text style={styles.gamificationBtnText}>Liderlik Tablosunu Gör →</Text>
+          </View>
+        </TouchableOpacity>
+
         {/* ─── Satış Grafiği ─── */}
         <Card style={styles.chartCard}>
           <Card.Content>
@@ -767,6 +790,65 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: lightColors.subtext,
     marginTop: 2,
+  },
+  // Gamification Banner Styles (Brand Cyan Theme)
+  gamificationBanner: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderWidth: 1.5,
+    borderColor: '#0EA5E9',
+    elevation: 3,
+    shadowColor: '#0EA5E9',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+  },
+  gamificationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  gamificationTitleBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  gamificationTitle: {
+    color: '#0F172A',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  streakPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  streakPillText: {
+    color: '#EF4444',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  gamificationSubtitle: {
+    color: '#64748B',
+    fontSize: 13,
+    marginTop: 8,
+    lineHeight: 18,
+  },
+  gamificationFooter: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+  },
+  gamificationBtnText: {
+    color: '#0EA5E9',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });
 
