@@ -548,12 +548,21 @@ async def start_enhanced_scraping_process(count: int, city: Optional[str] = None
             logger.warning("Failed to close browser during finalization.")
 
 
-def _compute_candidate_sicil_numbers(db: Session, office_label: str, count: int, min_threshold: int = 1) -> List[int]:
-    """Verilen ofis için DB'deki sayısal sicil_no'ları toplayıp aralıklardaki boşlukları (gaps)
-    üretir; gerekirse en büyük numaradan itibaren yukarı doğru tamamlayarak toplam 'count' aday üretir.
+def _compute_candidate_sicil_numbers(
+    db: Session, 
+    office_label: str, 
+    count: int, 
+    min_threshold: int = 1,
+    strategy: str = 'sequential',
+    start_from: Optional[int] = None
+) -> List[int]:
+    """Verilen ofis için aday sicil numaralarını üretir.
+    - If start_from is specified, starts from start_from onwards, skipping numbers already in DB.
+    - Otherwise (resume mode), starts from highest DB sicil_no + 1.
     """
+    if start_from is not None and start_from <= 0:
+        start_from = None
     try:
-        # Ofis eşleşmesi: öncelik sicil_office_code, yoksa sicil_mudurluk ilk kelime eşleşmesi
         from app.models.company import Company
         q = (
             db.query(Company.sicil_no, Company.sicil_office_code, Company.sicil_mudurluk)
@@ -569,7 +578,6 @@ def _compute_candidate_sicil_numbers(db: Session, office_label: str, count: int,
                 s = (sicil_no or "").strip()
                 if not s:
                     continue
-                # sadece tam sayısal sicil no'ları al
                 if s.isdigit():
                     val = int(s)
                     if val >= max(1, int(min_threshold)):
@@ -577,35 +585,26 @@ def _compute_candidate_sicil_numbers(db: Session, office_label: str, count: int,
             except Exception:
                 continue
         if not nums:
-            # hiç veri yoksa 1'den başlayarak count kadar üret
-            start_n = max(1, int(min_threshold))
-            return list(range(start_n, start_n + max(1, count)))[:count]
-        nums = sorted(set(nums))
+            current_start = start_from if start_from is not None else max(1, int(min_threshold))
+            return list(range(current_start, current_start + max(1, count)))[:count]
+        
+        nums_set = set(nums)
+        nums_sorted = sorted(nums_set)
         candidates: List[int] = []
-        # Başlangıç boşluğu: min_threshold .. ilk mevcut-1
-        start_n = max(1, int(min_threshold))
-        first = nums[0]
-        if first > start_n:
-            for n in range(start_n, first):
-                candidates.append(n)
-                if len(candidates) >= count:
-                    return candidates[:count]
-        # Aralıklardaki boşlukları sayac dolana kadar doldur
-        prev = nums[0]
-        for current in nums[1:]:
-            gap_start = prev + 1
-            gap_end = current - 1
-            if gap_end >= gap_start:
-                for n in range(gap_start, gap_end + 1):
+
+        if start_from is not None and start_from > 0:
+            n = start_from
+            while len(candidates) < count:
+                if n not in nums_set:
                     candidates.append(n)
-                    if len(candidates) >= count:
-                        return candidates[:count]
-            prev = current
-        # Gaps yetmezse max'tan itibaren devam
-        max_n = nums[-1]
-        n = max_n + 1
+                n += 1
+            return candidates
+
+        effective_start = nums_sorted[-1] + 1 if nums_sorted else max(1, int(min_threshold))
+        n = effective_start
         while len(candidates) < count:
-            candidates.append(n)
+            if n not in nums_set:
+                candidates.append(n)
             n += 1
         return candidates[:count]
     except Exception:

@@ -8,6 +8,7 @@ class ScrapingState:
     def reset(self):
         with self.lock:
             self.is_running = False
+            self.is_paused = False
             self.should_stop = False
             self.processed = 0
             self.total = 0
@@ -15,10 +16,12 @@ class ScrapingState:
             self.companies = []
             self.error_message = None
             self.logs = []
+            self.last_sicil_no = None
 
     def start(self, total_count):
         with self.lock:
             self.is_running = True
+            self.is_paused = False
             self.should_stop = False
             self.processed = 0
             self.total = total_count
@@ -26,9 +29,22 @@ class ScrapingState:
             self.error_message = None
             self.logs = []
 
+    def pause(self):
+        with self.lock:
+            self.is_paused = True
+
+    def resume(self):
+        with self.lock:
+            self.is_paused = False
+
     def stop(self):
         with self.lock:
             self.should_stop = True
+            self.is_paused = False
+
+    def set_last_sicil_no(self, sicil_no: int):
+        with self.lock:
+            self.last_sicil_no = sicil_no
 
     def add_company_result(self, company_data):
         with self.lock:
@@ -44,10 +60,12 @@ class ScrapingState:
         with self.lock:
             self.error_message = message
             self.is_running = False
+            self.is_paused = False
 
     def finish(self):
         with self.lock:
             self.is_running = False
+            self.is_paused = False
 
     def add_log(self, message):
         print(f"[SCRAPER] {message}", flush=True)
@@ -66,11 +84,13 @@ class ScrapingState:
         with self.lock:
             return {
                 "running": self.is_running,
+                "paused": self.is_paused,
                 "processed": self.processed,
                 "total": self.total,
                 "error": self.error_message,
                 "logs": self.logs,
                 "companies": self.companies,
+                "last_sicil_no": self.last_sicil_no,
             }
 
 # Singleton instance to share state across the application

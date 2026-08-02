@@ -62,11 +62,13 @@ def get_unified_status(db: Session = Depends(deps.get_db)):
     scraping_info = scraping_state.get_status()
     logs = scraping_info.get("logs", [])
     is_scraping_active = scraping_info.get("running", False)
+    is_scraping_paused = scraping_info.get("paused", False)
 
     return {
         "stats": stats,
         "logs": logs,
         "is_scraping_active": is_scraping_active,
+        "is_scraping_paused": is_scraping_paused,
         "is_enrichment_active": is_enrichment_active
     }
 

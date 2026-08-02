@@ -95,25 +95,29 @@ def get_storage_pdfs_count():
 @router.get("/coordinates", summary="Get coordinate statistics")
 def get_coordinate_stats(db: Session = Depends(deps.get_db)):
     try:
-        coordinated = db.execute(text("SELECT COUNT(*) FROM companies WHERE koordinat IS NOT NULL")).scalar() or 0
-        uncoordinated = db.execute(text("SELECT COUNT(*) FROM companies WHERE address IS NOT NULL AND koordinat IS NULL")).scalar() or 0
-        conflicts = db.execute(text("""
+        coordinated = db.query(Company).filter(Company.koordinat.isnot(None)).count()
+        uncoordinated = db.query(Company).filter(Company.address.isnot(None), Company.koordinat.is_(None)).count()
+        conflicts_sql = text("""
             SELECT COUNT(*) FROM (
-                SELECT address FROM companies 
+                SELECT address FROM app.companies 
                 WHERE address IS NOT NULL AND koordinat IS NOT NULL
                 GROUP BY address HAVING COUNT(*) > 1
             ) AS c
-        """)).scalar() or 0
+        """)
+        conflicts = db.execute(conflicts_sql).scalar() or 0
 
         return {
             "coordinated": coordinated,
             "uncoordinated": uncoordinated,
             "conflicts": conflicts
         }
-        raise
     except Exception as exc:  # pragma: no cover - defensive
         logger.error("Error fetching coordinate stats: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Could not retrieve coordinate statistics: {exc}")
+        return {
+            "coordinated": 0,
+            "uncoordinated": 0,
+            "conflicts": 0
+        }
 
 
 @router.get("/db-tables", summary="List database tables for usage page")

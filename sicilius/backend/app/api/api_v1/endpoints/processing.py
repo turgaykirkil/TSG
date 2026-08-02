@@ -102,6 +102,7 @@ async def process_background_geocoding(company_ids: List[str]):
         db.close()
 
 @router.post("/process-coordinates", summary="Fetch and update coordinates for companies")
+@router.post("/process-coordinates/", summary="Fetch and update coordinates for companies")
 async def process_coordinates(request: Request, request_body: CoordinateProcessingRequest = Body(...), db: Session = Depends(get_db)):
     """
     Fetches companies without coordinates, geocodes their addresses using LocationIQ API,
@@ -116,7 +117,7 @@ async def process_coordinates(request: Request, request_body: CoordinateProcessi
 
     try:
         # 1. Fetch companies that need geocoding
-        fetch_query = text("SELECT id, address FROM public.companies WHERE address IS NOT NULL AND koordinat IS NULL LIMIT :limit")
+        fetch_query = text("SELECT id, address FROM app.companies WHERE address IS NOT NULL AND koordinat IS NULL LIMIT :limit")
         companies_to_process = db.execute(fetch_query, {"limit": limit}).mappings().all()
 
         if not companies_to_process:
@@ -155,6 +156,7 @@ async def process_coordinates(request: Request, request_body: CoordinateProcessi
 
 
 @router.post("/resolve-conflicts", summary="Find and resolve coordinate conflicts")
+@router.post("/resolve-conflicts/", summary="Find and resolve coordinate conflicts")
 async def resolve_conflicts(db: Session = Depends(get_db)):
     """
     Finds and resolves conflicts where multiple companies share the same coordinates or addresses.
@@ -176,7 +178,7 @@ async def resolve_conflicts(db: Session = Depends(get_db)):
         # Fetch all companies with address and coordinates
         add_log("info", "Fetching all companies with coordinate and address data.")
         # Using raw SQL for PostGIS types handling might be easier, or just fetch as text
-        fetch_query = text("SELECT id, address, ST_AsText(koordinat) as koordinat_wkt FROM public.companies WHERE address IS NOT NULL AND koordinat IS NOT NULL")
+        fetch_query = text("SELECT id, address, ST_AsText(koordinat) as koordinat_wkt FROM app.companies WHERE address IS NOT NULL AND koordinat IS NOT NULL")
         result = db.execute(fetch_query).mappings().all()
         
         if not result:
@@ -215,7 +217,7 @@ async def resolve_conflicts(db: Session = Depends(get_db)):
                         first_result = geocoding_data[0]
                         lat, lon = float(first_result['lat']), float(first_result['lon'])
                         # Update using SQL
-                        update_query = text("UPDATE public.companies SET koordinat = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326) WHERE address = :address")
+                        update_query = text("UPDATE app.companies SET koordinat = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326) WHERE address = :address")
                         db.execute(update_query, {"lon": lon, "lat": lat, "address": address})
                         db.commit()
                         
@@ -261,7 +263,7 @@ async def resolve_conflicts(db: Session = Depends(get_db)):
                             first_result = geocoding_data[0]
                             lat, lon = float(first_result['lat']), float(first_result['lon'])
                             
-                            update_query = text("UPDATE public.companies SET koordinat = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326) WHERE address = :address")
+                            update_query = text("UPDATE app.companies SET koordinat = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326) WHERE address = :address")
                             db.execute(update_query, {"lon": lon, "lat": lat, "address": address})
                             db.commit()
                             

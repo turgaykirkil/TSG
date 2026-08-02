@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   MessageSquare,
   Activity,
+  MapPin,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Logo } from '@/components/ui/logo';
@@ -49,6 +50,7 @@ const userNavigation: NavItem[] = [
 
 const adminNavigation: NavItem[] = [
   { name: 'Admin Paneli', href: '/admin', icon: Home },
+  { name: 'Koordinat & Harita', href: '/admin/coordinates', icon: MapPin },
   { name: 'Veritabanı Yönetimi', href: '/admin/database', icon: Database },
   { name: 'Raporlar', href: '/admin/reports', icon: BarChart3 },
   { name: 'Supabase Kullanımı', href: '/admin/usage', icon: Server },

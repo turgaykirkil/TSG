@@ -438,7 +438,7 @@ async def start_enhanced_scraping_process(
     count: int, 
     city: Optional[str] = None, 
     mode: Optional[str] = 'normal', 
-    strategy: Optional[str] = 'gap_fill', 
+    strategy: Optional[str] = 'sequential', 
     start_from: Optional[int] = None,
     year: int = 2021
 ):
@@ -504,49 +504,98 @@ async def start_enhanced_scraping_process(
                     scraping_state.add_log("STOP_SIGNAL_RECEIVED: Stopping task.")
                     break
                 
-                # Tarayıcı kapandıysa veya sayfa kapalıysa kazıma işlemini durdur
-                if not page or getattr(page, "is_closed", lambda: True)():
-                    scraping_state.add_log("🛑 [KAZIMA] Tarayıcı kapatıldığı/çöktüğü için kazıma durduruldu.")
-                    scraping_state.stop()
+                # 1) Duraklatma (Pause) Kontrolü
+                while scraping_state.is_paused and not scraping_state.should_stop:
+                    await asyncio.sleep(1)
+
+                if scraping_state.should_stop:
+                    scraping_state.add_log("STOP_SIGNAL_RECEIVED: Stopping task.")
                     break
 
-                try:
-                    found = await search_by_office_and_sicil(page, office_label, num, year)
-                    if found is True:
-                        scraping_state.add_log(f"CITY_FILL_FOUND: {office_label} #{num} için sonuç bulundu.")
-                        # Minimal company oluştur/çek ve detaylı scrape yap
-                        company = crud.company.get_or_create_minimal_by_sicil(db, office_label=office_label, sicil_no=str(num))
-                        await scrape_company(page, db, company)
-                    elif found is False:
-                        scraping_state.add_log(f"CITY_FILL_EMPTY: {office_label} #{num} için sonuç yok. Tekrar denememek için işaretleniyor.")
-                        # Boş sonuçta da tekrar denememek için minimal şirket kaydı oluştur ve scraped olarak işaretle
-                        empty_company = crud.company.get_or_create_minimal_by_sicil(db, office_label=office_label, sicil_no=str(num))
-                        try:
-                            crud.company.mark_as_scraped(db, company_id=empty_company.id)
-                        except Exception:
-                            db.rollback()
-                except Exception as e:
-                    scraping_state.add_log(f"CITY_FILL_ERROR: {office_label} #{num} denemesinde hata: {e}")
+                scraping_state.set_last_sicil_no(num)
+
+                # 2) Otomatik Yeniden Bağlanma & İnternet/DB Kesintisi Tolerans Döngüsü
+                max_retries = 5
+                candidate_success = False
+
+                for attempt in range(1, max_retries + 1):
+                    if scraping_state.should_stop:
+                        break
+
+                    # Veritabanı Oturum Sağlığı Kontrolü
                     try:
-                        db.rollback()
+                        from sqlalchemy import text
+                        db.execute(text("SELECT 1"))
                     except Exception:
-                        pass
-                    if "TargetClosedError" in str(type(e).__name__) or "closed" in str(e).lower():
-                        scraping_state.add_log("🛑 [KAZIMA] Tarayıcı kapandı. Kazıma işlemi durduruldu.")
-                        scraping_state.stop()
-                        break
-                    if "Connection refused" in str(e) or "OperationalError" in str(e):
-                        await asyncio.sleep(6)
-                finally:
-                    processed += 1
-                    scraping_state.update_progress(processed)
-                    
-                    # Ticaret Sicil sunucularını yormamak ve 502 Bad Gateway yememek için bekle
-                    delay_sec = random.uniform(2, 4)
-                    await asyncio.sleep(delay_sec)
-                    
-                    if processed >= count:
-                        break
+                        logger.warning("DB bağlantısı koptu, yeniden oluşturuluyor...")
+                        try:
+                            db.close()
+                        except Exception:
+                            pass
+                        db = SessionLocal()
+
+                    # Tarayıcı Sayfa Sağlığı Kontrolü
+                    if not page or getattr(page, "is_closed", lambda: True)():
+                        logger.warning("Tarayıcı sayfası kapalı, yeniden açılıyor...")
+                        try:
+                            if not browser_manager.get_status().get("is_open"):
+                                await browser_manager.open_browser(headless=settings.HEADLESS)
+                            page = await browser_manager.get_page()
+                            await ensure_login(page)
+                        except Exception as b_err:
+                            logger.error(f"Tarayıcı yeniden açma hatası: {b_err}")
+
+                    try:
+                        found = await search_by_office_and_sicil(page, office_label, num, year)
+                        if found is True:
+                            scraping_state.add_log(f"CITY_FILL_FOUND: {office_label} #{num} için sonuç bulundu.")
+                            company = crud.company.get_or_create_minimal_by_sicil(db, office_label=office_label, sicil_no=str(num))
+                            await scrape_company(page, db, company)
+                        elif found is False:
+                            scraping_state.add_log(f"CITY_FILL_EMPTY: {office_label} #{num} için sonuç yok. İşaretleniyor.")
+                            empty_company = crud.company.get_or_create_minimal_by_sicil(db, office_label=office_label, sicil_no=str(num))
+                            try:
+                                crud.company.mark_as_scraped(db, company_id=empty_company.id)
+                            except Exception:
+                                db.rollback()
+                        
+                        candidate_success = True
+                        break # Başarılı tamamlandı, retry döngüsünden çık
+
+                    except Exception as e:
+                        err_str = str(e).lower()
+                        is_conn_error = any(k in err_str for k in [
+                            'operationalerror', 'connection', 'closed', 'targetclosederror', 
+                            'network', 'timeout', 'disconnected', 'reset', 'refused'
+                        ])
+
+                        if is_conn_error:
+                            scraping_state.add_log(
+                                f"⚠️ [TEKNİK AKSAMA/İNTERNET #{attempt}/{max_retries}] {office_label} #{num} denemesinde bağlantı koptu. "
+                                f"10 saniye sonra otomatik tekrar denenecek. (Hata: {e})"
+                            )
+                            try:
+                                db.rollback()
+                            except Exception:
+                                pass
+                            await asyncio.sleep(10)
+                        else:
+                            scraping_state.add_log(f"CITY_FILL_ERROR: {office_label} #{num} denemesinde beklenmeyen hata: {e}")
+                            try:
+                                db.rollback()
+                            except Exception:
+                                pass
+                            break
+
+                processed += 1
+                scraping_state.update_progress(processed)
+                
+                # Sunucuları yormamak için bekleme
+                delay_sec = random.uniform(2, 4)
+                await asyncio.sleep(delay_sec)
+                
+                if processed >= count:
+                    break
             return
 
         # Normal mod: mevcut akış
@@ -606,20 +655,19 @@ def _compute_candidate_sicil_numbers(
     office_label: str, 
     count: int, 
     min_threshold: int = 1,
-    strategy: str = 'gap_fill',
+    strategy: Optional[str] = None,
     start_from: Optional[int] = None
 ) -> List[int]:
     """Verilen ofis için aday sicil numaralarını üretir.
-    - gap_fill: Boşlukları doldurur ve max'tan devam eder.
-    - sequential: Boşlukları atlar, doğrudan başlangıç noktasından (veya max) ileri gider.
+    - start_from verilmişse (Baştan Başla): start_from'dan itibaren sıralı olarak numara üretir.
+    - start_from verilmemişse (Kaldığı Yerden Devam Et): Veritabanındaki en yüksek sicil no + 1'den devam eder.
     """
     if start_from is not None and start_from <= 0:
         start_from = None
     try:
-        # Ofis eşleşmesi: öncelik sicil_office_code, yoksa sicil_mudurluk ilk kelime eşleşmesi
         from app.models.company import Company
         q = (
-            db.query(Company.sicil_no, Company.sicil_office_code, Company.sicil_mudurluk)
+            db.query(Company.sicil_no)
             .filter(
                 (Company.sicil_office_code == office_label) |
                 (Company.sicil_mudurluk.ilike(f"{office_label}%"))
@@ -627,79 +675,33 @@ def _compute_candidate_sicil_numbers(
         )
         rows = q.all()
         nums: List[int] = []
-        for sicil_no, _, _ in rows:
+        for (sicil_no,) in rows:
             try:
                 s = (sicil_no or "").strip()
-                if not s:
-                    continue
-                # sadece tam sayısal sicil no'ları al
-                if s.isdigit():
+                if s and s.isdigit():
                     val = int(s)
                     if val >= max(1, int(min_threshold)):
                         nums.append(val)
             except Exception:
                 continue
-        if not nums:
-            # hiç veri yoksa start_from veya min_threshold'dan başlayarak count kadar üret
-            current_start = start_from if start_from is not None else max(1, int(min_threshold))
-            return list(range(current_start, current_start + max(1, count)))[:count]
-        
-        nums_set = set(nums)
-        nums_sorted = sorted(nums_set)
-        candidates: List[int] = []
 
-        # If start_from is explicitly specified, start directly from start_from and skip numbers already in DB
+        # 1) Eğer kullanıcı "Baştan Başla" veya özel bir başlangıç no girdi ise (örneğin 100000):
         if start_from is not None and start_from > 0:
-            n = start_from
-            while len(candidates) < count:
-                if n not in nums_set:
-                    candidates.append(n)
-                n += 1
-            return candidates
+            return list(range(start_from, start_from + max(1, count)))
 
-        # STRATEGY: Sequential (From highest sicil + 1)
-        if strategy == 'sequential':
-            effective_start = nums_sorted[-1] + 1 if nums_sorted else max(1, int(min_threshold))
-            n = effective_start
-            while len(candidates) < count:
-                if n not in nums_set:
-                    candidates.append(n)
-                n += 1
-            return candidates
+        # 2) Eğer veritabanında hiç kayıt yoksa:
+        if not nums:
+            current_start = max(1, int(min_threshold))
+            return list(range(current_start, current_start + max(1, count)))
 
-        # STRATEGY: Gap Fill (Fill missing numbers from min_threshold onwards)
-        start_n = max(1, int(min_threshold))
-        first = nums_sorted[0]
-        if first > start_n:
-            for n in range(start_n, first):
-                candidates.append(n)
-                if len(candidates) >= count:
-                    return candidates[:count]
-        
-        # Fill gaps between existing numbers
-        prev = nums_sorted[0]
-        for current in nums_sorted[1:]:
-            gap_start = prev + 1
-            gap_end = current - 1
-            if gap_end >= gap_start:
-                for n in range(gap_start, gap_end + 1):
-                    candidates.append(n)
-                    if len(candidates) >= count:
-                        return candidates[:count]
-            prev = current
-        
-        # If gaps are exhausted, continue after max_n
-        max_n = nums_sorted[-1]
-        n = max_n + 1
-        while len(candidates) < count:
-            if n not in nums_set:
-                candidates.append(n)
-            n += 1
-        return candidates[:count]
+        # 3) Kaldığı yerden devam et: En yüksek sicil_no + 1
+        max_n = max(nums)
+        effective_start = max(max_n + 1, max(1, int(min_threshold)))
+        return list(range(effective_start, effective_start + max(1, count)))
     except Exception as e:
         logger.exception(f"Failed to compute candidate sicil numbers: {e}")
         current_start = start_from if start_from is not None else max(1, int(min_threshold))
-        return list(range(current_start, current_start + max(1, count)))[:count]
+        return list(range(current_start, current_start + max(1, count)))
 
 
 async def search_by_office_and_sicil(page: Page, office_label: str, sicil_no: int, year: int = 2021) -> bool:

@@ -7,6 +7,7 @@ import {
   Cpu, 
   Database, 
   Play, 
+  Pause,
   Square, 
   RefreshCcw, 
   CheckCircle2, 
@@ -58,6 +59,7 @@ export default function OperationsPage() {
   const [logs, setLogs] = useState<string[]>([]);
   const [isEnriching, setIsEnriching] = useState(false);
   const [isScraping, setIsScraping] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [isLive, setIsLive] = useState(true);
   const [batchLimit, setBatchLimit] = useState(20);
   const [scrapeCount, setScrapeCount] = useState(10);
@@ -82,6 +84,7 @@ export default function OperationsPage() {
       setStats(response.data.stats);
       setLogs(response.data.logs);
       setIsScraping(response.data.is_scraping_active);
+      setIsPaused(response.data.is_scraping_paused || false);
       setIsEnriching(response.data.is_enrichment_active);
     } catch (error) {
       console.error('Failed to fetch status:', error);
@@ -108,29 +111,61 @@ export default function OperationsPage() {
   const handleStartScrape = async () => {
     try {
       setIsScraping(true);
+      setIsPaused(false);
       
-      let effectiveStart = startFrom ? parseInt(startFrom) : undefined;
-      // If "Sıfırdan Başla" is active and no startFrom is given, we set default min
-      if (isFreshStart && !effectiveStart) {
-        effectiveStart = city === 'İSTANBUL' ? 100000 : 1;
-      }
+      let effectiveStart = isFreshStart 
+        ? (startFrom ? parseInt(startFrom) : (city === 'İSTANBUL' ? 100000 : 1))
+        : (startFrom ? parseInt(startFrom) : undefined);
 
       await axios.post('/api/v1/scraping/start', {
         count: scrapeCount,
         mode: 'city_fill',
         city: city,
-        strategy: strategy,
         start_from: effectiveStart
       });
       toast({
         title: "Kazıma Başlatıldı",
-        description: `${city} için ${scrapeCount} ilan ${strategy === 'gap_fill' ? 'boşlukları doldurarak' : 'sırayla'} kazınmaya başlandı.`,
+        description: `${city} için ${scrapeCount} ilan ${effectiveStart ? `(${effectiveStart}'den başlayarak)` : 'kaldığı yerden'} kazınmaya başlandı.`,
       });
       fetchStatus();
     } catch (error) {
       toast({
         title: "Hata",
         description: "Kazıma işlemi başlatılamadı.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handlePauseScrape = async () => {
+    try {
+      await axios.post('/api/v1/scraping/pause');
+      toast({
+        title: "Kazıma Duraklatıldı",
+        description: "İşlem dilediğiniz an kaldığı yerden sürdürülmek üzere duraklatıldı.",
+      });
+      fetchStatus();
+    } catch (error) {
+      toast({
+        title: "Hata",
+        description: "Kazıma işlemi duraklatılamadı.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleResumeScrape = async () => {
+    try {
+      await axios.post('/api/v1/scraping/resume');
+      toast({
+        title: "Kazıma Devam Ediyor",
+        description: "Kazıma işlemine kalınan sicil numarasından devam ediliyor.",
+      });
+      fetchStatus();
+    } catch (error) {
+      toast({
+        title: "Hata",
+        description: "Kazıma işlemi sürdürülemedi.",
         variant: "destructive"
       });
     }
@@ -342,45 +377,31 @@ export default function OperationsPage() {
                 </div>
               </div>
 
-              <div className="grid gap-1">
-                <label className="text-[11px] font-bold uppercase text-muted-foreground">Strateji</label>
-                <Select value={strategy} onValueChange={(v: any) => setStrategy(v)}>
-                  <SelectTrigger className="h-8 text-xs bg-background border-border">
-                    <SelectValue placeholder="Strateji" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="gap_fill">
-                      <div className="flex items-center gap-1.5 text-xs">
-                        <Layers className="h-3.5 w-3.5 text-blue-500" />
-                        <span>Boşlukları Doldur (Hızlı)</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="sequential">
-                      <div className="flex items-center gap-1.5 text-xs">
-                        <ListOrdered className="h-3.5 w-3.5 text-emerald-500" />
-                        <span>Sıralı İlerle (Kapsamlı)</span>
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="grid gap-1">
+              <div className="grid gap-1 pt-1">
                 <div className="flex items-center justify-between">
                   <label className="text-[11px] font-bold uppercase text-muted-foreground">Başlangıç No</label>
                   <div className="flex items-center space-x-1.5">
                      <Switch 
                        id="fresh-start" 
                        checked={isFreshStart} 
-                       onCheckedChange={setIsFreshStart}
+                       onCheckedChange={(checked) => {
+                         setIsFreshStart(checked);
+                         if (checked) {
+                           setStartFrom(city === 'İSTANBUL' ? '100000' : '1');
+                         } else {
+                           setStartFrom('');
+                         }
+                       }}
                        className="scale-75"
                      />
-                     <Label htmlFor="fresh-start" className="text-[10px] font-bold uppercase text-muted-foreground cursor-pointer">Sıfırdan</Label>
+                     <Label htmlFor="fresh-start" className="text-[10px] font-bold uppercase text-muted-foreground cursor-pointer">
+                       Baştan Başla
+                     </Label>
                   </div>
                 </div>
                 <Input 
                   type="number" 
-                  placeholder="Otomatik"
+                  placeholder={isFreshStart ? "100000" : "Otomatik (Kaldığı Yerden)"}
                   value={startFrom} 
                   onChange={(e) => setStartFrom(e.target.value)}
                   className="h-8 text-xs bg-background border-border placeholder:text-muted-foreground/50"
@@ -388,19 +409,41 @@ export default function OperationsPage() {
               </div>
 
               {isScraping ? (
-                <Button 
-                  onClick={handleStopScrape}
-                  size="sm"
-                  className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs h-9 rounded-xl shadow-sm flex items-center justify-center gap-2"
-                >
-                  <Square className="h-3.5 w-3.5 fill-current" />
-                  <span>Kazımayı Durdur</span>
-                </Button>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  {isPaused ? (
+                    <Button 
+                      onClick={handleResumeScrape}
+                      size="sm"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-9 rounded-xl shadow-sm flex items-center justify-center gap-1.5"
+                    >
+                      <Play className="h-3.5 w-3.5 fill-current" />
+                      <span>Devam Et</span>
+                    </Button>
+                  ) : (
+                    <Button 
+                      onClick={handlePauseScrape}
+                      size="sm"
+                      className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs h-9 rounded-xl shadow-sm flex items-center justify-center gap-1.5"
+                    >
+                      <Pause className="h-3.5 w-3.5 fill-current" />
+                      <span>Duraklat</span>
+                    </Button>
+                  )}
+
+                  <Button 
+                    onClick={handleStopScrape}
+                    size="sm"
+                    className="bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs h-9 rounded-xl shadow-sm flex items-center justify-center gap-1.5"
+                  >
+                    <Square className="h-3.5 w-3.5 fill-current" />
+                    <span>Durdur</span>
+                  </Button>
+                </div>
               ) : (
                 <Button 
                   onClick={handleStartScrape} 
                   size="sm"
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-9 rounded-xl shadow-sm flex items-center justify-center gap-2"
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-9 rounded-xl shadow-sm flex items-center justify-center gap-2 mt-2"
                 >
                   <Play className="h-3.5 w-3.5 fill-current" />
                   <span>Kazımayı Başlat</span>

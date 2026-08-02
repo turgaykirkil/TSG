@@ -31,6 +31,8 @@ from app.api.api_v1.endpoints import (
     operations,
     admin,
     worker_node,
+    b2b_customers,
+    tasks,
 )
 
 api_router = APIRouter()
@@ -57,6 +59,8 @@ api_router.include_router(persons.router, prefix="/persons", tags=["Persons"])
 api_router.include_router(company_errors.router, prefix="/errors", tags=["Company Errors"])
 api_router.include_router(contact_messages.router, prefix="/contact", tags=["Contact Messages"])
 api_router.include_router(nexus.router, prefix="/nexus", tags=["NEXUS Risk Engine"])
+api_router.include_router(b2b_customers.router, prefix="/b2b-customers", tags=["B2B Customers"])
+api_router.include_router(tasks.router, prefix="/tasks", tags=["Tasks"])
 
 # Functionality
 # OCR/Parsing endpointleri yalnızca API_ONLY=False iken ve ilgili bayraklar true ise dahil edilir
@@ -75,6 +79,7 @@ if not getattr(settings, "API_ONLY", False):
         api_router.include_router(scraping.router, prefix="/scraping", tags=["Scraping"])
 api_router.include_router(search.router, prefix="/search", tags=["Search"])
 api_router.include_router(processing.router, prefix="/process", tags=["Processing"])
+api_router.include_router(processing.router, prefix="/processing", tags=["Processing"])
 api_router.include_router(worker_node.router, prefix="/worker-node", tags=["Worker Node (Distributed)"])
 
 # File & Job Handling

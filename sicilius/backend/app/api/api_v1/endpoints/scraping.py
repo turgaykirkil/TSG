@@ -137,6 +137,28 @@ async def start_scraping(
     background_tasks.add_task(start_enhanced_scraping_process, count=request.count)
     return {"message": f"Enhanced scraping process started in the background for {request.count} companies."}
 
+@router.post("/pause")
+async def pause_scraping(
+    current_user: User = Depends(deps.get_current_active_superuser)
+) -> Dict[str, str]:
+    """
+    Pauses the active scraping process.
+    """
+    scraping_state.pause()
+    scraping_state.add_log("⏸️ [KAZIMA] Kazıma işlemi kullanıcı tarafından duraklatıldı.")
+    return {"message": "Scraping process paused."}
+
+@router.post("/resume")
+async def resume_scraping(
+    current_user: User = Depends(deps.get_current_active_superuser)
+) -> Dict[str, str]:
+    """
+    Resumes the paused scraping process.
+    """
+    scraping_state.resume()
+    scraping_state.add_log("▶️ [KAZIMA] Kazıma işlemine kalınan yerden devam ediliyor.")
+    return {"message": "Scraping process resumed."}
+
 @router.post("/stop")
 async def stop_scraping(
     current_user: User = Depends(deps.get_current_active_superuser)

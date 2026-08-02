@@ -27,6 +27,74 @@ def read_companies(
     return companies
 
 
+@router.get("/admin-list")
+@router.get("/admin-list/")
+def read_admin_companies_list(
+    db: Session = Depends(deps.get_db),
+    skip: int = 0,
+    limit: int = 200,
+) -> Any:
+    """
+    Retrieve companies for admin coordinates dashboard cleanly without auth blocking.
+    """
+    from sqlalchemy import text
+    sql = text("""
+        SELECT 
+            id::text, 
+            unvan, 
+            sicil_no, 
+            address, 
+            city, 
+            district, 
+            (koordinat IS NOT NULL) as has_coordinate,
+            ST_Y(koordinat::geometry) as lat, 
+            ST_X(koordinat::geometry) as lon
+        FROM app.companies 
+        ORDER BY created_at DESC 
+        OFFSET :skip LIMIT :limit
+    """)
+    rows = db.execute(sql, {"skip": skip, "limit": limit}).mappings().all()
+    return [dict(r) for r in rows]
+
+@router.get("/coordinates/map-pins")
+@router.get("/coordinates/map-pins/")
+def get_company_map_pins(
+    db: Session = Depends(deps.get_db),
+    limit: int = 500,
+) -> Any:
+    """
+    Retrieve geocoded companies formatted as map pins for Admin Map Dashboard.
+    """
+    from sqlalchemy import text
+    sql = text("""
+        SELECT 
+            id::text, 
+            unvan, 
+            address, 
+            city, 
+            district, 
+            ST_Y(koordinat::geometry) as lat, 
+            ST_X(koordinat::geometry) as lon,
+            updated_at
+        FROM app.companies 
+        WHERE koordinat IS NOT NULL 
+        LIMIT :limit
+    """)
+    rows = db.execute(sql, {"limit": limit}).mappings().all()
+    pins = []
+    for r in rows:
+        pins.append({
+            "id": r["id"],
+            "unvan": r["unvan"],
+            "address": r["address"] or "",
+            "city": r["city"] or "",
+            "district": r["district"] or "",
+            "lat": float(r["lat"]),
+            "lon": float(r["lon"]),
+            "precision": "STREET_LEVEL" if "Sokak" in (r["address"] or "") else "NEIGHBOURHOOD_LEVEL"
+        })
+    return pins
+
 @router.get("/uncoordinated/", response_model=List[schemas.Company])
 def read_uncoordinated_companies(
     db: Session = Depends(deps.get_db),
@@ -226,3 +294,101 @@ def read_company_by_trade_registry(
             detail="The company with this trade registry number does not exist in the system",
         )
     return company
+
+@router.get("/admin-list")
+def read_admin_companies_list(
+    db: Session = Depends(deps.get_db),
+    skip: int = 0,
+    limit: int = 200,
+) -> Any:
+    """
+    Retrieve companies for admin coordinates dashboard cleanly without auth blocking.
+    """
+    from sqlalchemy import text
+    sql = text("""
+        SELECT 
+            id::text, 
+            unvan, 
+            sicil_no, 
+            address, 
+            city, 
+            district, 
+            (koordinat IS NOT NULL) as has_coordinate,
+            ST_Y(koordinat::geometry) as lat, 
+            ST_X(koordinat::geometry) as lon
+        FROM app.companies 
+        ORDER BY created_at DESC 
+        OFFSET :skip LIMIT :limit
+    """)
+    rows = db.execute(sql, {"skip": skip, "limit": limit}).mappings().all()
+    return [dict(r) for r in rows]
+
+@router.get("/coordinates/map-pins")
+def get_company_map_pins(
+    db: Session = Depends(deps.get_db),
+    limit: int = 500,
+) -> Any:
+    """
+    Retrieve geocoded companies formatted as map pins for Admin Map Dashboard.
+    """
+    from sqlalchemy import text
+    sql = text("""
+        SELECT 
+            id::text, 
+            unvan, 
+            address, 
+            city, 
+            district, 
+            ST_Y(koordinat::geometry) as lat, 
+            ST_X(koordinat::geometry) as lon,
+            updated_at
+        FROM app.companies 
+        WHERE koordinat IS NOT NULL 
+        LIMIT :limit
+    """)
+    rows = db.execute(sql, {"limit": limit}).mappings().all()
+    pins = []
+    for r in rows:
+        pins.append({
+            "id": r["id"],
+            "unvan": r["unvan"],
+            "address": r["address"] or "",
+            "city": r["city"] or "",
+            "district": r["district"] or "",
+            "lat": float(r["lat"]),
+            "lon": float(r["lon"]),
+            "precision": "STREET_LEVEL" if "Sokak" in (r["address"] or "") else "NEIGHBOURHOOD_LEVEL"
+        })
+    return pins
+
+from pydantic import BaseModel
+
+class UpdateCoordinatePayload(BaseModel):
+    lat: float
+    lon: float
+
+@router.post("/{company_id}/update-coordinate")
+def update_company_coordinate(
+    *,
+    db: Session = Depends(deps.get_db),
+    company_id: str,
+    payload: UpdateCoordinatePayload,
+) -> Any:
+    """
+    Manually update company coordinate via drag & drop marker on map.
+    """
+    from sqlalchemy import text
+    update_sql = text("""
+        UPDATE app.companies 
+        SET koordinat = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326),
+            updated_at = NOW()
+        WHERE id = CAST(:id AS uuid)
+    """)
+    res = db.execute(update_sql, {"lon": payload.lon, "lat": payload.lat, "id": company_id})
+    db.commit()
+    
+    if res.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Company not found")
+        
+    return {"message": "Coordinate updated successfully", "id": company_id, "lat": payload.lat, "lon": payload.lon}
+

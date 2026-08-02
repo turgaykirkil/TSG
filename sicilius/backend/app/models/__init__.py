@@ -14,3 +14,4 @@ from .incoming_email import IncomingEmail
 from .company_error import CompanyError
 from .contact_message import ContactMessage
 from .geocoding_cache import GeocodingCache
+from .b2b_customer import B2BCustomer, APIKey
