@@ -1,15 +1,20 @@
 <!DOCTYPE html>
 <html lang="tr">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Sicilius — Türkiye'nin Akıllı Şirket Araştırma Platformu (Sunum)</title>
-  <meta name="description" content="Sicilius: Türkiye Ticaret Sicil Gazetesi verilerini yapay zeka ile analiz eden kurumsal istihbarat platformu." />
+  <meta name="description"
+    content="Sicilius: Kamuya açık kaynaklardaki verileri yapay zeka ile analiz eden kurumsal istihbarat platformu." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Orbitron:wght@700;900&display=swap" rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Orbitron:wght@700;900&display=swap"
+    rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
   <!-- Dynamic Glowing Orbs -->
   <div class="orb orb-1"></div>
@@ -23,7 +28,7 @@
       <span class="brand-title">SICILIUS</span>
       <span class="deck-tag">SUNUM DECK</span>
     </div>
-    
+
     <!-- Top Progress Bar -->
     <div class="deck-progress-wrapper">
       <div class="deck-progress-bar" id="progressBar"></div>
@@ -45,34 +50,38 @@
 
   <!-- Main Slide Deck Viewport -->
   <main class="deck-viewport" id="deckViewport">
-    
+
     <!-- SLIDE 1: COVER / HERO -->
     <section class="slide active" data-slide="1">
       <div class="slide-content hero-slide">
         <div class="hero-badge"><span class="live-dot"></span> Canlı Platform — sicilius.com.tr</div>
-        <h1 class="slide-title-large">Türkiye'nin Akıllı Şirket<br/><span class="gradient-text">İstihbarat Altyapısı</span></h1>
-        <p class="hero-sub">Türkiye Ticaret Sicil Gazetesi'ndeki <strong>500.000+ şirket verisini</strong> yapay zeka ile analiz eden, gizli ilişki ağlarını haritaya döken ve kurumsal kararları hızlandıran yenilikçi platform.</p>
-        
+        <h1 class="slide-title-large">Türkiye'nin Akıllı Şirket<br /><span class="gradient-text">İstihbarat
+            Altyapısı</span></h1>
+        <p class="hero-sub">Kamuya açık kaynaklardaki <strong>2.100.000+ aktif şirket verisini ve 16.8M+ gazete ilanı
+            sayfasını</strong> yapay zeka ile analiz eden, gizli ilişki ağlarını haritaya döken ve kurumsal kararları
+          hızlandıran yenilikçi platform.</p>
+
         <div class="hero-stats-grid">
           <div class="stat-card">
-            <span class="stat-num">500K+</span>
-            <span class="stat-label">Şirket Kaydı</span>
+            <span class="stat-num" data-target="2.1" data-suffix="M+">0M+</span>
+            <span class="stat-label">Aktif Şirket Kaydı</span>
           </div>
           <div class="stat-card">
-            <span class="stat-num">2M+</span>
-            <span class="stat-label">Gazete İlanı</span>
+            <span class="stat-num" data-target="16.8" data-suffix="M+">0M+</span>
+            <span class="stat-label">İlan &amp; PDF Sayfası</span>
           </div>
           <div class="stat-card">
-            <span class="stat-num">&lt;200ms</span>
+            <span class="stat-num" data-target="200" data-prefix="<" data-suffix="ms">&lt;0ms</span>
             <span class="stat-label">Arama Yanıtı</span>
           </div>
           <div class="stat-card">
-            <span class="stat-num">%100</span>
+            <span class="stat-num" data-target="100" data-suffix="%">0%</span>
             <span class="stat-label">Canlı &amp; Otonom</span>
           </div>
         </div>
 
-        <div class="slide-footer-hint">Slaytı geçmek için yön tuşlarını <kbd>→</kbd> veya <kbd>Space</kbd> kullanın</div>
+        <div class="slide-footer-hint">Slaytı geçmek için yön tuşlarını <kbd>→</kbd> veya <kbd>Space</kbd> kullanın
+        </div>
       </div>
     </section>
 
@@ -80,14 +89,15 @@
     <section class="slide" data-slide="2">
       <div class="slide-content">
         <div class="slide-badge">01 · PROBLEM</div>
-        <h2 class="slide-heading">Mevcut Ticaret Sicil Sistemleri Neden Yetersiz?</h2>
-        <p class="slide-sub">Ticaret sicil verileri kamuya açık olmasına rağmen erişilmesi ve analiz edilmesi son derece zordur.</p>
+        <h2 class="slide-heading">Mevcut Şirket Araştırma Sistemleri Neden Yetersiz?</h2>
+        <p class="slide-sub">Kamuya açık kaynaklardaki şirket verileri erişilebilir olmasına rağmen aranması ve
+          ilişkilendirilmesi son derece zordur.</p>
 
         <div class="grid-4">
           <div class="glass-card problem-card">
             <div class="card-icon red-icon">📰</div>
             <h3>PDF Dağınıklığı</h3>
-            <p>TSG ilanları yüzlerce sayfalık araması imkansız ham PDF formatında yayınlanmaktadır.</p>
+            <p>Kamuya açık ilanlar yüzlerce sayfalık araması imkansız ham PDF belgeleri halinde yayınlanmaktadır.</p>
           </div>
           <div class="glass-card problem-card">
             <div class="card-icon red-icon">🕸️</div>
@@ -102,7 +112,7 @@
           <div class="glass-card problem-card">
             <div class="card-icon red-icon">💰</div>
             <h3>Yüksek Maliyetler</h3>
-            <p>Piyasadaki ham veri satıcıları aylık binlerce dolar lisans ücreti talep etmektedir.</p>
+            <p>Piyasadaki ham veri satıcıları yüksek lisans ücretleri talep etmekte ve hantal kalmaktadır.</p>
           </div>
         </div>
       </div>
@@ -148,14 +158,16 @@
               <div class="sol-icon cyan-bg">🤖</div>
               <div>
                 <h4>AI Destekli OCR + NLP Engine</h4>
-                <p>Gazete ilanlarını otomatik tarar, optik karakter tanıma ile metne çevirir ve varlıkları (Entity Extraction) çıkarır.</p>
+                <p>Kamuya açık ilanları otomatik tarar, optik karakter tanıma ile metne çevirir ve varlıkları (Entity
+                  Extraction) çıkarır.</p>
               </div>
             </div>
             <div class="sol-item">
               <div class="sol-icon violet-bg">🕸️</div>
               <div>
                 <h4>NEXUS İlişki Ağ Grafiği</h4>
-                <p>Kişi-şirket bağlantılarını Depth-2 derinliğinde görselleştirir, anomali ve riskli ortaklıkları anında uyarmaktadır.</p>
+                <p>Kişi-şirket bağlantılarını Depth-2 derinliğinde görselleştirir, anomali ve riskli ortaklıkları anında
+                  uyarmaktadır.</p>
               </div>
             </div>
             <div class="sol-item">
@@ -192,8 +204,8 @@
           </div>
           <div class="glass-card feature-tile">
             <div class="tile-icon">📄</div>
-            <h4>OCR + Gazete İşleme</h4>
-            <p>PDF gazeteleri otonom tarar, NLP ile yönetici/sermaye değişikliklerini ayıklar.</p>
+            <h4>OCR + İlan İşleme</h4>
+            <p>Kamuya açık PDF belgelerini otonom tarar, NLP ile yönetici/sermaye değişikliklerini ayıklar.</p>
             <div class="tag-row"><span>Python OCR</span><span>NLP</span></div>
           </div>
           <div class="glass-card feature-tile">
@@ -250,9 +262,9 @@
           </div>
 
           <div class="glass-card arch-flow-card">
-            <h4 class="flow-title">⚡ Otonom Veri Akış Şeması</h4>
+            <h4 class="flow-title">⚡ OTONOM VERİ AKIŞ ŞEMASI</h4>
             <div class="flow-steps">
-              <div class="flow-step"><span>📰 TSG Scraping</span></div>
+              <div class="flow-step"><span>📰 Kamu Veri Scraping</span></div>
               <div class="flow-arrow">→</div>
               <div class="flow-step"><span>🔤 OCR &amp; NLP</span></div>
               <div class="flow-arrow">→</div>
@@ -285,9 +297,12 @@
             </div>
             <div class="g-features">
               <div class="g-item">📍 <strong>GPS 50m Mesafe Doğrulaması:</strong> Yanıltıcı check-in engellenir.</div>
-              <div class="g-item">🛡️ <strong>KVKK &amp; Veri Minimizasyonu:</strong> Ciro veya finansal veriler asla takip edilmez.</div>
-              <div class="g-item">🔒 <strong>Anonim Liderlik Tablosu:</strong> Diğer temsilcilerin isimleri gizli tutulur ("Temsilci #1", "Sen: 4. Sıra").</div>
-              <div class="g-item">📜 <strong>1.000+ Dinamik Görev:</strong> Bölge ve sektör bazlı otonom günlük görev üretimi.</div>
+              <div class="g-item">🛡️ <strong>KVKK &amp; Veri Minimizasyonu:</strong> Ciro veya finansal veriler asla
+                takip edilmez.</div>
+              <div class="g-item">🔒 <strong>Anonim Liderlik Tablosu:</strong> Diğer temsilcilerin isimleri gizli
+                tutulur ("Temsilci #1", "Sen: 4. Sıra").</div>
+              <div class="g-item">📜 <strong>1.000+ Dinamik Görev:</strong> Bölge ve sektör bazlı otonom günlük görev
+                üretimi.</div>
             </div>
           </div>
 
@@ -300,11 +315,18 @@
               </div>
             </div>
             <div class="osm-desc">
-              <p>Google Maps API maliyetleri yerine <strong>OpenStreetMap Tile Server</strong> altyapısı kullanılmıştır. Kredi kartı zorunluluğu veya API faturalandırması olmadan sınırsız harita görüntüleme ve PostGIS spatial mesafe hesaplamaları sunulur.</p>
-              <div class="badge-group">
-                <span class="badge badge-green">Sıfır API Maliyeti</span>
-                <span class="badge badge-cyan">Sınırsız Render</span>
-                <span class="badge badge-amber">Zustand Offline First</span>
+              <p>Google Maps API maliyetleri yerine <strong>OpenStreetMap Tile Server</strong> altyapısı kullanılmıştır.
+                Kredi kartı zorunluluğu veya API faturalandırması olmadan sınırsız harita görüntüleme ve PostGIS spatial
+                mesafe hesaplamaları sunulur.</p>
+              <div class="g-features" style="margin-top:14px">
+                <div class="g-item">⚡ <strong>Sıfır API Lisans Maliyeti:</strong> Bütçe dostu sürdürülebilir altyapı.
+                </div>
+                <div class="g-item">📱 <strong>Zustand Offline-First:</strong> Çevrimdışı saha ziyaret kayıt desteği.
+                </div>
+                <div class="g-item">📍 <strong>PostGIS ST_DWithin:</strong> 50m hassasiyetli canlı yakın saha
+                  fırsatları.</div>
+                <div class="g-item">🚀 <strong>Kotasız Render:</strong> Yüksek performanslı ve kotasız harita görünümü.
+                </div>
               </div>
             </div>
           </div>
@@ -312,94 +334,106 @@
       </div>
     </section>
 
-    <!-- SLIDE 7: PAZAR & GELİR MODELİ -->
+    <!-- SLIDE 7: PAZAR FIRSATI & HEDEF SEKTÖRLER -->
     <section class="slide" data-slide="7">
       <div class="slide-content">
-        <div class="slide-badge">06 · PAZAR &amp; İŞ MODELİ</div>
-        <h2 class="slide-heading">Büyüme Potansiyeli ve Monetizasyon</h2>
-        <p class="slide-sub">Türkiye'de regtech ve kurumsal istihbarat pazarındaki büyük fırsat.</p>
+        <div class="slide-badge">06 · PAZAR &amp; KULLANIM ALANLARI</div>
+        <h2 class="slide-heading">Pazar Fırsatı ve Kullanım Senaryoları</h2>
+        <p class="slide-sub">Türkiye'de kurumsal veri ve regtech alanındaki yüksek büyüme potansiyeli.</p>
 
         <div class="market-grid">
           <div class="glass-card m-stat">
-            <div class="m-num cyan">2.1M</div>
+            <div class="m-num cyan" data-target="2.1" data-suffix="M+">0M+</div>
             <div class="m-title">Aktif Kayıtlı Şirket</div>
-            <p>Türkiye'de sürekli veri ureten şirket stoku.</p>
+            <p>Türkiye'de sürekli veri üreten şirket stoku.</p>
           </div>
           <div class="glass-card m-stat">
-            <div class="m-num violet">₺8 Milyar</div>
-            <div class="m-title">RegTech Pazarı</div>
-            <p>Kurumsal yazılım ve araştırma pazarı hacmi.</p>
+            <div class="m-num violet" data-target="16.8" data-suffix="M+">0M+</div>
+            <div class="m-title">İlan &amp; Belge Sayfası</div>
+            <p>Ortalama 8 ilan/şirket hesabı ile işlenen sayfa.</p>
           </div>
           <div class="glass-card m-stat">
-            <div class="m-num green">4.200+</div>
-            <div class="m-title">Hedef Müşteri</div>
+            <div class="m-num green" data-target="4200" data-suffix="+">0+</div>
+            <div class="m-title">Hedef Kurum</div>
             <p>Banka, faktoring, sigorta, hukuk firmaları.</p>
           </div>
           <div class="glass-card m-stat">
-            <div class="m-num amber">%34</div>
-            <div class="m-title">Yıllık CAGR Büyüme</div>
+            <div class="m-num amber" data-target="34" data-prefix="%" data-suffix="">%0</div>
+            <div class="m-title">Yıllık Büyüme</div>
             <p>Türkiye B2B SaaS pazar büyüme hızı.</p>
           </div>
         </div>
 
-        <div class="pricing-tiers">
-          <div class="glass-card tier-card">
-            <h4>Freemium</h4>
-            <div class="price">₺0 <small>/ay</small></div>
-            <p>Günlük 20 arama limitli temel sorgu altyapısı.</p>
+        <div class="grid-3">
+          <div class="glass-card use-case-card">
+            <div class="use-case-icon">🏦</div>
+            <h4>Bankacılık &amp; Finans</h4>
+            <p>KYC, kredi risk değerlendirmesi ve müşteri due diligence süreçlerinde hızlı şirket ve yönetici geçmişi
+              araştırması.</p>
           </div>
-          <div class="glass-card tier-card active-tier">
-            <div class="tier-tag">Popüler</div>
-            <h4>Pro Plan</h4>
-            <div class="price">₺299 <small>/ay</small></div>
-            <p>Sınırsız arama, NEXUS Graf haritası ve PDF rapor export.</p>
+          <div class="glass-card use-case-card">
+            <div class="use-case-icon">⚖️</div>
+            <h4>Hukuk &amp; Danışmanlık</h4>
+            <p>M&amp;A ortaklık süreçleri, dava araştırmaları, iştirak ağ haritalandırması ve hukuki incelemeler.</p>
           </div>
-          <div class="glass-card tier-card">
-            <h4>Kurumsal API</h4>
-            <div class="price">₺2.999+ <small>/ay</small></div>
-            <p>SLA garantisi, özel webhook ve sınırsız veritabanı erişimi.</p>
+          <div class="glass-card use-case-card">
+            <div class="use-case-icon">🏢</div>
+            <h4>Saha Satış &amp; Kurumsal KOBİ</h4>
+            <p>Yeni kurulan şirketlerin tespiti, coğrafi yakınlık araması ve saha ziyaret disiplini optimizasyonu.</p>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- SLIDE 8: YOL HARİTASI -->
+    <!-- SLIDE 8: YOL HARİTASI & GELECEK VİZYONU -->
     <section class="slide" data-slide="8">
       <div class="slide-content">
         <div class="slide-badge">07 · YOL HARİTASI</div>
-        <h2 class="slide-heading">Gelişim ve Büyüme Zaman Çizelgesi</h2>
-        <p class="slide-sub">Tamamlanan kilometre taşları ve gelecek dönemi vizyonu.</p>
+        <h2 class="slide-heading">Gelişim ve Gelecek Vizyonu</h2>
+        <p class="slide-sub">Tamamlanan kilometre taşları ve önümüzdeki dönemin teknolojik hedefleri.</p>
 
-        <div class="timeline-container">
+        <div class="timeline-container-4">
           <div class="glass-card timeline-box done">
             <div class="t-badge done-badge">✅ 2025 Q1-Q2</div>
-            <h4>Temel Platform &amp; Veri</h4>
+            <h4>Temel Altyapı</h4>
             <ul>
-              <li>FastAPI + Next.js 14 Mimari Kurulumu</li>
+              <li>FastAPI + Next.js Mimari Kurulumu</li>
               <li>PostgreSQL + PostGIS Coğrafi Altyapı</li>
-              <li>Otonom Scraping &amp; OCR Pipeline</li>
+              <li>Otonom Kamu Veri Scraping Pipeline</li>
             </ul>
           </div>
           <div class="glass-card timeline-box done">
             <div class="t-badge done-badge">✅ 2025 Q3-Q4</div>
-            <h4>NEXUS &amp; Mobil Altyapı</h4>
+            <h4>NEXUS &amp; Mobil</h4>
             <ul>
               <li>NEXUS Derinlik-2 Graf Motoru</li>
               <li>React Native (Expo) B2B Mobil App</li>
-              <li>Go (Golang) ST_DWithin Microservice</li>
+              <li>Go (Golang) Microservice &amp; PostGIS</li>
               <li>Felaket Kurtarma (DR) Planı</li>
             </ul>
           </div>
           <div class="glass-card timeline-box current">
             <div class="t-badge current-badge">⚡ 2026 Q1 — Aktif</div>
-            <h4>Oyunlaştırma &amp; Yaygınlaşma</h4>
+            <h4>Saha &amp; Oyunlaştırma</h4>
             <ul>
-              <li>Oyunlaştırma (Gamification) &amp; 5 Kademeli Lig</li>
-              <li>KVKK Uyumlu Anonim Liderlik Tablosu</li>
-              <li>SaaS Abonelik ve Paket Lansmanı</li>
+              <li>Oyunlaştırma &amp; 5 Kademeli Lig</li>
+              <li>GPS 50m Doğrulama &amp; Check-in</li>
+              <li>Anonim Liderlik Tablosu</li>
+              <li>1.000+ Dinamik Görev Motoru</li>
+            </ul>
+          </div>
+          <div class="glass-card timeline-box future">
+            <div class="t-badge future-badge">🚀 2026 Q2+ &amp; Gelecek Vizyonu</div>
+            <h4>AI &amp; Özgün Yetenekler</h4>
+            <ul>
+              <li>LLM Destekli Otomatik Özet Raporlama</li>
+              <li>Yapay Zeka Destekli Şirket Karnesi</li>
+              <li>Sektörel Kümeleme &amp; Yoğunluk Haritaları</li>
+              <li>Otonom Rakip &amp; Tedarikçi Asistanı</li>
             </ul>
           </div>
         </div>
+      </div>
       </div>
     </section>
 
@@ -408,24 +442,34 @@
       <div class="slide-content">
         <div class="slide-badge">08 · SSS</div>
         <h2 class="slide-heading">Merak Edilen Sorular &amp; Yanıtlar</h2>
-        <p class="slide-sub">Jüriler, yatırımcılar ve kurumsal kullanıcıların sıklıkla sorduğu detaylar.</p>
+        <p class="slide-sub">Sicilius altyapısı, veri kaynağı, güvenlik ve kullanım detayları hakkında merak edilenler.
+        </p>
 
         <div class="faq-accordion">
           <div class="glass-card faq-card">
-            <div class="faq-q"><span>⚖️ Veri nereden geliyor, yasal altyapısı nedir?</span> <span class="faq-toggle">+</span></div>
-            <div class="faq-a">Ticaret Sicil Gazetesi kamuya açık resmi bir devlet yayınıdır. Sicilius ham kamu verisini yapay zeka ile yapılandırılmış ve sorgulanabilir hale getirir. KVKK standartlarına tam uyumludur.</div>
+            <div class="faq-q"><span>⚖️ Veri nereden geliyor, yasal altyapısı nedir?</span> <span
+                class="faq-toggle">+</span></div>
+            <div class="faq-a">Kamuya açık resmi devlet yayınları ve açık kaynak veriler kullanılmaktadır. Sicilius ham
+              kamu verisini yapay zeka ile yapılandırılmış ve sorgulanabilir hale getirir. KVKK standartlarına tam
+              uyumludur.</div>
           </div>
           <div class="glass-card faq-card">
-            <div class="faq-q"><span>🚀 Sicilius'u rakiplerinden ayıran en temel 3 fark nedir?</span> <span class="faq-toggle">+</span></div>
-            <div class="faq-a">(1) NEXUS ilişki ağı grafı (Depth-2), (2) GPS 50m doğrulama ve oyunlaştırmalı B2B saha satış modülü, (3) %100 otonom veri güncelleme ve sıfır harita maliyetli mimari.</div>
+            <div class="faq-q"><span>🚀 Sicilius'u rakiplerinden ayıran en temel 3 fark nedir?</span> <span
+                class="faq-toggle">+</span></div>
+            <div class="faq-a">(1) NEXUS ilişki ağı grafı (Depth-2), (2) GPS 50m doğrulama ve oyunlaştırmalı B2B saha
+              satış modülü, (3) %100 otonom veri güncelleme ve sıfır harita maliyetli mimari.</div>
           </div>
           <div class="glass-card faq-card">
-            <div class="faq-q"><span>🛡️ Saha satış oyunlaştırmasında KVKK ve gizlilik nasıl sağlanıyor?</span> <span class="faq-toggle">+</span></div>
-            <div class="faq-a">Ciro veya satış tutarı kesinlikle takip edilmez. Liderlik tablosu tamamen anonimdir ("Temsilci #1", "SEN 4. Sıra"). Diğer kullanıcıların kişisel bilgileri sistemde gizli tutulur.</div>
+            <div class="faq-q"><span>🛡️ Saha satış oyunlaştırmasında KVKK ve gizlilik nasıl sağlanıyor?</span> <span
+                class="faq-toggle">+</span></div>
+            <div class="faq-a">Ciro veya satış tutarı kesinlikle takip edilmez. Liderlik tablosu tamamen anonimdir
+              ("Temsilci #1", "SEN 4. Sıra"). Diğer kullanıcıların kişisel bilgileri sistemde gizli tutulur.</div>
           </div>
           <div class="glass-card faq-card">
-            <div class="faq-q"><span>🗺️ Mobil haritada Google Maps API ücreti ödeniyor mu?</span> <span class="faq-toggle">+</span></div>
-            <div class="faq-a">Hayır. Ücretli Google Maps API yerine %100 ücretsiz OpenStreetMap (OSM) Tile Server kullanılmıştır. Sıfır API maliyetiyle sınırsız harita render edilmektedir.</div>
+            <div class="faq-q"><span>🗺️ Mobil haritada Google Maps API ücreti ödeniyor mu?</span> <span
+                class="faq-toggle">+</span></div>
+            <div class="faq-a">Hayır. Ücretli Google Maps API yerine %100 ücretsiz OpenStreetMap (OSM) Tile Server
+              kullanılmıştır. Sıfır API maliyetiyle sınırsız harita render edilmektedir.</div>
           </div>
         </div>
       </div>
@@ -435,18 +479,19 @@
     <section class="slide" data-slide="10">
       <div class="slide-content cta-slide">
         <div class="slide-badge">09 · KAPANIS</div>
-        <h1 class="slide-title-large">Türkiye'nin Şirket Verisini<br/><span class="gradient-text">Geleceğe Taşıyoruz</span></h1>
-        <p class="hero-sub">Binlerce şirket ve yönetici ilişkisini saniyeler içinde keşfetmek için platformu hemen canlıda deneyimleyin.</p>
+        <h1 class="slide-title-large">Türkiye'nin Şirket Verisini<br /><span class="gradient-text">Geleceğe
+            Taşıyoruz</span></h1>
+        <p class="hero-sub">Binlerce şirket ve yönetici ilişkisini saniyeler içinde keşfetmek için platformu hemen
+          canlıda deneyimleyin.</p>
 
         <div class="hero-actions">
-          <a href="https://sicilius.com.tr" target="_blank" class="btn-primary">🚀 sicilius.com.tr Platformuna Git</a>
+          <a href="https://sicilius.com.tr" target="_blank" class="btn-primary">🚀 Platforma Giriş Yap</a>
           <a href="https://sicilius.com.tr/nexus" target="_blank" class="btn-outline">🔬 NEXUS İnteraktif Demo</a>
         </div>
 
         <div class="contact-info">
           <span>📧 info@sicilius.com.tr</span>
           <span>🌐 sicilius.com.tr</span>
-          <span>📍 İstanbul / Türkiye</span>
         </div>
       </div>
     </section>
@@ -468,7 +513,7 @@
     <div class="deck-dots" id="deckDots"></div>
 
     <div class="controls-right">
-      <span class="slide-counter" id="slideCounter">SLİDE 01 / 10</span>
+      <span class="slide-counter" id="slideCounter">SLIDE 01 / 10</span>
     </div>
   </footer>
 
@@ -483,4 +528,5 @@
 
   <script src="app.js"></script>
 </body>
+
 </html>

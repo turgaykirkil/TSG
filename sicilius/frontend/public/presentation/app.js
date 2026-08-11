@@ -34,17 +34,20 @@ document.addEventListener('DOMContentLoaded', () => {
       dot.addEventListener('click', () => goToSlide(idx));
       deckDotsContainer.appendChild(dot);
 
-      // 2. Overview Grid Card
+      // 2. Overview Grid Card (Use textContent to extract text even when slides have opacity 0)
       const titleElem = slide.querySelector('.slide-heading, .slide-title-large');
-      const titleText = titleElem ? titleElem.innerText.replace('\n', ' ') : `Slayt ${idx + 1}`;
+      const titleText = titleElem ? titleElem.textContent.trim().replace(/\s+/g, ' ') : `Slayt ${idx + 1}`;
       const badgeElem = slide.querySelector('.slide-badge, .hero-badge');
-      const badgeText = badgeElem ? badgeElem.innerText : `SLİDE ${idx + 1}`;
+      const badgeText = badgeElem ? badgeElem.textContent.trim().replace(/\s+/g, ' ') : `SLIDE ${(idx + 1).toString().padStart(2, '0')}`;
+      const subElem = slide.querySelector('.slide-sub, .hero-sub');
+      const subText = subElem ? subElem.textContent.trim().replace(/\s+/g, ' ') : '';
 
       const thumb = document.createElement('div');
       thumb.className = `overview-thumb ${idx === 0 ? 'active' : ''}`;
       thumb.innerHTML = `
         <div class="thumb-num">${badgeText}</div>
         <h4>${titleText}</h4>
+        ${subText ? `<p class="thumb-sub">${subText}</p>` : ''}
       `;
       thumb.addEventListener('click', () => {
         goToSlide(idx);
@@ -54,6 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     updateUI();
+    animateSlideNumbers(slides[0]);
   }
 
   // Go To Specific Slide
@@ -80,42 +84,42 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!slideElem) return;
     const numElems = slideElem.querySelectorAll('.stat-num, .m-num');
     numElems.forEach(numElem => {
-      const originalText = numElem.getAttribute('data-original-text') || numElem.innerText;
-      if (!numElem.getAttribute('data-original-text')) {
-        numElem.setAttribute('data-original-text', originalText);
-      }
-      
-      // Parse numeric value if present
-      const match = originalText.match(/([\d\.,]+)/);
-      if (!match) return;
-      
-      const rawNumStr = match[1].replace(',', '.');
-      const targetNum = parseFloat(rawNumStr);
-      if (isNaN(targetNum)) return;
-      
-      const prefix = originalText.substring(0, match.index);
-      const suffix = originalText.substring(match.index + match[0].length);
-      
-      let startNum = 0;
+      const targetAttr = numElem.getAttribute('data-target');
+      if (!targetAttr) return;
+
+      const targetVal = parseFloat(targetAttr);
+      if (isNaN(targetVal)) return;
+
+      const prefix = numElem.getAttribute('data-prefix') || '';
+      const suffix = numElem.getAttribute('data-suffix') || '';
+
       const duration = 1200; // ms
       const startTime = performance.now();
-      
+
       function step(now) {
         const elapsed = now - startTime;
         const progress = Math.min(elapsed / duration, 1);
         // Ease out cubic
         const easeVal = 1 - Math.pow(1 - progress, 3);
-        const currentVal = (targetNum * easeVal);
-        
-        let formattedVal = targetNum % 1 !== 0 ? currentVal.toFixed(1) : Math.floor(currentVal).toString();
-        numElem.innerText = `${prefix}${formattedVal}${suffix}`;
-        
+        const currentVal = targetVal * easeVal;
+
+        let displayVal;
+        if (targetVal % 1 !== 0) {
+          displayVal = currentVal.toFixed(1);
+        } else {
+          displayVal = Math.floor(currentVal).toLocaleString('tr-TR');
+        }
+
+        numElem.innerText = `${prefix}${displayVal}${suffix}`;
+
         if (progress < 1) {
           requestAnimationFrame(step);
         } else {
-          numElem.innerText = originalText;
+          let finalVal = targetVal % 1 !== 0 ? targetVal.toFixed(1) : targetVal.toLocaleString('tr-TR');
+          numElem.innerText = `${prefix}${finalVal}${suffix}`;
         }
       }
+
       requestAnimationFrame(step);
     });
   }
@@ -144,7 +148,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (slideCounter) {
       const numStr = (currentSlide + 1).toString().padStart(2, '0');
       const totStr = totalSlides.toString().padStart(2, '0');
-      slideCounter.innerText = `SLİDE ${numStr} / ${totStr}`;
+      slideCounter.innerText = `SLIDE ${numStr} / ${totStr}`;
     }
 
     // Dots Active State
@@ -196,7 +200,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Keyboard Shortcuts
   document.addEventListener('keydown', (e) => {
-    // Ignore keypress if modal or input active
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
     switch (e.key) {
@@ -268,10 +271,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // FAQ Accordion Listeners
-  document.querySelectorAll('.faq-card').forEach(card => {
+  // FAQ Accordion Listeners (Single open drawer mode)
+  const faqCards = document.querySelectorAll('.faq-card');
+  faqCards.forEach(card => {
     card.addEventListener('click', () => {
-      card.classList.toggle('open');
+      const isOpen = card.classList.contains('open');
+      faqCards.forEach(c => c.classList.remove('open'));
+      if (!isOpen) {
+        card.classList.add('open');
+      }
     });
   });
 
