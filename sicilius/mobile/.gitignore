@@ -46,6 +46,7 @@ coverage/
 ios/RouteIQ.xcworkspace/xcuserdata/
 
 # Proje Özel Kurallar
+.expo/
 screenshots/local/
 db.local.json
 RULES.md

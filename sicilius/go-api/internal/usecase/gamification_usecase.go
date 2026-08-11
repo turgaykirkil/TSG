@@ -84,11 +84,12 @@ func (u *gamificationUseCase) PerformCheckIn(ctx context.Context, userID string,
 	} else {
 		if stats.LastCheckInDate != nil {
 			diffDays := int(todayDate.Sub(*stats.LastCheckInDate).Hours() / 24)
-			if diffDays == 1 {
+			switch diffDays {
+			case 1:
 				streakDays = stats.StreakDays + 1
-			} else if diffDays == 0 {
+			case 0:
 				streakDays = stats.StreakDays
-			} else {
+			default:
 				streakDays = 1
 			}
 		}

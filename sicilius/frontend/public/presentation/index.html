@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sicilius — Türkiye'nin Akıllı Şirket Araştırma Platformu</title>
+  <title>Sicilius — Türkiye'nin Akıllı Şirket Araştırma Platformu (Sunum)</title>
   <meta name="description" content="Sicilius: Türkiye Ticaret Sicil Gazetesi verilerini yapay zeka ile analiz eden kurumsal istihbarat platformu." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -11,240 +11,476 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<div class="orb orb-1"></div>
-<div class="orb orb-2"></div>
-<div class="orb orb-3"></div>
+  <!-- Dynamic Glowing Orbs -->
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
 
-<nav>
-  <div class="nav-brand">SICILIUS</div>
-  <ul class="nav-links">
-    <li><a href="#problem">Problem</a></li>
-    <li><a href="#solution">Çözüm</a></li>
-    <li><a href="#features">Özellikler</a></li>
-    <li><a href="#tech">Teknoloji</a></li>
-    <li><a href="#roadmap">Yol Haritası</a></li>
-    <li><a href="#qa">SSS</a></li>
-  </ul>
-  <a href="https://sicilius.com.tr" target="_blank" class="nav-cta">Platform'u Dene →</a>
-</nav>
+  <!-- Top Slide Deck Header -->
+  <header class="deck-header">
+    <div class="deck-brand">
+      <img src="../sicilius-logo.svg" alt="Sicilius Logo" class="brand-logo-img" />
+      <span class="brand-title">SICILIUS</span>
+      <span class="deck-tag">SUNUM DECK</span>
+    </div>
+    
+    <!-- Top Progress Bar -->
+    <div class="deck-progress-wrapper">
+      <div class="deck-progress-bar" id="progressBar"></div>
+    </div>
 
-<!-- HERO -->
-<section id="hero">
-  <div class="hero-inner">
-    <div class="hero-badge"><span class="live-dot"></span>Canlı — sicilius.com.tr</div>
-    <h1>Türkiye'nin Şirket<br/>İstihbarat Platformu</h1>
-    <p class="hero-sub">Türkiye Ticaret Sicil Gazetesi'ndeki 500.000+ şirket verisini yapay zeka ile analiz eden, ilişki ağlarını haritaya döken ve kurumsal kararları hızlandıran platform.</p>
-    <div class="hero-actions">
-      <a href="https://sicilius.com.tr" target="_blank" class="btn-primary">🚀 Platforma Git</a>
-      <a href="/nexus" class="btn-outline">🔬 NEXUS Demo</a>
+    <div class="deck-actions">
+      <button class="deck-btn" id="btnAutoPlay" title="Otomatik Oynat (Space)">
+        <span class="icon">▶</span> <span class="btn-text">Oynat</span>
+      </button>
+      <button class="deck-btn" id="btnOverview" title="Slayt Listesi (O)">
+        <span class="icon">⋮⋮</span> <span class="btn-text">Genel Bakış</span>
+      </button>
+      <button class="deck-btn" id="btnFullscreen" title="Tam Ekran (F)">
+        <span class="icon">⛶</span> <span class="btn-text">Tam Ekran</span>
+      </button>
+      <a href="https://sicilius.com.tr" target="_blank" class="deck-cta">Platforma Git →</a>
     </div>
-    <div class="hero-stats">
-      <div class="stat-item"><span class="stat-num" data-target="500" data-suffix="K+">500K+</span><div class="stat-label">Şirket Kaydı</div></div>
-      <div class="stat-item"><span class="stat-num">2M+</span><div class="stat-label">İlan Verisi</div></div>
-      <div class="stat-item"><span class="stat-num">&lt;200ms</span><div class="stat-label">Arama Süresi</div></div>
-      <div class="stat-item"><span class="stat-num">7/24</span><div class="stat-label">Canlı Sistem</div></div>
-    </div>
-    <div class="scroll-indicator"><div class="scroll-line"></div><div class="scroll-label">Keşfet</div></div>
-  </div>
-</section>
+  </header>
 
-<!-- PROBLEM -->
-<section id="problem">
-  <div class="container">
-    <div class="section-header">
-      <div class="section-tag">Problem</div>
-      <h2 class="section-title">Mevcut Sistemler Neden Yetersiz?</h2>
-      <p class="section-desc">Ticaret sicil verileri kamuya açık ama kullanılamaz halde. Araştırmacılar, analistler ve girişimciler günlerini manuel veri taramaya harcıyor.</p>
-    </div>
-    <div class="problem-grid">
-      <div class="glass-card problem-card"><div class="problem-icon">📰</div><h3>Gazete Formatında Dağınık Veri</h3><p>TSG yüzlerce sayfalık PDF'lerle yayınlanıyor. Hiçbir yapılandırılmış arama altyapısı yok.</p></div>
-      <div class="glass-card problem-card"><div class="problem-icon">🔍</div><h3>İlişki Ağı Görünmez</h3><p>Bir şirketin ortak yöneticileri, iş ortakları, bağlantılı firmaları — bunları görmek saatler alıyor.</p></div>
-      <div class="glass-card problem-card"><div class="problem-icon">⏳</div><h3>Aşırı Zaman Kaybı</h3><p>Due diligence, piyasa araştırması, KYC süreçleri manuel yüzünden günlerce sürebiliyor.</p></div>
-      <div class="glass-card problem-card"><div class="problem-icon">💰</div><h3>Pahalı Alternatifler</h3><p>Ticaret sicil verisi satan platformlar aylık yüzlerce dolar ücret talep ediyor.</p></div>
-    </div>
-  </div>
-</section>
+  <!-- Main Slide Deck Viewport -->
+  <main class="deck-viewport" id="deckViewport">
+    
+    <!-- SLIDE 1: COVER / HERO -->
+    <section class="slide active" data-slide="1">
+      <div class="slide-content hero-slide">
+        <div class="hero-badge"><span class="live-dot"></span> Canlı Platform — sicilius.com.tr</div>
+        <h1 class="slide-title-large">Türkiye'nin Akıllı Şirket<br/><span class="gradient-text">İstihbarat Altyapısı</span></h1>
+        <p class="hero-sub">Türkiye Ticaret Sicil Gazetesi'ndeki <strong>500.000+ şirket verisini</strong> yapay zeka ile analiz eden, gizli ilişki ağlarını haritaya döken ve kurumsal kararları hızlandıran yenilikçi platform.</p>
+        
+        <div class="hero-stats-grid">
+          <div class="stat-card">
+            <span class="stat-num">500K+</span>
+            <span class="stat-label">Şirket Kaydı</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-num">2M+</span>
+            <span class="stat-label">Gazete İlanı</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-num">&lt;200ms</span>
+            <span class="stat-label">Arama Yanıtı</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-num">%100</span>
+            <span class="stat-label">Canlı &amp; Otonom</span>
+          </div>
+        </div>
 
-<!-- SOLUTION -->
-<section id="solution">
-  <div class="container">
-    <div class="section-header">
-      <div class="section-tag">Çözüm</div>
-      <h2 class="section-title">Sicilius Farkı</h2>
-      <p class="section-desc">Ham kamuya açık veriyi, anında kullanılabilir kurumsal istihbarata dönüştürüyoruz.</p>
-    </div>
-    <div class="solution-grid">
-      <div class="solution-visual glass-card">
-        <div class="mock-search"><div class="mock-search-icon">🔍</div><div class="mock-search-text">TESLA TÜRKİYE...</div></div>
-        <div class="mock-result"><div><div class="mock-result-name">Tesla Türkiye Otomotiv A.Ş.</div><div class="mock-result-meta">📍 İstanbul · Kuruluş: 2021 · 5 Yönetici</div></div><span class="badge badge-green">Aktif</span></div>
-        <div class="mock-result"><div><div class="mock-result-name">Tesla Enerji Çözümleri Ltd.</div><div class="mock-result-meta">📍 Ankara · Kuruluş: 2022 · 3 Ortaklık</div></div><span class="badge badge-cyan">İlişkili</span></div>
-        <div class="mock-result"><div><div class="mock-result-name">Tesla Motor Servisi Koll. Şti.</div><div class="mock-result-meta">📍 İzmir · Kuruluş: 2019</div></div><span class="badge badge-amber">Pasif</span></div>
-        <div class="network-hint">🔗 <strong>Ağ Analizi:</strong> 12 ortak yönetici, 7 bağlı şirket tespit edildi</div>
+        <div class="slide-footer-hint">Slaytı geçmek için yön tuşlarını <kbd>→</kbd> veya <kbd>Space</kbd> kullanın</div>
       </div>
-      <div class="solution-points">
-        <div class="sol-point"><div class="sol-icon sol-icon-cyan">🤖</div><div class="sol-text"><h4>AI Destekli OCR + NLP</h4><p>Gazete ilanlarını otomatik tarar, OCR ile metne çevirir, NLP ile kişi/şirket/konum bilgilerini çıkarır.</p></div></div>
-        <div class="sol-point"><div class="sol-icon sol-icon-violet">🕸️</div><div class="sol-text"><h4>NEXUS İlişki Grafiği</h4><p>Şirketler ve kişiler arası ağı derinlik 2'ye kadar haritalandırır. Gizli bağlantıları ortaya çıkarır.</p></div></div>
-        <div class="sol-point"><div class="sol-icon sol-icon-green">⚡</div><div class="sol-text"><h4>Gerçek Zamanlı Sonuçlar</h4><p>200ms altında arama yanıt süresi. In-memory TTL cache + PostGIS spatial indexing.</p></div></div>
-        <div class="sol-point"><div class="sol-icon sol-icon-amber">🗺️</div><div class="sol-text"><h4>Coğrafi Analiz</h4><p>Şirket adreslerini otomatik geocode eder, bölgesel yoğunluk haritası ve analiz sunar.</p></div></div>
+    </section>
+
+    <!-- SLIDE 2: PROBLEM -->
+    <section class="slide" data-slide="2">
+      <div class="slide-content">
+        <div class="slide-badge">01 · PROBLEM</div>
+        <h2 class="slide-heading">Mevcut Ticaret Sicil Sistemleri Neden Yetersiz?</h2>
+        <p class="slide-sub">Ticaret sicil verileri kamuya açık olmasına rağmen erişilmesi ve analiz edilmesi son derece zordur.</p>
+
+        <div class="grid-4">
+          <div class="glass-card problem-card">
+            <div class="card-icon red-icon">📰</div>
+            <h3>PDF Dağınıklığı</h3>
+            <p>TSG ilanları yüzlerce sayfalık araması imkansız ham PDF formatında yayınlanmaktadır.</p>
+          </div>
+          <div class="glass-card problem-card">
+            <div class="card-icon red-icon">🕸️</div>
+            <h3>Görünmeyen Ağlar</h3>
+            <p>Bir şirketin ortak yöneticileri, gizli bağları ve yan iştiraklerini tespit etmek saatler alır.</p>
+          </div>
+          <div class="glass-card problem-card">
+            <div class="card-icon red-icon">⏳</div>
+            <h3>Zaman &amp; İş Gücü Kaybı</h3>
+            <p>Kredi risk ve KYC araştırmaları manuel taramalar nedeniyle günlerce sürmektedir.</p>
+          </div>
+          <div class="glass-card problem-card">
+            <div class="card-icon red-icon">💰</div>
+            <h3>Yüksek Maliyetler</h3>
+            <p>Piyasadaki ham veri satıcıları aylık binlerce dolar lisans ücreti talep etmektedir.</p>
+          </div>
+        </div>
       </div>
+    </section>
+
+    <!-- SLIDE 3: ÇÖZÜM & NEXUS -->
+    <section class="slide" data-slide="3">
+      <div class="slide-content">
+        <div class="slide-badge">02 · ÇÖZÜM &amp; NEXUS</div>
+        <h2 class="slide-heading">Sicilius ile Akıllı Kurumsal İstihbarat</h2>
+        <p class="slide-sub">Ham kamu verisini saniyeler içinde karar verilebilir görsel analize dönüştürüyoruz.</p>
+
+        <div class="solution-container">
+          <div class="glass-card demo-mockup">
+            <div class="mockup-header">
+              <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+              <span class="mockup-title">Sicilius NEXUS Arama Demo</span>
+            </div>
+            <div class="mockup-search">
+              <span>🔍</span> <span class="typing-text">TESLA TÜRKİYE OTOMOTİV A.Ş.</span>
+            </div>
+            <div class="mockup-result active">
+              <div class="res-info">
+                <strong>Tesla Türkiye Otomotiv A.Ş.</strong>
+                <small>📍 İstanbul · Kuruluş: 2021 · 5 Yönetici</small>
+              </div>
+              <span class="badge badge-green">Aktif</span>
+            </div>
+            <div class="mockup-result">
+              <div class="res-info">
+                <strong>Tesla Enerji Çözümleri Ltd.</strong>
+                <small>📍 Ankara · Kuruluş: 2022 · 3 Ortaklık</small>
+              </div>
+              <span class="badge badge-cyan">İlişkili</span>
+            </div>
+            <div class="network-pulse-box">
+              ⚡ <strong>NEXUS Ağ Tespiti:</strong> 12 Ortak Yönetici, 7 Bağlı Şirket ve Depth-2 Graf Haritası Hazır.
+            </div>
+          </div>
+
+          <div class="solution-list">
+            <div class="sol-item">
+              <div class="sol-icon cyan-bg">🤖</div>
+              <div>
+                <h4>AI Destekli OCR + NLP Engine</h4>
+                <p>Gazete ilanlarını otomatik tarar, optik karakter tanıma ile metne çevirir ve varlıkları (Entity Extraction) çıkarır.</p>
+              </div>
+            </div>
+            <div class="sol-item">
+              <div class="sol-icon violet-bg">🕸️</div>
+              <div>
+                <h4>NEXUS İlişki Ağ Grafiği</h4>
+                <p>Kişi-şirket bağlantılarını Depth-2 derinliğinde görselleştirir, anomali ve riskli ortaklıkları anında uyarmaktadır.</p>
+              </div>
+            </div>
+            <div class="sol-item">
+              <div class="sol-icon green-bg">⚡</div>
+              <div>
+                <h4>&lt;200ms Ultra Hızlı Arama</h4>
+                <p>In-memory TTL Önbellekleme ve PostGIS spatial veritabanı indekslemesi ile anlık yanıtlar.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 4: PLATFORM YETENEKLERİ -->
+    <section class="slide" data-slide="4">
+      <div class="slide-content">
+        <div class="slide-badge">03 · YETENEKLER</div>
+        <h2 class="slide-heading">Uçtan Uca Platform Modülleri</h2>
+        <p class="slide-sub">Bir kurumsal araştırma ve istihbarat merkezinin ihtiyaç duyduğu tüm bileşenler.</p>
+
+        <div class="grid-3">
+          <div class="glass-card feature-tile">
+            <div class="tile-icon">🔍</div>
+            <h4>Akıllı Şirket Arama</h4>
+            <p>Fuzzy match, Türkçe karakter normalizasyonu ve VKN / Sicil No ile anlık arama.</p>
+            <div class="tag-row"><span>Full-text</span><span>Fuzzy Search</span></div>
+          </div>
+          <div class="glass-card feature-tile">
+            <div class="tile-icon">🕸️</div>
+            <h4>NEXUS Grafik Motoru</h4>
+            <p>Şirket-Kişi graf haritası, ML anomali tespiti ve dolaylı ortaklık araştırması.</p>
+            <div class="tag-row"><span>Graph DB</span><span>ML Anomaly</span></div>
+          </div>
+          <div class="glass-card feature-tile">
+            <div class="tile-icon">📄</div>
+            <h4>OCR + Gazete İşleme</h4>
+            <p>PDF gazeteleri otonom tarar, NLP ile yönetici/sermaye değişikliklerini ayıklar.</p>
+            <div class="tag-row"><span>Python OCR</span><span>NLP</span></div>
+          </div>
+          <div class="glass-card feature-tile">
+            <div class="tile-icon">🗺️</div>
+            <h4>Coğrafi Haritalama</h4>
+            <p>PostGIS altyapısı, otomatik geocoding ve interaktif kümeleme haritası.</p>
+            <div class="tag-row"><span>PostGIS</span><span>Leaflet</span></div>
+          </div>
+          <div class="glass-card feature-tile">
+            <div class="tile-icon">🏆</div>
+            <h4>Oyunlaştırma &amp; Saha Satışı</h4>
+            <p>GPS 50m doğrulama ile saha check-in, anonim KVKK liderlik tablosu ve XP/Lig sistemi.</p>
+            <div class="tag-row"><span>Gamification</span><span>GPS 50m</span></div>
+          </div>
+          <div class="glass-card feature-tile">
+            <div class="tile-icon">🐹</div>
+            <h4>Go (Golang) Microservice</h4>
+            <p>PostGIS ST_DWithin ile 50m saha fırsatları sunan Clean Architecture REST API.</p>
+            <div class="tag-row"><span>Golang</span><span>pgx/v5</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 5: TEKNOLOJİ & MİMARİ -->
+    <section class="slide" data-slide="5">
+      <div class="slide-content">
+        <div class="slide-badge">04 · TEKNOLOJİ</div>
+        <h2 class="slide-heading">Modern &amp; Kurumsal Mimari Altyapı</h2>
+        <p class="slide-sub">Yüksek performanslı, containerized ve sürekli çalışan mikro-servis mimarisi.</p>
+
+        <div class="tech-layout">
+          <div class="tech-card-grid">
+            <div class="glass-card tech-card">
+              <span class="tech-cat">FRONTEND</span>
+              <h3>Next.js 14 &amp; React</h3>
+              <p>TypeScript, Tailwind CSS, React Force Graph ve Chart.js entegrasyonu.</p>
+            </div>
+            <div class="glass-card tech-card">
+              <span class="tech-cat">BACKEND &amp; MİKROSERVİS</span>
+              <h3>Go (Golang) + FastAPI</h3>
+              <p>Clean Architecture, Python 3.11 NLP işleme ve high-concurrency API.</p>
+            </div>
+            <div class="glass-card tech-card">
+              <span class="tech-cat">VERİTABANI &amp; DEPOLAMA</span>
+              <h3>PostgreSQL + PostGIS</h3>
+              <p>Coğrafi indeksleme, MinIO S3 dosya depolama ve in-memory cache.</p>
+            </div>
+            <div class="glass-card tech-card">
+              <span class="tech-cat">MOBİL &amp; DEPLOYMENT</span>
+              <h3>Expo (React Native) + Docker</h3>
+              <p>OpenStreetMap ücretsiz harita altyapısı, Caddy TLS ve Disaster Recovery.</p>
+            </div>
+          </div>
+
+          <div class="glass-card arch-flow-card">
+            <h4 class="flow-title">⚡ Otonom Veri Akış Şeması</h4>
+            <div class="flow-steps">
+              <div class="flow-step"><span>📰 TSG Scraping</span></div>
+              <div class="flow-arrow">→</div>
+              <div class="flow-step"><span>🔤 OCR &amp; NLP</span></div>
+              <div class="flow-arrow">→</div>
+              <div class="flow-step"><span>🗺️ PostGIS Geocode</span></div>
+              <div class="flow-arrow">→</div>
+              <div class="flow-step"><span>🕸️ NEXUS Graph</span></div>
+              <div class="flow-arrow">→</div>
+              <div class="flow-step highlight"><span>📱 Mobil &amp; Web</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 6: SAHA SATIŞI & GAMIFICATION -->
+    <section class="slide" data-slide="6">
+      <div class="slide-content">
+        <div class="slide-badge">05 · SAHA SATIŞI &amp; GİZLİLİK</div>
+        <h2 class="slide-heading">Saha Ziyaret Disiplini &amp; Oyunlaştırma Engine</h2>
+        <p class="slide-sub">KVKK uyumlu anonim sıralama ve GPS 50m doğrulama ile saha ekiplerini motive edin.</p>
+
+        <div class="grid-2">
+          <div class="glass-card gamification-highlight">
+            <div class="g-header">
+              <span class="g-icon">🏆</span>
+              <div>
+                <h3>5 Kademeli Lig Sistemi</h3>
+                <small>Bronz → Gümüş → Altın → Platin → Efsane</small>
+              </div>
+            </div>
+            <div class="g-features">
+              <div class="g-item">📍 <strong>GPS 50m Mesafe Doğrulaması:</strong> Yanıltıcı check-in engellenir.</div>
+              <div class="g-item">🛡️ <strong>KVKK &amp; Veri Minimizasyonu:</strong> Ciro veya finansal veriler asla takip edilmez.</div>
+              <div class="g-item">🔒 <strong>Anonim Liderlik Tablosu:</strong> Diğer temsilcilerin isimleri gizli tutulur ("Temsilci #1", "Sen: 4. Sıra").</div>
+              <div class="g-item">📜 <strong>1.000+ Dinamik Görev:</strong> Bölge ve sektör bazlı otonom günlük görev üretimi.</div>
+            </div>
+          </div>
+
+          <div class="glass-card osm-highlight">
+            <div class="g-header">
+              <span class="g-icon">🗺️</span>
+              <div>
+                <h3>%100 Ücretsiz Harita Altyapısı</h3>
+                <small>OpenStreetMap (OSM) Tile Server Entegrasyonu</small>
+              </div>
+            </div>
+            <div class="osm-desc">
+              <p>Google Maps API maliyetleri yerine <strong>OpenStreetMap Tile Server</strong> altyapısı kullanılmıştır. Kredi kartı zorunluluğu veya API faturalandırması olmadan sınırsız harita görüntüleme ve PostGIS spatial mesafe hesaplamaları sunulur.</p>
+              <div class="badge-group">
+                <span class="badge badge-green">Sıfır API Maliyeti</span>
+                <span class="badge badge-cyan">Sınırsız Render</span>
+                <span class="badge badge-amber">Zustand Offline First</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 7: PAZAR & GELİR MODELİ -->
+    <section class="slide" data-slide="7">
+      <div class="slide-content">
+        <div class="slide-badge">06 · PAZAR &amp; İŞ MODELİ</div>
+        <h2 class="slide-heading">Büyüme Potansiyeli ve Monetizasyon</h2>
+        <p class="slide-sub">Türkiye'de regtech ve kurumsal istihbarat pazarındaki büyük fırsat.</p>
+
+        <div class="market-grid">
+          <div class="glass-card m-stat">
+            <div class="m-num cyan">2.1M</div>
+            <div class="m-title">Aktif Kayıtlı Şirket</div>
+            <p>Türkiye'de sürekli veri ureten şirket stoku.</p>
+          </div>
+          <div class="glass-card m-stat">
+            <div class="m-num violet">₺8 Milyar</div>
+            <div class="m-title">RegTech Pazarı</div>
+            <p>Kurumsal yazılım ve araştırma pazarı hacmi.</p>
+          </div>
+          <div class="glass-card m-stat">
+            <div class="m-num green">4.200+</div>
+            <div class="m-title">Hedef Müşteri</div>
+            <p>Banka, faktoring, sigorta, hukuk firmaları.</p>
+          </div>
+          <div class="glass-card m-stat">
+            <div class="m-num amber">%34</div>
+            <div class="m-title">Yıllık CAGR Büyüme</div>
+            <p>Türkiye B2B SaaS pazar büyüme hızı.</p>
+          </div>
+        </div>
+
+        <div class="pricing-tiers">
+          <div class="glass-card tier-card">
+            <h4>Freemium</h4>
+            <div class="price">₺0 <small>/ay</small></div>
+            <p>Günlük 20 arama limitli temel sorgu altyapısı.</p>
+          </div>
+          <div class="glass-card tier-card active-tier">
+            <div class="tier-tag">Popüler</div>
+            <h4>Pro Plan</h4>
+            <div class="price">₺299 <small>/ay</small></div>
+            <p>Sınırsız arama, NEXUS Graf haritası ve PDF rapor export.</p>
+          </div>
+          <div class="glass-card tier-card">
+            <h4>Kurumsal API</h4>
+            <div class="price">₺2.999+ <small>/ay</small></div>
+            <p>SLA garantisi, özel webhook ve sınırsız veritabanı erişimi.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 8: YOL HARİTASI -->
+    <section class="slide" data-slide="8">
+      <div class="slide-content">
+        <div class="slide-badge">07 · YOL HARİTASI</div>
+        <h2 class="slide-heading">Gelişim ve Büyüme Zaman Çizelgesi</h2>
+        <p class="slide-sub">Tamamlanan kilometre taşları ve gelecek dönemi vizyonu.</p>
+
+        <div class="timeline-container">
+          <div class="glass-card timeline-box done">
+            <div class="t-badge done-badge">✅ 2025 Q1-Q2</div>
+            <h4>Temel Platform &amp; Veri</h4>
+            <ul>
+              <li>FastAPI + Next.js 14 Mimari Kurulumu</li>
+              <li>PostgreSQL + PostGIS Coğrafi Altyapı</li>
+              <li>Otonom Scraping &amp; OCR Pipeline</li>
+            </ul>
+          </div>
+          <div class="glass-card timeline-box done">
+            <div class="t-badge done-badge">✅ 2025 Q3-Q4</div>
+            <h4>NEXUS &amp; Mobil Altyapı</h4>
+            <ul>
+              <li>NEXUS Derinlik-2 Graf Motoru</li>
+              <li>React Native (Expo) B2B Mobil App</li>
+              <li>Go (Golang) ST_DWithin Microservice</li>
+              <li>Felaket Kurtarma (DR) Planı</li>
+            </ul>
+          </div>
+          <div class="glass-card timeline-box current">
+            <div class="t-badge current-badge">⚡ 2026 Q1 — Aktif</div>
+            <h4>Oyunlaştırma &amp; Yaygınlaşma</h4>
+            <ul>
+              <li>Oyunlaştırma (Gamification) &amp; 5 Kademeli Lig</li>
+              <li>KVKK Uyumlu Anonim Liderlik Tablosu</li>
+              <li>SaaS Abonelik ve Paket Lansmanı</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 9: SIK SORULAN SORULAR -->
+    <section class="slide" data-slide="9">
+      <div class="slide-content">
+        <div class="slide-badge">08 · SSS</div>
+        <h2 class="slide-heading">Merak Edilen Sorular &amp; Yanıtlar</h2>
+        <p class="slide-sub">Jüriler, yatırımcılar ve kurumsal kullanıcıların sıklıkla sorduğu detaylar.</p>
+
+        <div class="faq-accordion">
+          <div class="glass-card faq-card">
+            <div class="faq-q"><span>⚖️ Veri nereden geliyor, yasal altyapısı nedir?</span> <span class="faq-toggle">+</span></div>
+            <div class="faq-a">Ticaret Sicil Gazetesi kamuya açık resmi bir devlet yayınıdır. Sicilius ham kamu verisini yapay zeka ile yapılandırılmış ve sorgulanabilir hale getirir. KVKK standartlarına tam uyumludur.</div>
+          </div>
+          <div class="glass-card faq-card">
+            <div class="faq-q"><span>🚀 Sicilius'u rakiplerinden ayıran en temel 3 fark nedir?</span> <span class="faq-toggle">+</span></div>
+            <div class="faq-a">(1) NEXUS ilişki ağı grafı (Depth-2), (2) GPS 50m doğrulama ve oyunlaştırmalı B2B saha satış modülü, (3) %100 otonom veri güncelleme ve sıfır harita maliyetli mimari.</div>
+          </div>
+          <div class="glass-card faq-card">
+            <div class="faq-q"><span>🛡️ Saha satış oyunlaştırmasında KVKK ve gizlilik nasıl sağlanıyor?</span> <span class="faq-toggle">+</span></div>
+            <div class="faq-a">Ciro veya satış tutarı kesinlikle takip edilmez. Liderlik tablosu tamamen anonimdir ("Temsilci #1", "SEN 4. Sıra"). Diğer kullanıcıların kişisel bilgileri sistemde gizli tutulur.</div>
+          </div>
+          <div class="glass-card faq-card">
+            <div class="faq-q"><span>🗺️ Mobil haritada Google Maps API ücreti ödeniyor mu?</span> <span class="faq-toggle">+</span></div>
+            <div class="faq-a">Hayır. Ücretli Google Maps API yerine %100 ücretsiz OpenStreetMap (OSM) Tile Server kullanılmıştır. Sıfır API maliyetiyle sınırsız harita render edilmektedir.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLIDE 10: KAPANIS / CALL TO ACTION -->
+    <section class="slide" data-slide="10">
+      <div class="slide-content cta-slide">
+        <div class="slide-badge">09 · KAPANIS</div>
+        <h1 class="slide-title-large">Türkiye'nin Şirket Verisini<br/><span class="gradient-text">Geleceğe Taşıyoruz</span></h1>
+        <p class="hero-sub">Binlerce şirket ve yönetici ilişkisini saniyeler içinde keşfetmek için platformu hemen canlıda deneyimleyin.</p>
+
+        <div class="hero-actions">
+          <a href="https://sicilius.com.tr" target="_blank" class="btn-primary">🚀 sicilius.com.tr Platformuna Git</a>
+          <a href="https://sicilius.com.tr/nexus" target="_blank" class="btn-outline">🔬 NEXUS İnteraktif Demo</a>
+        </div>
+
+        <div class="contact-info">
+          <span>📧 info@sicilius.com.tr</span>
+          <span>🌐 sicilius.com.tr</span>
+          <span>📍 İstanbul / Türkiye</span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Bottom Navigation & Controls Bar -->
+  <footer class="deck-controls">
+    <div class="controls-left">
+      <button class="nav-arrow-btn" id="btnPrev" title="Önceki Slayt (←)">
+        ← <span class="btn-text">Önceki</span>
+      </button>
+      <button class="nav-arrow-btn" id="btnNext" title="Sonraki Slayt (→)">
+        <span class="btn-text">Sonraki</span> →
+      </button>
     </div>
-    <div class="nexus-promo">
-      <div class="nexus-promo-icon">🔬</div>
-      <div class="nexus-promo-text"><h3>NEXUS — Kurumsal Risk İstihbaratı</h3><p>Kredi risk analizi, contagion simülasyonu, psikometrik modelleme ve Sankey akış diyagramları.</p></div>
-      <a href="/nexus" class="nexus-promo-btn">NEXUS Demo →</a>
+
+    <!-- Dots Container -->
+    <div class="deck-dots" id="deckDots"></div>
+
+    <div class="controls-right">
+      <span class="slide-counter" id="slideCounter">SLİDE 01 / 10</span>
     </div>
+  </footer>
+
+  <!-- Overview Modal Grid -->
+  <div class="overview-modal" id="overviewModal">
+    <div class="overview-header">
+      <h3>Slayt Kataloğu</h3>
+      <button class="close-btn" id="btnCloseOverview">✕</button>
+    </div>
+    <div class="overview-grid" id="overviewGrid"></div>
   </div>
-</section>
 
-<!-- FEATURES -->
-<section id="features">
-  <div class="container">
-    <div class="section-header">
-      <div class="section-tag">Özellikler</div>
-      <h2 class="section-title">Platform Yetenekleri</h2>
-      <p class="section-desc">Kapsamlı bir araştırma platformunun ihtiyaç duyduğu tüm modüller.</p>
-    </div>
-    <div class="features-grid">
-      <div class="glass-card feature-card"><div class="feature-num">01</div><div class="feature-icon">🔍</div><h3>Akıllı Şirket Arama</h3><p>Fuzzy search, Türkçe karakter normalizasyonu, ad/sicil no/VKN ile çoklu arama. Token tabanlı skor sıralaması.</p><div class="feature-tags"><span class="tag">Full-text</span><span class="tag">Fuzzy Match</span><span class="tag">TTL Cache</span></div></div>
-      <div class="glass-card feature-card"><div class="feature-num">02</div><div class="feature-icon">🕸️</div><h3>NEXUS İlişki Analizi</h3><p>Şirket-kişi-şirket grafı, Depth-2 traversal, ML anomali tespiti, arka planda geocoding tetikleme.</p><div class="feature-tags"><span class="tag">Graph DB</span><span class="tag">ML Anomaly</span><span class="tag">Real-time</span></div></div>
-      <div class="glass-card feature-card"><div class="feature-num">03</div><div class="feature-icon">📄</div><h3>OCR + Gazete İşleme</h3><p>PDF ilanlarını otomatik OCR ile işler, NLP ile yapılandırılmış veri çıkarır. Batch mode desteği.</p><div class="feature-tags"><span class="tag">Python OCR</span><span class="tag">NLP</span><span class="tag">Batch Queue</span></div></div>
-      <div class="glass-card feature-card"><div class="feature-num">04</div><div class="feature-icon">🗺️</div><h3>Coğrafi Görselleştirme</h3><p>PostGIS spatial sorguları, otomatik geocoding, Leaflet interaktif harita, bölgesel kümeleme.</p><div class="feature-tags"><span class="tag">PostGIS</span><span class="tag">Leaflet</span><span class="tag">Geocoding</span></div></div>
-      <div class="glass-card feature-card"><div class="feature-num">05</div><div class="feature-icon">📧</div><h3>Dahili Mailbox</h3><p>Gelen e-posta yönetimi, SMTP + Brevo entegrasyonu, çift tıkla modal, yanıt gönderme.</p><div class="feature-tags"><span class="tag">SMTP</span><span class="tag">Brevo</span><span class="tag">Webhook</span></div></div>
-      <div class="glass-card feature-card"><div class="feature-num">06</div><div class="feature-icon">🔐</div><h3>Kurumsal Güvenlik</h3><p>JWT auth, rol tabanlı erişim, günlük kullanım limiti, CSP headers, rate limiting, TLS.</p><div class="feature-tags"><span class="tag">JWT</span><span class="tag">RBAC</span><span class="tag">Rate Limit</span></div></div>
-      <div class="glass-card feature-card"><div class="feature-num">07</div><div class="feature-icon">📊</div><h3>Admin Dashboard</h3><p>İstatistik paneli, kullanıcı yönetimi, hata raporları, favori yönetimi, işlem logları.</p><div class="feature-tags"><span class="tag">Analytics</span><span class="tag">User Mgmt</span><span class="tag">Audit Log</span></div></div>
-      <div class="glass-card feature-card"><div class="feature-num">08</div><div class="feature-icon">🤖</div><h3>Otonom Scraping Worker</h3><p>TSG'den sürekli veri çeken, kuyruk tabanlı, izlenebilir arka plan işçisi. Self-healing mimarisi.</p><div class="feature-tags"><span class="tag">Background</span><span class="tag">Queue</span><span class="tag">Self-healing</span></div></div>
-    </div>
-  </div>
-</section>
-
-<!-- TECH STACK -->
-<section id="tech">
-  <div class="container">
-    <div class="section-header">
-      <div class="section-tag">Teknoloji</div>
-      <h2 class="section-title">Teknoloji Altyapısı</h2>
-      <p class="section-desc">Ölçeklenebilir, containerized ve production-grade mimari.</p>
-    </div>
-    <div class="tech-grid">
-      <div class="glass-card"><div class="tech-layer-title">🖥️ Frontend</div><div class="tech-items"><div class="tech-chip"><div class="tech-dot dot-cyan"></div>Next.js 14</div><div class="tech-chip"><div class="tech-dot dot-cyan"></div>TypeScript</div><div class="tech-chip"><div class="tech-dot dot-cyan"></div>Tailwind CSS</div><div class="tech-chip"><div class="tech-dot dot-cyan"></div>React Force Graph</div><div class="tech-chip"><div class="tech-dot dot-cyan"></div>Leaflet.js</div><div class="tech-chip"><div class="tech-dot dot-cyan"></div>Chart.js + Plotly</div></div></div>
-      <div class="glass-card"><div class="tech-layer-title">⚙️ Backend</div><div class="tech-items"><div class="tech-chip"><div class="tech-dot dot-violet"></div>FastAPI</div><div class="tech-chip"><div class="tech-dot dot-violet"></div>Python 3.11</div><div class="tech-chip"><div class="tech-dot dot-violet"></div>SQLAlchemy</div><div class="tech-chip"><div class="tech-dot dot-violet"></div>Alembic</div><div class="tech-chip"><div class="tech-dot dot-violet"></div>Pydantic v2</div><div class="tech-chip"><div class="tech-dot dot-violet"></div>Uvicorn</div></div></div>
-      <div class="glass-card"><div class="tech-layer-title">🗄️ Veri Katmanı</div><div class="tech-items"><div class="tech-chip"><div class="tech-dot dot-green"></div>PostgreSQL 15</div><div class="tech-chip"><div class="tech-dot dot-green"></div>PostGIS</div><div class="tech-chip"><div class="tech-dot dot-green"></div>MinIO (S3)</div><div class="tech-chip"><div class="tech-dot dot-green"></div>Supabase</div><div class="tech-chip"><div class="tech-dot dot-green"></div>Graph Service</div></div></div>
-      <div class="glass-card"><div class="tech-layer-title">🚀 DevOps</div><div class="tech-items"><div class="tech-chip"><div class="tech-dot dot-amber"></div>Docker</div><div class="tech-chip"><div class="tech-dot dot-amber"></div>Docker Compose</div><div class="tech-chip"><div class="tech-dot dot-amber"></div>Caddy (TLS)</div><div class="tech-chip"><div class="tech-dot dot-amber"></div>rsync CI/CD</div><div class="tech-chip"><div class="tech-dot dot-amber"></div>Mac Mini Server</div></div></div>
-    </div>
-    <div class="arch-diagram">
-      <div class="arch-label">Sistem Mimarisi</div>
-      <div class="arch-row"><div class="arch-box arch-cyan">Kullanıcı Tarayıcı</div><div class="arch-arrow">→</div><div class="arch-box arch-amber">Caddy (TLS + Proxy)</div><div class="arch-arrow">→</div><div class="arch-box arch-cyan">Next.js 14 (Standalone)</div></div>
-      <div class="arch-divider">↕</div>
-      <div class="arch-row"><div class="arch-box arch-violet">FastAPI Backend</div><div class="arch-arrow">→</div><div class="arch-box arch-green">PostgreSQL + PostGIS</div><div class="arch-arrow">→</div><div class="arch-box arch-green">MinIO S3</div></div>
-      <div class="arch-divider">↕</div>
-      <div class="arch-row"><div class="arch-box arch-violet">Scraping Worker</div><div class="arch-arrow">→</div><div class="arch-box arch-violet">OCR Engine</div><div class="arch-arrow">→</div><div class="arch-box arch-violet">NLP Parser</div><div class="arch-arrow">→</div><div class="arch-box arch-green">NEXUS Graph</div></div>
-    </div>
-  </div>
-</section>
-
-<!-- PIPELINE -->
-<section id="pipeline">
-  <div class="container">
-    <div class="section-header">
-      <div class="section-tag">Veri Akışı</div>
-      <h2 class="section-title">Verinin Yolculuğu</h2>
-      <p class="section-desc">Ham gazete ilanından analiz edilebilir kurumsal veriye otomatik dönüşüm.</p>
-    </div>
-    <div class="pipeline-steps">
-      <div class="pipe-step"><div class="pipe-circle">📰</div><h4>Gazete Scraping</h4><p>TSG'den otomatik PDF</p></div>
-      <div class="pipe-step"><div class="pipe-circle">🔤</div><h4>OCR</h4><p>Görüntüden metin</p></div>
-      <div class="pipe-step"><div class="pipe-circle">🧠</div><h4>NLP Parsing</h4><p>Entity extraction</p></div>
-      <div class="pipe-step"><div class="pipe-circle">🗺️</div><h4>Geocoding</h4><p>Adres → Koordinat</p></div>
-      <div class="pipe-step"><div class="pipe-circle">🕸️</div><h4>Graph Build</h4><p>İlişki ağı kurma</p></div>
-      <div class="pipe-step"><div class="pipe-circle">🔍</div><h4>Index</h4><p>Arama indexi</p></div>
-      <div class="pipe-step"><div class="pipe-circle">📊</div><h4>Analiz</h4><p>Kullanıcıya sunum</p></div>
-    </div>
-  </div>
-</section>
-
-<!-- ROADMAP -->
-<section id="roadmap">
-  <div class="container">
-    <div class="section-header">
-      <div class="section-tag">Yol Haritası</div>
-      <h2 class="section-title">Gelecek Projeksiyonu</h2>
-      <p class="section-desc">Tamamlananlar ve önümüzdeki büyüme hedefleri.</p>
-    </div>
-    <div class="roadmap-grid">
-      <div class="glass-card roadmap-card done"><div class="roadmap-period period-done">✅ 2025 Q1-Q2 — Tamamlandı</div><h4>Temel Platform</h4><ul><li>FastAPI + Next.js 14 altyapısı</li><li>PostgreSQL + PostGIS entegrasyonu</li><li>JWT auth + RBAC sistemi</li><li>Scraping worker (TSG gazetesi)</li><li>OCR + NLP pipeline</li><li>Coğrafi görselleştirme</li></ul></div>
-      <div class="glass-card roadmap-card done"><div class="roadmap-period period-done">✅ 2025 Q3 — Tamamlandı</div><h4>Gelişmiş Özellikler</h4><ul><li>NEXUS ilişki grafı motoru</li><li>ML anomali tespiti</li><li>Admin dashboard</li><li>Mailbox (SMTP + Brevo)</li><li>Davet sistemi</li><li>Mac Mini production deploy</li></ul></div>
-      <div class="glass-card roadmap-card active"><div class="roadmap-period period-now">⚡ 2025 Q4 — Aktif</div><h4>Platform Olgunlaşması</h4><ul><li>NEXUS risk simülasyon modülü</li><li>B2B satış arayüzü</li><li>PDF rapor export</li><li>API erişim katmanı (v2)</li><li>Sunum ve pazarlama sayfaları</li><li>Yarışma ve demo hazırlığı</li></ul></div>
-      <div class="glass-card roadmap-card"><div class="roadmap-period period-future">🔮 2026 — Hedef</div><h4>Büyüme & Monetizasyon</h4><ul><li>SaaS abonelik modeli</li><li>Kurumsal API lisanslama</li><li>Bankacılık / finans entegrasyonu</li><li>KKB / kredi skorlama</li><li>Türkiye dışı piyasalar</li><li>Mobil uygulama</li></ul></div>
-    </div>
-  </div>
-</section>
-
-<!-- MARKET -->
-<section id="market">
-  <div class="container">
-    <div class="section-header">
-      <div class="section-tag">Pazar</div>
-      <h2 class="section-title">Pazar Fırsatı</h2>
-      <p class="section-desc">Türkiye'de kurumsal veri ve regtech alanındaki büyüme potansiyeli.</p>
-    </div>
-    <div class="market-stats">
-      <div class="glass-card market-stat"><div class="market-num" style="color:var(--cyan2)">2.1M</div><div class="market-name">Aktif Şirket</div><p>Türkiye'de kayıtlı ve aktif şirket sayısı (2024)</p></div>
-      <div class="glass-card market-stat"><div class="market-num" style="color:var(--violet)">₺8B</div><div class="market-name">RegTech Pazar</div><p>Türkiye regtech &amp; kurumsal yazılım pazarı büyüklüğü</p></div>
-      <div class="glass-card market-stat"><div class="market-num" style="color:var(--green)">4.2K+</div><div class="market-name">Potansiyel Müşteri</div><p>Banka, faktoring, sigorta, hukuk firması segmenti</p></div>
-      <div class="glass-card market-stat"><div class="market-num" style="color:var(--amber)">%34</div><div class="market-name">Yıllık Büyüme</div><p>Türkiye B2B SaaS pazarı yıllık büyüme oranı</p></div>
-    </div>
-    <div class="segment-grid">
-      <div class="glass-card"><h4 style="color:var(--cyan2);margin-bottom:10px">🏦 Bankacılık &amp; Finans</h4><p>KYC, kredi risk değerlendirmesi, müşteri due diligence için şirket geçmişi ve ilişki ağı analizi.</p><div class="segment-badge" style="color:var(--green)">▲ Yüksek Değer Segment</div></div>
-      <div class="glass-card"><h4 style="color:var(--violet);margin-bottom:10px">⚖️ Hukuk &amp; Danışmanlık</h4><p>M&amp;A süreçleri, dava araştırması, ortaklık yapısı analizi ve hukuki due diligence.</p><div class="segment-badge" style="color:var(--cyan2)">▲ Orta-Yüksek Segment</div></div>
-      <div class="glass-card"><h4 style="color:var(--green);margin-bottom:10px">🏢 Kurumsal KOBİ</h4><p>Tedarikçi araştırması, rakip analizi, piyasa araştırması ve potansiyel iş ortağı keşfi.</p><div class="segment-badge" style="color:var(--amber)">▲ Hacim Segment</div></div>
-    </div>
-  </div>
-</section>
-
-<!-- Q&A -->
-<section id="qa">
-  <div class="container">
-    <div class="section-header">
-      <div class="section-tag">SSS</div>
-      <h2 class="section-title">Sık Sorulan Sorular</h2>
-      <p class="section-desc">Yatırımcılar, jüriler ve potansiyel müşterilerin en çok merak ettiği sorular.</p>
-    </div>
-    <div class="qa-grid">
-      <div class="glass-card qa-item" onclick="this.classList.toggle('open')"><div class="qa-question">Veri nereden geliyor, yasal mı? <div class="qa-toggle">+</div></div><div class="qa-answer">TSG tamamen kamuya açık resmi devlet yayınıdır. Sicilius yalnızca bu kamuya açık veriyi yapılandırılmış hale getirir. Hiçbir gizli veri kullanılmaz. Kişisel veri işleme KVKK kapsamında değerlendirilir.</div></div>
-      <div class="glass-card qa-item" onclick="this.classList.toggle('open')"><div class="qa-question">Rakipleriniz kimler, farkınız ne? <div class="qa-toggle">+</div></div><div class="qa-answer">Türkiye'deki en yakın rakipler Tofas, VeriBis ve çeşitli ticaret sicil veri satıcılarıdır. Sicilius'u ayıran: (1) Gerçek zamanlı otomatik güncelleme, (2) ilişki ağı (graph) analizi, (3) NEXUS kurumsal risk modelleme, (4) çok daha erişilebilir fiyatlama.</div></div>
-      <div class="glass-card qa-item" onclick="this.classList.toggle('open')"><div class="qa-question">Gelir modeli nedir? <div class="qa-toggle">+</div></div><div class="qa-answer">Planlanan model: (1) Freemium — günlük 20 arama ücretsiz, (2) Pro plan — aylık ₺299, sınırsız arama + PDF export, (3) Kurumsal API — aylık ₺2.999+, SLA garantisi, özel entegrasyon. 2026 hedefi: 500 ödeme yapan kullanıcı.</div></div>
-      <div class="glass-card qa-item" onclick="this.classList.toggle('open')"><div class="qa-question">Veritabanında kaç kayıt var? <div class="qa-toggle">+</div></div><div class="qa-answer">Şu an 500.000+ şirket ve 2M+ gazete ilanı kaydı mevcut. Scraping worker sürekli güncelleme yapıyor. Hedef: 1M+ şirket, tam TSG kapsamı (2019'dan günümüze).</div></div>
-      <div class="glass-card qa-item" onclick="this.classList.toggle('open')"><div class="qa-question">Sistem nasıl çalışıyor, uptime nedir? <div class="qa-toggle">+</div></div><div class="qa-answer">Dockerized microservices: Next.js frontend, FastAPI backend, PostgreSQL, MinIO, Caddy. Self-hosted Mac Mini sunucuda çalışıyor. TLS otomatik yenileme Caddy ile. Mevcut uptime %99+.</div></div>
-      <div class="glass-card qa-item" onclick="this.classList.toggle('open')"><div class="qa-question">NEXUS nedir, nasıl çalışır? <div class="qa-toggle">+</div></div><div class="qa-answer">NEXUS, şirket ve kişi ilişkilerini ağ grafiği olarak modelleyen yapay zeka destekli analiz motorudur. Depth-2 traversal ile dolaylı bağlantıları bulur, ML ile anomali tespit eder, Sankey diyagramı ile kredi akışını görselleştirir, contagion simülasyonu ile risk yayılımını gösterir.</div></div>
-      <div class="glass-card qa-item" onclick="this.classList.toggle('open')"><div class="qa-question">Ölçeklenebilirlik planı nedir? <div class="qa-toggle">+</div></div><div class="qa-answer">Mevcut mimari Docker ile containerized. Büyüme planı: Cloud migration (AWS/GCP), Kubernetes orchestration, Read replica ile DB ölçekleme, CDN ile statik asset dağıtımı, güçlendirilmiş rate limiting.</div></div>
-      <div class="glass-card qa-item" onclick="this.classList.toggle('open')"><div class="qa-question">Tek kişilik proje mi? <div class="qa-toggle">+</div></div><div class="qa-answer">Şu an kurucusu tarafından full-stack geliştiriliyor. Platform mimarisi ve kod kalitesiyle kurumsal standartlarda. 2026 hedefi: 3-5 kişilik teknik ekip ve satış ekibi kurulması.</div></div>
-    </div>
-  </div>
-</section>
-
-<!-- CTA -->
-<section id="cta">
-  <div class="container" style="text-align:center">
-    <h2 class="section-title">Türkiye'nin Şirket Verisini<br/>Akıllı Hale Getiriyoruz</h2>
-    <p style="color:var(--muted);font-size:1.1rem;margin-bottom:40px;">Binlerce şirket ilişkisini saniyeler içinde analiz edin.</p>
-    <div class="cta-actions">
-      <a href="https://sicilius.com.tr" target="_blank" class="btn-primary">🚀 Platforma Giriş Yap</a>
-      <a href="/nexus" class="btn-outline">🔬 NEXUS Demo</a>
-    </div>
-    <p style="margin-top:28px;font-size:.85rem;color:var(--muted)">
-      📧 <a href="mailto:info@sicilius.com.tr" style="color:var(--cyan2);text-decoration:none">info@sicilius.com.tr</a>
-      &nbsp;·&nbsp;
-      🌐 <a href="https://sicilius.com.tr" target="_blank" style="color:var(--cyan2);text-decoration:none">sicilius.com.tr</a>
-    </p>
-  </div>
-</section>
-
-<footer>
-  <div class="nav-brand">SICILIUS</div>
-  <p>© 2025 Sicilius Platform — Türkiye'nin Akıllı Şirket Araştırma Platformu</p>
-  <p style="font-size:.78rem;color:var(--muted)">sicilius.com.tr</p>
-</footer>
-
-<script src="app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
