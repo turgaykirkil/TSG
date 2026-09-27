@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ SICILIUS — TSG PLATFORM
+# ⚡ Sicilius
 ### Autonomous Commercial Intelligence, Knowledge Graph & B2B Lead Generation Engine
 
 <p align="center">
