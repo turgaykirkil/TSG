@@ -128,10 +128,14 @@ export default function ProfilePage() {
                     }
                     try {
                       setSubmitting(true);
+                      const token = typeof window !== 'undefined' ? (localStorage.getItem('accessToken') || localStorage.getItem('token')) : null;
                       const res = await fetch(`${API_ENDPOINTS.AUTH.CHANGE_PASSWORD}`,
                         {
                           method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
+                          headers: {
+                            'Content-Type': 'application/json',
+                            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                          },
                           credentials: 'include',
                           body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
                         }

@@ -1,0 +1,8 @@
+{
+  "extraPaths": [
+    "/opt/homebrew/lib/python3.10/site-packages",
+    "/Users/turgaykirkil/Library/Python/3.9/lib/python/site-packages",
+    "/Users/turgaykirkil/Apps/TSG_Platform/sicilius/backend"
+  ],
+  "pythonVersion": "3.10"
+}

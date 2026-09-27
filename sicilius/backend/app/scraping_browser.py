@@ -21,6 +21,7 @@ from playwright.async_api import (
     TimeoutError as PlaywrightTimeoutError,
     async_playwright,
 )
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app import crud, models, schemas
@@ -524,7 +525,6 @@ async def start_enhanced_scraping_process(
 
                     # Veritabanı Oturum Sağlığı Kontrolü
                     try:
-                        from sqlalchemy import text
                         db.execute(text("SELECT 1"))
                     except Exception:
                         logger.warning("DB bağlantısı koptu, yeniden oluşturuluyor...")
@@ -655,12 +655,14 @@ def _compute_candidate_sicil_numbers(
     office_label: str, 
     count: int, 
     min_threshold: int = 1,
-    strategy: Optional[str] = None,
-    start_from: Optional[int] = None
+    strategy: Optional[str] = 'gap_fill',
+    start_from: Optional[int] = None,
+    max_threshold: Optional[int] = None
 ) -> List[int]:
     """Verilen ofis için aday sicil numaralarını üretir.
-    - start_from verilmişse (Baştan Başla): start_from'dan itibaren sıralı olarak numara üretir.
-    - start_from verilmemişse (Kaldığı Yerden Devam Et): Veritabanındaki en yüksek sicil no + 1'den devam eder.
+    - start_from verilmişse (Özel başlangıç no): start_from'dan itibaren taranmamış numaraları üretir.
+    - gap_fill (Varsayılan): min_threshold'dan (ör. İstanbul için 100000) başlayarak veritabanında olmayan (atlanmış veya sıradaki) 6 haneli boşlukları ardışık doldurur.
+    - sequential: Veritabanındaki en yüksek sicil no + 1'den devam eder.
     """
     if start_from is not None and start_from <= 0:
         start_from = None
@@ -674,30 +676,46 @@ def _compute_candidate_sicil_numbers(
             )
         )
         rows = q.all()
-        nums: List[int] = []
+        nums_set: set[int] = set()
         for (sicil_no,) in rows:
             try:
                 s = (sicil_no or "").strip()
                 if s and s.isdigit():
                     val = int(s)
                     if val >= max(1, int(min_threshold)):
-                        nums.append(val)
+                        nums_set.add(val)
             except Exception:
                 continue
 
-        # 1) Eğer kullanıcı "Baştan Başla" veya özel bir başlangıç no girdi ise (örneğin 100000):
+        strat = (strategy or 'gap_fill').lower()
+        candidates: List[int] = []
+
+        # 1) Özel Başlangıç veya En Baştan Başla (Senaryo 2 & 3):
+        # Kullanıcı belirli bir numaradan (örn. 250000) veya en baştan (örn. 100000) başlamak istediyse,
+        # mevcut şirketlerin yeni ilanlarını da yakalamak üzere doğrudan sıralı liste üretir.
         if start_from is not None and start_from > 0:
             return list(range(start_from, start_from + max(1, count)))
 
-        # 2) Eğer veritabanında hiç kayıt yoksa:
-        if not nums:
+        # 2) Veritabanında hiç kayıt yoksa:
+        if not nums_set:
             current_start = max(1, int(min_threshold))
             return list(range(current_start, current_start + max(1, count)))
 
-        # 3) Kaldığı yerden devam et: En yüksek sicil_no + 1
-        max_n = max(nums)
+        # 3) Kaldığın Yerden Devam Et (Senaryo 1 - gap_fill Varsayılan):
+        # min_threshold'dan (İstanbul için 100.000) başlayıp DB'de henüz taranmamış ilk 6 haneli boşlukları ardışık üretir.
+        if strat == 'gap_fill':
+            curr = max(1, int(min_threshold))
+            while len(candidates) < count and (max_threshold is None or curr <= max_threshold):
+                if curr not in nums_set:
+                    candidates.append(curr)
+                curr += 1
+            return candidates
+
+        # 4) sequential Mod: En yüksek sicil no + 1'den devam et
+        max_n = max(nums_set)
         effective_start = max(max_n + 1, max(1, int(min_threshold)))
         return list(range(effective_start, effective_start + max(1, count)))
+
     except Exception as e:
         logger.exception(f"Failed to compute candidate sicil numbers: {e}")
         current_start = start_from if start_from is not None else max(1, int(min_threshold))

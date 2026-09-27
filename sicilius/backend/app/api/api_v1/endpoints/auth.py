@@ -275,7 +275,7 @@ def change_password(
     if not crud.user.authenticate(db, email=current_user.email, password=body.current_password):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     crud.user.update(db, db_obj=current_user, obj_in={"password": body.new_password})
-    return {"msg": "Password changed successfully"}
+    return {"detail": "Password changed successfully", "msg": "Password changed successfully"}
 
 @router.post("/password-recovery/{email}", response_model=msg_schema.Msg)
 @limiter.limit("5/hour")  # Max 5 password recovery attempts per hour per IP
@@ -294,7 +294,7 @@ async def recover_password(email: str, db: Session = Depends(deps.get_db),reques
     password_reset_token = security.generate_password_reset_token(email=email)
     # TODO: Send email with password reset token
     
-    return {"msg": "Password recovery email sent"}
+    return {"detail": "Password recovery email sent", "msg": "Password recovery email sent"}
 
 @router.post("/reset-password/", response_model=msg_schema.Msg)
 def reset_password(
@@ -321,7 +321,7 @@ def reset_password(
     db.add(user)
     db.commit()
     
-    return {"msg": "Password updated successfully"}
+    return {"detail": "Password updated successfully", "msg": "Password updated successfully"}
 
 
 # --- Invite-based onboarding ---

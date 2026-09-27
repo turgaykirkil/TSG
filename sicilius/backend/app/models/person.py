@@ -15,15 +15,15 @@ class Person(Base):
     middle_name = Column(String(100))
     last_name = Column(String(100), nullable=False, index=True)
     full_name = Column(String(300), index=True)  # For faster searching
-    masked_id = Column(String(20), index=True)  # Masked ID from OCR (e.g., "123******45")
+    masked_id = Column(String(100), index=True)  # Masked ID from OCR (e.g., "123******45")
     
     # Identification
-    nationality_id = Column(String(20), index=True)  # Not unique - same person can appear in multiple records
+    nationality_id = Column(String(100), index=True)  # Not unique - same person can appear in multiple records
     passport_number = Column(String(50), index=True)
     
     # Contact Information
     email = Column(String(255), index=True)
-    phone = Column(String(20))
+    phone = Column(String(100))
     address = Column(Text, nullable=True) # RESIDENTIAL ADDRESS FOR NEXUS DEDUPLICATION
     
     # Additional Information

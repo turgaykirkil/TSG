@@ -18,17 +18,6 @@ http://sicilius.com.tr, http://www.sicilius.com.tr {
         reverse_proxy backend:5001
     }
 
-    # Presentation page (standalone HTML)
-    handle /presentation {
-        rewrite * /presentation/index.html
-        reverse_proxy frontend:3000
-    }
-
-    handle /presentation/ {
-        rewrite * /presentation/index.html
-        reverse_proxy frontend:3000
-    }
-
     # Frontend (Next.js)
     handle {
         reverse_proxy frontend:3000

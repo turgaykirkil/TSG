@@ -16,6 +16,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 class OperationStats(BaseModel):
+    total_companies: int
     total_announcements: int
     scraped_pdfs: int
     pending_llm: int
@@ -30,7 +31,11 @@ class OperationStatus(BaseModel):
     stats: OperationStats
     logs: List[str]
     is_scraping_active: bool
+    is_scraping_paused: bool = False
     is_enrichment_active: bool
+    scraping_processed: int = 0
+    scraping_total: int = 0
+    scraping_remaining: int = 0
 
 @router.get("/status", response_model=OperationStatus)
 def get_unified_status(db: Session = Depends(deps.get_db)):
@@ -39,6 +44,7 @@ def get_unified_status(db: Session = Depends(deps.get_db)):
     """
     # Get stats logic
     db.execute(text("SET search_path TO app, public"))
+    total_companies = db.execute(text("SELECT COUNT(*) FROM app.companies")).scalar() or 0
     total_announcements = db.execute(text("SELECT COUNT(*) FROM app.announcements")).scalar() or 0
     scraped_pdfs = db.execute(text("SELECT COUNT(*) FROM app.announcements WHERE pdf_url IS NOT NULL")).scalar() or 0
     pending_llm = db.execute(text("SELECT COUNT(*) FROM app.ocr_results WHERE status = 'pending_llm'")).scalar() or 0
@@ -50,6 +56,7 @@ def get_unified_status(db: Session = Depends(deps.get_db)):
         success_rate = (completed_ocr / (completed_ocr + failed_llm)) * 100
         
     stats = {
+        "total_companies": total_companies,
         "total_announcements": total_announcements,
         "scraped_pdfs": scraped_pdfs,
         "pending_llm": pending_llm,
@@ -63,13 +70,19 @@ def get_unified_status(db: Session = Depends(deps.get_db)):
     logs = scraping_info.get("logs", [])
     is_scraping_active = scraping_info.get("running", False)
     is_scraping_paused = scraping_info.get("paused", False)
+    scraping_processed = scraping_info.get("processed", 0) or 0
+    scraping_total = scraping_info.get("total", 0) or 0
+    scraping_remaining = max(0, scraping_total - scraping_processed) if scraping_total > 0 else 0
 
     return {
         "stats": stats,
         "logs": logs,
         "is_scraping_active": is_scraping_active,
         "is_scraping_paused": is_scraping_paused,
-        "is_enrichment_active": is_enrichment_active
+        "is_enrichment_active": is_enrichment_active,
+        "scraping_processed": scraping_processed,
+        "scraping_total": scraping_total,
+        "scraping_remaining": scraping_remaining
     }
 
 @router.get("/stats", response_model=OperationStats)
@@ -180,9 +193,15 @@ async def run_enrichment_task(db_gen, limit: int):
                 
             except Exception as e:
                 logger.error(f"Error enriching OCR result {ocr.id}: {e}")
-                ocr.status = "failed_llm"
-                ocr.message = str(e)
-                db.commit()
+                db.rollback()
+                try:
+                    ocr_fail = db.query(models.OCRResult).filter(models.OCRResult.id == ocr.id).first()
+                    if ocr_fail:
+                        ocr_fail.status = "failed_llm"
+                        ocr_fail.message = str(e)[:500]
+                        db.commit()
+                except Exception:
+                    db.rollback()
                 scraping_state.add_log(f"❌ [AI Enrichment] OCR #{ocr.id} analizi başarısız: {e}")
                 
         if not should_stop_enrichment:

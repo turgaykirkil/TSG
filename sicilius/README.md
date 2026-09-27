@@ -1,162 +1,140 @@
-# 🏢 Sicilius — Akıllı Şirket Araştırma ve Ağ Analizi Platformu
-
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
-![Status](https://img.shields.io/badge/production-active-success.svg)
+# 🏢 SICILIUS PLATFORM
+### Next-Gen B2B Intelligence & Autonomous Trade Registry Pipeline
 
-**Türkiye Ticaret Sicil Gazetesi verilerini yapay zeka ile analiz eden, ilişki ağlarını haritalandıran ve kurumsal risk tespiti yapan yeni nesil istihbarat platformu.**
+<p align="center">
+  <strong>FastAPI, Next.js 14, PostGIS, Llama 3.2 AI, and React Native Powered End-to-End RegTech Ecosystem.</strong>
+</p>
 
-[sicilius.com.tr](https://sicilius.com.tr) · [NEXUS Modülü](/nexus) · [Pazarlama & Sunum Sayfası](/presentation)
+[![Production](https://img.shields.io/badge/Production-Active-success.svg)](https://sicilius.com.tr)
+[![Architecture](https://img.shields.io/badge/Clean%20Architecture-Enabled-blue.svg)](#-mimari-ve-veri-akisi)
+[![AI Model](https://img.shields.io/badge/AI%20NLP-Llama%203.2%20(Ollama%20JSON%20Mode)-purple.svg)](#-yapay-zeka-ve-otonom-ocr-hatti)
+[![Spatial](https://img.shields.io/badge/Spatial-PostGIS%20Spatial%20Indexing-orange.svg)](#-postgis-cografi-istihbarat)
 
 </div>
 
 ---
 
-## 📸 Genel Bakış ve Mimari
+## 📑 İçindekiler
+- [🎯 Proje Özeti](#-proje-özeti)
+- [🏗️ Mimari ve Veri Akışı](#-mimari-ve-veri-akisi)
+- [🧠 Yapay Zeka ve Otonom OCR Hattı](#-yapay-zeka-ve-otonom-ocr-hatti)
+- [🕸️ NEXUS Graph & Risk Motoru](#-nexus-graph--risk-motoru)
+- [🗺️ PostGIS Coğrafi İstihbarat](#-postgis-cografi-istihbarat)
+- [📱 Saha Satış Mobil Mimarisi](#-saha-satis-mobil-mimarisi)
+- [📊 İş Zekası & Yönetici Raporları](#-is-zekasi--yonetici-raporlari)
+- [🚀 Kurulum ve Dağıtım](#-kurulum-ve-dagitim)
 
-Sicilius; Türkiye Ticaret Sicil Gazetesi'nde (TSG) yayınlanan dağınık şirket ilanlarını otonom olarak tarayan, OCR ve NLP (Doğal Dil İşleme) teknolojileriyle yapılandırılmış verilere dönüştüren ve bu veriler üzerinden şirketler/kişiler arasındaki dolaylı bağları ortaya çıkaran modern bir RegTech (Regulatory Technology) platformudur.
+---
+
+## 🎯 Proje Özeti
+
+**Sicilius**, Türkiye Ticaret Sicil Gazetesi'nde yayımlanan resmi şirket ilanlarını (yeni kuruluş, sermaye artırımı, hisse devri, yetkili değişiklikleri, tasfiye ve konkordato) otonom tarayarak yapılandıran, şirketler ve ortaklar arasındaki dolaylı bağları 3D graf motoruyla haritalandıran ve saha satış ekiplerine gerçek zamanlı coğrafi lead üreten yeni nesil bir **B2B Ticari İstihbarat Platformudur**.
+
+---
+
+## 🏗️ Mimari ve Veri Akışı
 
 ```
-                    ┌────────────────────────┐
-                    │  Kullanıcı Arayüzü     │◀─── (Next.js 14, Tailwind CSS, Leaflet)
-                    └───────────┬────────────┘
-                                │ (HTTPS / API v1)
-                                ▼
-                    ┌────────────────────────┐
-                    │ Caddy Reverse Proxy    │
-                    └───────────┬────────────┘
-                                │
-                                ▼
-                    ┌────────────────────────┐
-                    │ FastAPI API Gateway    │
-                    └────┬──────────────┬────┘
-                         │              │
-                         ▼              ▼
-       ┌────────────────────┐        ┌────────────────────┐
-       │ PostgreSQL/PostGIS │        │ MinIO (S3 Storage) │
-       └────────────────────┘        └────────────────────┘
-                 ▲
-                 │ (İlişki Ağı ve Coğrafi Konum Verisi)
-                 │
-       ┌─────────┴──────────┐
-       │ NEXUS Graph Engine │◄─── (Contagion & ML Anomali Modülleri)
-       └────────────────────┘
-                 ▲
-                 │ (OCR & NLP Yapılandırılmış Çıktılar)
-                 │
-       ┌─────────┴──────────┐
-       │  Scraping Worker   │◄─── (Python Tesseract OCR & NLP Parser)
-       └────────────────────┘
+[ TSG Web Portalı ]
+       │
+       ▼ (Headless Playwright Crawler)
+[ Raw Gazette PDFs ]
+       │
+       ▼ (Tesseract / VisionKit Multi-Column Splitter)
+[ OCR Text Chunks ]
+       │
+       ▼ (Ollama Llama 3.2:3b - Deterministic JSON Schema Mode)
+[ Structured Company & Person JSON ]
+       │
+       ├──► [ PostgreSQL 15 (app schema) ] ──► [ PostGIS Spatial Radar ]
+       ├──► [ MinIO S3 Bucket ]            ──► [ Original Document Storage ]
+       └──► [ NEXUS 3D Graph Model ]       ──► [ Risk Contagion & Flow Analysis ]
 ```
 
 ---
 
-## ✨ Temel Modüller ve Yetenekler
+## 🧠 Yapay Zeka ve Otonom OCR Hattı
 
-### 1. 🕸️ NEXUS Ağ Analizi ve Risk Motoru
-Şirketler, ortaklar ve yöneticiler arasındaki ilişkileri derinlik 2'ye (Depth-2) kadar tarayarak ağ grafiği oluşturur.
-*   **İnteraktif Graf:** React Force Graph ile 3D/2D ilişki görselleştirme.
-*   **Contagion (Risk Yayılım) Simülasyonu:** Bir şirketteki finansal/hukuki risklerin ortaklık bağları üzerinden diğer şirketlere nasıl sirayet edebileceğini modeller.
-*   **Sankey Akış Diyagramı:** Şirketler arası sermaye ve kredi geçişlerini görselleştirir.
-*   **ML Anomali Tespiti:** Ağ üzerindeki şüpheli kümelenmeleri, paravan şirket yapılarını ve dolaylı ortaklıkları arka planda otomatik olarak analiz eder.
+### 1. Vision & Sayfa Parçalama (Chunking)
+- Çok sütunlu ve karmaşık dizgili resmi gazete sayfaları satır/sütun koordinatlarına göre taranır.
+- Her ilan tekil bir `OcrResult` kaydı olarak izole edilir.
 
-### 2. 🤖 Otonom OCR & NLP Veri İşleme Hattı (Pipeline)
-*   **Otonom Worker:** Ticaret Sicil Gazetesi'nden her gün otomatik olarak yayınlanan PDF'leri çeker.
-*   **Tesseract OCR:** Taranmış PDF'leri yüksek doğrulukla metne dönüştürür.
-*   **NLP Parser:** Türkçe dil modellerine uygun kurallarla metinlerden şirket unvanı, MERSİS no, VKN, kurucu ortaklar, imza yetkilileri, adresler ve sermaye değişimlerini yapısal JSON formatında ayıklar.
-
-### 3. 🗺️ Coğrafi Konum Analizi (PostGIS)
-*   Adres verilerini otomatik temizler, normalize eder ve Nominatim / LocationIQ API'leri aracılığıyla koordinatlara (`Point(4326)`) dönüştürür.
-*   PostGIS uzamsal indeksleme kullanarak bölgesel şirket yoğunluklarını Leaflet harita üzerinde kümeler halinde görselleştirir.
-
-### 4. 📧 Entegre Mailbox Sistemi
-*   Brevo API ve SMTP entegrasyonu sayesinde sistem içi davetler ve kullanıcı iletişim mesajları tek bir merkezden yönetilir.
-*   Admin panel üzerinden gelen mesajlara anlık yanıt verme yeteneği mevcuttur.
-
----
-
-## 🛠️ Teknoloji Yığını (Tech Stack)
-
-### Frontend
-*   **Next.js 14 (App Router):** Standalone production build modu ile optimize edilmiş yükleme süreleri.
-*   **TypeScript:** Statik tip güvenliği.
-*   **Tailwind CSS:** Glassmorphic ve modern koyu tema tasarımı.
-*   **Leaflet.js:** Coğrafi kümeleme haritaları.
-*   **React Force Graph & Plotly:** NEXUS ağ analizi grafiklerim.
-
-### Backend
-*   **FastAPI:** Python tabanlı, yüksek performanslı ve asenkron API altyapısı.
-*   **SQLAlchemy & Alembic:** Veritabanı ORM ve güvenli migrasyon yönetimi.
-*   **Celery / Arka Plan Görevleri:** OCR ve geocoding gibi ağır işlemleri asenkron yönetme.
-
-### Veri & DevOps
-*   **PostgreSQL 15 + PostGIS:** Uzamsal (Spatial) veri sorguları ve ilişkisel veritabanı.
-*   **MinIO (S3 Uyumlu):** PDF dokümanları ve görsel dosyaları için yerel Object Storage çözümü.
-*   **Caddy 2:** Otomatik Let's Encrypt SSL/TLS yönetimi ve güvenli ters proxy (Reverse Proxy).
-*   **Docker & Docker Compose:** Tüm servislerin containerized olarak tek komutla ayağa kaldırılması.
+### 2. Ollama Native Structured Output (Llama 3.2:3b)
+- `temperature = 0.0` ve sabit `seed = 42` ile deterministik bilgi çıkarımı.
+- Çıkarılan Veri Şeması:
+  ```json
+  {
+    "trade_name": "ÖRNEK TEKNOLOJİ ANONİM ŞİRKETİ",
+    "sicil_no": "105432-5",
+    "mersis_no": "012345678900001",
+    "capital": 5000000.0,
+    "old_capital": 1000000.0,
+    "announcement_type": "SERMAYE ARTIRIMI",
+    "persons": [
+      {
+        "name": "AHMET YILMAZ",
+        "role": "YÖNETİM KURULU BAŞKANI",
+        "masked_id": "123******89"
+      }
+    ]
+  }
+  ```
 
 ---
 
-## 🚀 Yerel Geliştirme (Local Development)
+## 🕸️ NEXUS Graph & Risk Motoru
 
-Yerel geliştirme ortamını kurmak için aşağıdaki adımları izleyin:
+*   **Derinlik 2/3 Ağ Taraması:** Bir şirketin ortakları, o ortakların diğer şirketlerdeki hisseleri ve yönetim kurulu bağlantıları tek bir grafikte birleştirilir.
+*   **Contagion (Risk Sıçraması) Modeli:** Finansal sıkıntıya giren veya tasfiye sürecindeki bir şirketin, ortaklık zinciri üzerinden risk puanı hesaplanarak ilişkili firmalar uyarılır.
+*   **Sankey Sermaye Grafiği:** Şirketler arası sermaye akışları ve para transfer hacimleri görselleştirilir.
+
+---
+
+## 🗺️ PostGIS Coğrafi İstihbarat
+
+*   Tüm şirket adresleri geocoding motorundan geçirilerek `POINT(4326)` formatında haritaya işlenir.
+*   `ST_DWithin` sorguları ile mobil veya web üzerinden satış temsilcisine anlık mesafe bazlı müşteri radarı sunulur:
+    ```sql
+    SELECT id, unvan, ST_Distance(koordinat, ST_MakePoint($lon, $lat)::geography) as distance
+    FROM app.companies
+    WHERE ST_DWithin(koordinat, ST_MakePoint($lon, $lat)::geography, 1000)
+    ORDER BY distance ASC;
+    ```
+
+---
+
+## 📱 Saha Satış Mobil Mimarisi (React Native / Expo)
+
+*   **OpenStreetMap Entegrasyonu:** Sıfır Google Maps API maliyeti ile sınırsız harita katmanı.
+*   **Pil Dostu Konum:** Mesafe filtreli (`distanceFilter: 50m`) akıllı GPS takibi.
+*   **Oyunlaştırma & Görevler:** Ziyaret doğrulama, XP puanlama ve anonim satış ligi liderlik tablosu.
+
+---
+
+## 📊 İş Zekası & Yönetici Raporları
+
+*   Günlük/Aylık sermaye artış hacimleri, kuruluş vs. kapanış istatistikleri.
+*   İl bazında şirket yoğunlukları ve sektörel dağılım analizleri.
+*   Tek tıkla **CSV / Excel** ve **Yönetici PDF Özeti** indirme.
+
+---
+
+## 🚀 Kurulum ve Dağıtım
 
 ```bash
-# 1. Projeyi klonlayın
-git clone <repo-url>
-cd sicilius
+# 1. Depoyu klonlayın
+git clone https://github.com/turgaykirkil/TSG_Platform.git
+cd TSG_Platform/sicilius
 
-# 2. Çevre değişkenlerini yapılandırın
-cp backend/.env.example backend/.env
-cp frontend/.env.local.example frontend/.env.local
-
-# 3. Docker container'larını başlatın
+# 2. Servisleri Docker ile başlatın
 docker-compose up -d --build
 
-# 4. Veritabanı migrasyonlarını uygulayın
+# 3. Veritabanı migrasyonlarını uygulayın
 docker-compose exec backend alembic upgrade head
 ```
 
-Yerel erişim adresleri:
-*   **Frontend:** `http://localhost:3000`
-*   **Backend API Swagger:** `http://localhost:5001/docs`
-
----
-
-## 🛡️ Canlı Sunucu Deployment (Production)
-
-Sicilius, şirket bünyesindeki Mac Mini sunucusunda (`sicilius-server.local`) Docker üzerinde canlı olarak çalışmaktadır.
-
-Canlıya güvenli geçiş için hazırlanan `deploy_old_mac.sh` scripti yerel terminalden tek tetikleme ile çalışır:
-```bash
-./deploy_old_mac.sh
-```
-*Bu script; yerelde Next.js build'ini alır, gerekli kaynakları rsync ile sunucuya taşır, sunucuda Docker imajlarını sıfır downtime ile yeniden derler ve database migrasyonlarını otomatik tamamlar.*
-
----
-
-## 📂 Proje Dizin Yapısı
-
-```
-sicilius/
-├── backend/            # FastAPI backend projesi
-│   ├── app/            # API endpointleri, modeller, servisler ve görevler
-│   └── alembic/        # Veritabanı migrasyon geçmişi
-├── frontend/           # Next.js 14 frontend projesi
-│   ├── src/            # Sayfalar (App Router), bileşenler ve grafikler
-│   └── public/         # Statik sayfalar, görseller, NEXUS ve presentation assetleri
-├── ocr_app/            # Swift tabanlı yerel OCR companion modülü
-├── Caddyfile           # Caddy web sunucusu proxy kuralları
-├── docker-compose.yml  # Docker servis tanımları
-└── deploy_old_mac.sh   # Otomatik deployment betiği
-```
-
----
-
-## 🔒 Güvenlik
-
-*   **JWT & RBAC:** Kullanıcı yetkilendirmesi ve Rol Tabanlı Erişim Kontrolü (Admin, Standart).
-*   **İçerik Güvenlik Politikası (CSP):** Next.js ve CDN kütüphanelerine özel tanımlı katı CSP kuralları.
-*   **Hassas Dosya Koruması:** `.env` ve SSH anahtarı gibi gizli veriler Git geçmişinden ve rsync transferlerinden tamamen izole edilmiştir.
+<div align="center">
+  <sub>Sicilius — Engineered with Precision for B2B Excellence.</sub>
+</div>

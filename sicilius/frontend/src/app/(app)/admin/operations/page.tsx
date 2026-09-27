@@ -23,7 +23,8 @@ import {
   Sparkles,
   Filter,
   Sun,
-  Moon
+  Moon,
+  Building2
 } from 'lucide-react';
 import axios from '@/lib/axios';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -45,6 +46,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 
 interface Stats {
+  total_companies: number;
   total_announcements: number;
   scraped_pdfs: number;
   pending_llm: number;
@@ -68,6 +70,7 @@ export default function OperationsPage() {
   const [startFrom, setStartFrom] = useState<string>('');
   const [isFreshStart, setIsFreshStart] = useState(false);
   const [logTab, setLogTab] = useState<'all' | 'scraping' | 'ai'>('all');
+  const [scrapingProgress, setScrapingProgress] = useState<{ processed: number; total: number; remaining: number }>({ processed: 0, total: 0, remaining: 0 });
   
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -86,6 +89,11 @@ export default function OperationsPage() {
       setIsScraping(response.data.is_scraping_active);
       setIsPaused(response.data.is_scraping_paused || false);
       setIsEnriching(response.data.is_enrichment_active);
+      setScrapingProgress({
+        processed: response.data.scraping_processed || 0,
+        total: response.data.scraping_total || 0,
+        remaining: response.data.scraping_remaining || 0,
+      });
     } catch (error) {
       console.error('Failed to fetch status:', error);
     }
@@ -304,9 +312,9 @@ export default function OperationsPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           { 
-            label: 'Toplam İlan', 
-            val: stats?.total_announcements || 0, 
-            icon: Database, 
+            label: 'Toplam Şirket', 
+            val: stats?.total_companies || 0, 
+            icon: Building2, 
             color: 'text-blue-500 bg-blue-500/10'
           },
           { 
@@ -407,6 +415,44 @@ export default function OperationsPage() {
                   className="h-8 text-xs bg-background border-border placeholder:text-muted-foreground/50"
                 />
               </div>
+
+              {/* Real-time Scraping Progress Details (Target, Processed, Remaining) */}
+              {isScraping && (
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-2.5 space-y-2 mt-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                      </span>
+                      İlerleme Durumu
+                    </span>
+                    <span className="font-bold tabular-nums text-foreground">
+                      %{scrapingProgress.total > 0 ? Math.round((scrapingProgress.processed / scrapingProgress.total) * 100) : 0}
+                    </span>
+                  </div>
+                  
+                  <Progress 
+                    value={scrapingProgress.total > 0 ? (scrapingProgress.processed / scrapingProgress.total) * 100 : 0} 
+                    className="h-1.5 bg-emerald-500/20" 
+                  />
+
+                  <div className="grid grid-cols-3 gap-1.5 pt-0.5 text-center">
+                    <div className="bg-background/80 rounded-lg py-1 px-1 border border-border/50 shadow-2xs">
+                      <div className="text-[10px] uppercase font-bold text-muted-foreground">Hedef</div>
+                      <div className="text-xs font-bold tabular-nums text-foreground">{scrapingProgress.total || scrapeCount}</div>
+                    </div>
+                    <div className="bg-background/80 rounded-lg py-1 px-1 border border-border/50 shadow-2xs">
+                      <div className="text-[10px] uppercase font-bold text-emerald-600 dark:text-emerald-400">İşlenen</div>
+                      <div className="text-xs font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{scrapingProgress.processed}</div>
+                    </div>
+                    <div className="bg-background/80 rounded-lg py-1 px-1 border border-border/50 shadow-2xs">
+                      <div className="text-[10px] uppercase font-bold text-amber-600 dark:text-amber-400">Kalan</div>
+                      <div className="text-xs font-bold tabular-nums text-amber-600 dark:text-amber-400">{scrapingProgress.remaining}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {isScraping ? (
                 <div className="grid grid-cols-2 gap-2 mt-2">

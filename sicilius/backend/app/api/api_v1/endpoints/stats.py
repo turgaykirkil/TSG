@@ -325,3 +325,150 @@ def get_system_activity(
         return [
             {"name": "Veri Yok", "requests": 0, "errors": 0}
         ]
+
+@router.get("/analytics", summary="Get comprehensive BI analytics report")
+def get_analytics_report(
+    days: int = 30,
+    db: Session = Depends(deps.get_db),
+    current_user: Any = Depends(deps.get_current_active_superuser),
+) -> Any:
+    """
+    Get comprehensive business intelligence analytics report.
+    """
+    try:
+        db.execute(text("SET search_path TO app, public"))
+        
+        # 1. High-level KPIs
+        total_companies = db.execute(text("SELECT COUNT(*) FROM app.companies")).scalar() or 0
+        total_announcements = db.execute(text("SELECT COUNT(*) FROM app.announcements")).scalar() or 0
+        total_ocrs = db.execute(text("SELECT COUNT(*) FROM app.ocr_results")).scalar() or 0
+        completed_ocrs = db.execute(text("SELECT COUNT(*) FROM app.ocr_results WHERE status = 'completed'")).scalar() or 0
+        pending_ocrs = db.execute(text("SELECT COUNT(*) FROM app.ocr_results WHERE status = 'pending_llm'")).scalar() or 0
+        failed_ocrs = db.execute(text("SELECT COUNT(*) FROM app.ocr_results WHERE status = 'failed_llm'")).scalar() or 0
+        
+        enrichment_rate = round((completed_ocrs / max(1, completed_ocrs + pending_ocrs + failed_ocrs)) * 100, 1)
+
+        # Date range for timeline
+        today = datetime.now().date()
+        date_limit = today - timedelta(days=days) if days > 0 else today - timedelta(days=365)
+        
+        # 2. Timeline Activity (Daily companies and announcements)
+        day_count = min(days if days > 0 else 30, 90)
+        date_range = [(today - timedelta(days=i)).isoformat() for i in range(day_count - 1, -1, -1)]
+        
+        comp_daily = db.execute(text("""
+            SELECT CAST(created_at AS DATE) as d, COUNT(*) as c
+            FROM app.companies
+            WHERE created_at >= :dt
+            GROUP BY CAST(created_at AS DATE)
+        """), {"dt": date_limit}).fetchall()
+        comp_map = {str(row[0]): row[1] for row in comp_daily if row[0]}
+
+        ann_daily = db.execute(text("""
+            SELECT CAST(created_at AS DATE) as d, COUNT(*) as c
+            FROM app.announcements
+            WHERE created_at >= :dt
+            GROUP BY CAST(created_at AS DATE)
+        """), {"dt": date_limit}).fetchall()
+        ann_map = {str(row[0]): row[1] for row in ann_daily if row[0]}
+
+        timeline = []
+        for d_str in date_range:
+            d_obj = datetime.fromisoformat(d_str)
+            label = d_obj.strftime("%d %b")
+            timeline.append({
+                "date": d_str,
+                "label": label,
+                "companies": comp_map.get(d_str, 0),
+                "announcements": ann_map.get(d_str, 0)
+            })
+
+        # 3. Top Cities Distribution
+        city_rows = db.execute(text("""
+            SELECT 
+                COALESCE(NULLIF(TRIM(city), ''), NULLIF(TRIM(sicil_mudurluk), ''), 'DİĞER') as city_name,
+                COUNT(*) as count
+            FROM app.companies
+            GROUP BY city_name
+            ORDER BY count DESC
+            LIMIT 10
+        """)).fetchall()
+        
+        cities = [{"name": r[0].upper(), "value": r[1]} for r in city_rows if r[0]]
+        total_cities = db.execute(text("SELECT COUNT(DISTINCT COALESCE(city, sicil_mudurluk)) FROM app.companies")).scalar() or 0
+
+        # 4. Announcement Subjects / Hususlar Distribution
+        try:
+            hususlar_rows = db.execute(text("""
+                SELECT 
+                    COALESCE(NULLIF(TRIM(elem::text), ''), 'DİĞER') as subject,
+                    COUNT(*) as count
+                FROM app.ocr_results,
+                LATERAL json_array_elements_text(
+                    CASE 
+                        WHEN json_typeof(hususlar) = 'array' THEN hususlar 
+                        ELSE '[]'::json 
+                    END
+                ) elem
+                GROUP BY subject
+                ORDER BY count DESC
+                LIMIT 8
+            """)).fetchall()
+        except Exception:
+            hususlar_rows = []
+
+        if not hususlar_rows:
+            hususlar_rows = db.execute(text("""
+                SELECT 
+                    COALESCE(NULLIF(TRIM(announcement_type), ''), 'GENEL') as subject,
+                    COUNT(*) as count
+                FROM app.announcements
+                GROUP BY subject
+                ORDER BY count DESC
+                LIMIT 8
+            """)).fetchall()
+
+        subjects = [{"name": str(r[0]).strip('"'), "value": r[1]} for r in hususlar_rows]
+
+        # 5. Top Active Companies
+        top_companies_rows = db.execute(text("""
+            SELECT c.id, c.unvan, c.city, c.sicil_no, COUNT(a.id) as ann_count
+            FROM app.companies c
+            JOIN app.announcements a ON a.company_id = c.id
+            GROUP BY c.id, c.unvan, c.city, c.sicil_no
+            ORDER BY ann_count DESC
+            LIMIT 6
+        """)).fetchall()
+
+        top_companies = [
+            {
+                "id": str(r[0]),
+                "unvan": r[1] or "Unvan Belirtilmemiş",
+                "city": r[2] or "-",
+                "sicil_no": r[3] or "-",
+                "announcement_count": r[4]
+            }
+            for r in top_companies_rows
+        ]
+
+        return {
+            "kpis": {
+                "total_companies": total_companies,
+                "total_announcements": total_announcements,
+                "total_ocr_chunks": total_ocrs,
+                "total_cities": total_cities,
+                "enrichment_rate": enrichment_rate,
+                "completed_ocrs": completed_ocrs,
+                "pending_ocrs": pending_ocrs,
+                "failed_ocrs": failed_ocrs
+            },
+            "timeline": timeline,
+            "cities": cities,
+            "subjects": subjects,
+            "top_companies": top_companies
+        }
+
+    except Exception as e:
+        logger.error(f"Analytics report error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate analytics: {str(e)}")
+

@@ -213,7 +213,7 @@ body::before {
   margin: 0 auto;
 }
 
-/* STORYTELLING STAGGERED ELEMENT ANIMATIONS */
+/* 🎬 STAGGERED KEYNOTE SLIDE ENTRANCE ANIMATIONS (APPLE CINEMATIC STYLE) */
 .slide .slide-badge,
 .slide .hero-badge,
 .slide .slide-heading,
@@ -223,87 +223,158 @@ body::before {
 .slide .glass-card,
 .slide .sol-item,
 .slide .stat-card,
+.slide .feature-item,
+.slide .source-card,
+.slide .arch-card,
+.slide .tech-pill,
+.slide .nexus-side-card,
+.slide .mobile-feature-card,
+.slide .gamification-card,
+.slide .market-card,
+.slide .biz-card,
+.slide .contact-card,
 .slide .hero-actions,
 .slide .contact-info,
-.slide .slide-footer-hint {
+.slide .slide-footer-hint,
+.slide .device-macbook-frame,
+.slide .device-iphone-frame {
   opacity: 0;
-  transform: translateY(32px) scale(0.97);
-  transition: opacity 0.65s cubic-bezier(0.16, 1, 0.3, 1),
-              transform 0.65s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: translateY(24px) scale(0.98);
+  transition: opacity 0.55s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
 }
 
-/* Active Slide Stagger Delays (Storytelling flow) */
+/* Initial transforms for Badges & Devices */
+.slide .slide-badge,
+.slide .hero-badge {
+  transform: translateY(-12px) scale(0.95);
+}
+
+.slide .device-macbook-frame,
+.slide .device-iphone-frame {
+  transform: translateY(35px) scale(0.94) rotateX(4deg);
+}
+
+/* ACTIVE SLIDE - STAGGERED TIMINGS */
+
+/* 1. Badge (Fastest - 0.08s) */
 .slide.active .slide-badge,
 .slide.active .hero-badge {
   opacity: 1;
   transform: translateY(0) scale(1);
-  transition-delay: 0.12s;
+  transition-delay: 0.08s;
 }
 
+/* 2. Main Heading (0.18s) */
 .slide.active .slide-heading,
 .slide.active .slide-title-large {
   opacity: 1;
   transform: translateY(0) scale(1);
-  transition-delay: 0.24s;
+  transition-delay: 0.18s;
 }
 
+/* 3. Subtitle (0.28s) */
 .slide.active .slide-sub,
 .slide.active .hero-sub {
   opacity: 1;
   transform: translateY(0) scale(1);
-  transition-delay: 0.38s;
+  transition-delay: 0.28s;
 }
 
-/* Staggered Grid Cards / Stats / Solution Items */
-.slide.active .hero-stats-grid .stat-card:nth-child(1) { opacity: 1; transform: translateY(0) scale(1); transition-delay: 0.48s; }
-.slide.active .hero-stats-grid .stat-card:nth-child(2) { opacity: 1; transform: translateY(0) scale(1); transition-delay: 0.60s; }
-.slide.active .hero-stats-grid .stat-card:nth-child(3) { opacity: 1; transform: translateY(0) scale(1); transition-delay: 0.72s; }
-.slide.active .hero-stats-grid .stat-card:nth-child(4) { opacity: 1; transform: translateY(0) scale(1); transition-delay: 0.84s; }
+/* 4. Devices (0.35s) */
+.slide.active .device-macbook-frame,
+.slide.active .device-iphone-frame {
+  opacity: 1;
+  transform: translateY(0) scale(1) rotateX(0deg);
+  transition-delay: 0.35s;
+  transition-duration: 0.75s;
+}
 
-.slide.active .hero-actions { opacity: 1; transform: translateY(0) scale(1); transition-delay: 0.96s; }
-.slide.active .slide-footer-hint { opacity: 1; transform: translateY(0) scale(1); transition-delay: 1.10s; }
+/* 5. General Cards / Items with default or custom --delay */
+.slide.active .glass-card,
+.slide.active .sol-item,
+.slide.active .stat-card,
+.slide.active .feature-item,
+.slide.active .source-card,
+.slide.active .arch-card,
+.slide.active .tech-pill,
+.slide.active .nexus-side-card,
+.slide.active .mobile-feature-card,
+.slide.active .gamification-card,
+.slide.active .market-card,
+.slide.active .biz-card,
+.slide.active .contact-card,
+.slide.active .hero-actions,
+.slide.active .contact-info {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition-delay: var(--delay, 0.38s);
+}
 
-.slide.active .grid-4 .glass-card:nth-child(1),
-.slide.active .grid-3 .glass-card:nth-child(1),
-.slide.active .tech-card-grid .glass-card:nth-child(1),
-.slide.active .market-grid .glass-card:nth-child(1),
-.slide.active .timeline-container-4 .glass-card:nth-child(1),
-.slide.active .grid-2 .glass-card:nth-child(1),
-.slide.active .solution-container > *:nth-child(1),
-.slide.active .faq-accordion .glass-card:nth-child(1) { opacity: 1; transform: translateY(0) scale(1); transition-delay: 0.48s; }
+/* Automatic Nth-Child Staggering inside Grids & Lists */
+.slide.active .grid-4 > *:nth-child(1),
+.slide.active .grid-3 > *:nth-child(1),
+.slide.active .grid-2 > *:nth-child(1),
+.slide.active .hero-stats-grid > *:nth-child(1),
+.slide.active .solutions-list > *:nth-child(1),
+.slide.active .sources-grid > *:nth-child(1),
+.slide.active .arch-grid > *:nth-child(1),
+.slide.active .tech-stack-row > *:nth-child(1),
+.slide.active .compact-features-list > *:nth-child(1) {
+  transition-delay: var(--delay, 0.35s);
+}
 
-.slide.active .grid-4 .glass-card:nth-child(2),
-.slide.active .grid-3 .glass-card:nth-child(2),
-.slide.active .tech-card-grid .glass-card:nth-child(2),
-.slide.active .market-grid .glass-card:nth-child(2),
-.slide.active .timeline-container-4 .glass-card:nth-child(2),
-.slide.active .grid-2 .glass-card:nth-child(2),
-.slide.active .solution-container > *:nth-child(2),
-.slide.active .faq-accordion .glass-card:nth-child(2) { opacity: 1; transform: translateY(0) scale(1); transition-delay: 0.62s; }
+.slide.active .grid-4 > *:nth-child(2),
+.slide.active .grid-3 > *:nth-child(2),
+.slide.active .grid-2 > *:nth-child(2),
+.slide.active .hero-stats-grid > *:nth-child(2),
+.slide.active .solutions-list > *:nth-child(2),
+.slide.active .sources-grid > *:nth-child(2),
+.slide.active .arch-grid > *:nth-child(2),
+.slide.active .tech-stack-row > *:nth-child(2),
+.slide.active .compact-features-list > *:nth-child(2) {
+  transition-delay: var(--delay, 0.46s);
+}
 
-.slide.active .grid-4 .glass-card:nth-child(3),
-.slide.active .grid-3 .glass-card:nth-child(3),
-.slide.active .tech-card-grid .glass-card:nth-child(3),
-.slide.active .market-grid .glass-card:nth-child(3),
-.slide.active .timeline-container-4 .glass-card:nth-child(3),
-.slide.active .faq-accordion .glass-card:nth-child(3) { opacity: 1; transform: translateY(0) scale(1); transition-delay: 0.76s; }
+.slide.active .grid-4 > *:nth-child(3),
+.slide.active .grid-3 > *:nth-child(3),
+.slide.active .grid-2 > *:nth-child(3),
+.slide.active .hero-stats-grid > *:nth-child(3),
+.slide.active .solutions-list > *:nth-child(3),
+.slide.active .sources-grid > *:nth-child(3),
+.slide.active .arch-grid > *:nth-child(3),
+.slide.active .tech-stack-row > *:nth-child(3),
+.slide.active .compact-features-list > *:nth-child(3) {
+  transition-delay: var(--delay, 0.57s);
+}
 
-.slide.active .grid-4 .glass-card:nth-child(4),
-.slide.active .grid-3 .glass-card:nth-child(4),
-.slide.active .tech-card-grid .glass-card:nth-child(4),
-.slide.active .market-grid .glass-card:nth-child(4),
-.slide.active .timeline-container-4 .glass-card:nth-child(4),
-.slide.active .faq-accordion .glass-card:nth-child(4) { opacity: 1; transform: translateY(0) scale(1); transition-delay: 0.90s; }
+.slide.active .grid-4 > *:nth-child(4),
+.slide.active .grid-3 > *:nth-child(4),
+.slide.active .hero-stats-grid > *:nth-child(4),
+.slide.active .solutions-list > *:nth-child(4),
+.slide.active .sources-grid > *:nth-child(4),
+.slide.active .arch-grid > *:nth-child(4),
+.slide.active .tech-stack-row > *:nth-child(4) {
+  transition-delay: var(--delay, 0.68s);
+}
 
-.slide.active .grid-3 .glass-card:nth-child(5) { opacity: 1; transform: translateY(0) scale(1); transition-delay: 1.04s; }
-.slide.active .grid-3 .glass-card:nth-child(6) { opacity: 1; transform: translateY(0) scale(1); transition-delay: 1.18s; }
+.slide.active .sources-grid > *:nth-child(5),
+.slide.active .tech-stack-row > *:nth-child(5) {
+  transition-delay: var(--delay, 0.79s);
+}
 
-.slide.active .sol-item:nth-child(1) { opacity: 1; transform: translateY(0) scale(1); transition-delay: 0.55s; }
-.slide.active .sol-item:nth-child(2) { opacity: 1; transform: translateY(0) scale(1); transition-delay: 0.70s; }
-.slide.active .sol-item:nth-child(3) { opacity: 1; transform: translateY(0) scale(1); transition-delay: 0.85s; }
+.slide.active .sources-grid > *:nth-child(6),
+.slide.active .tech-stack-row > *:nth-child(6) {
+  transition-delay: var(--delay, 0.90s);
+}
 
-.slide.active .arch-flow-card { opacity: 1; transform: translateY(0) scale(1); transition-delay: 1.05s; }
-.slide.active .contact-info { opacity: 1; transform: translateY(0) scale(1); transition-delay: 1.10s; }
+/* 6. Footer Hint (Late 0.8s) */
+.slide.active .slide-footer-hint {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition-delay: 0.8s;
+}
 
 /* SLIDE HEADINGS */
 .slide-badge {
@@ -1088,6 +1159,449 @@ kbd {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* 🖥️ MACBOOK PRO 3D GLASS DEVICE FRAME */
+.device-macbook-frame {
+  background: rgba(10, 22, 40, 0.95);
+  border: 1.5px solid rgba(56, 189, 248, 0.4);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 35px rgba(14, 165, 233, 0.25);
+  width: 100%;
+  position: relative;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.device-macbook-frame:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 30px 60px -10px rgba(0, 0, 0, 0.8), 0 0 45px rgba(14, 165, 233, 0.4);
+}
+
+.macbook-header {
+  background: rgba(15, 23, 42, 0.9);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.macbook-dots {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.macbook-dots .dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+}
+.macbook-dots .dot.red { background: #ff5f56; }
+.macbook-dots .dot.yellow { background: #ffbd2e; }
+.macbook-dots .dot.green { background: #27c93f; }
+
+.macbook-url-bar {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 4px 16px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: monospace;
+}
+
+.badge-live-tag {
+  font-family: 'Orbitron', monospace;
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  padding: 3px 8px;
+  border-radius: 6px;
+  letter-spacing: 0.05em;
+}
+
+.macbook-screen {
+  width: 100%;
+  min-height: 240px;
+  background: #0b1726 !important;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0 0 14px 14px;
+}
+
+.macbook-screen.dark-bg {
+  background: #0b1726 !important;
+}
+
+.screenshot-macbook-img {
+  width: 100%;
+  height: auto;
+  max-height: 440px;
+  object-fit: cover;
+  display: block;
+  background: #0b1726 !important;
+  border-radius: 0 0 12px 12px;
+  border: none;
+  outline: none;
+}
+
+/* 🚀 GLOBAL ATMOSPHERIC WATERMARK & CYBER GRID (ALL SLIDES) */
+.hero-watermark {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: 'Orbitron', monospace;
+  font-size: 16vw;
+  font-weight: 900;
+  color: rgba(56, 189, 248, 0.025);
+  letter-spacing: 0.12em;
+  pointer-events: none;
+  z-index: 0;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.cyber-grid-overlay {
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(rgba(56, 189, 248, 0.07) 1px, transparent 1px);
+  background-size: 36px 36px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* 🔍 SLIDE 3: COMPACT SPLIT SEARCH SHOWCASE LAYOUT */
+.compact-split-container {
+  display: grid;
+  grid-template-columns: 1fr 1.15fr;
+  gap: 32px;
+  align-items: center;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.compact-features-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.compact-feature-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 20px !important;
+  text-align: left;
+}
+
+.compact-feature-card .c-icon {
+  font-size: 1.6rem;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.compact-feature-card h4 {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 4px;
+}
+
+.compact-feature-card p {
+  font-size: 0.84rem;
+  color: var(--muted);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.compact-macbook-col {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.device-macbook-frame.compact-macbook {
+  width: 100%;
+  max-width: 580px;
+  margin: 0 auto;
+}
+
+/* 🎬 CLEAN CORPORATE SLIDE FADE & SCALE TRANSITIONS */
+
+.hero-product-col {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.hero-device-frame {
+  width: 100%;
+  background: rgba(10, 22, 40, 0.95);
+  border: 1.5px solid rgba(56, 189, 248, 0.45);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 30px 60px -10px rgba(0, 0, 0, 0.8), 0 0 45px rgba(56, 189, 248, 0.3);
+  transition: transform 0.4s ease, box-shadow 0.4s ease;
+}
+
+.hero-device-frame:hover {
+  transform: translateY(-6px) scale(1.01);
+  box-shadow: 0 35px 70px -10px rgba(0, 0, 0, 0.9), 0 0 60px rgba(56, 189, 248, 0.45);
+}
+
+.hero-product-screen {
+  background: #ffffff;
+  width: 100%;
+  min-height: 280px;
+  max-height: 380px;
+  overflow: hidden;
+}
+
+.hero-product-img {
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+  display: block;
+}
+
+.floating-glass-badge {
+  position: absolute;
+  background: rgba(10, 22, 40, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  padding: 10px 18px;
+  border-radius: 30px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #ffffff;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6), 0 0 20px rgba(56, 189, 248, 0.25);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: floatBadge 4s ease-in-out infinite alternate;
+}
+
+.floating-glass-badge.badge-top-right {
+  top: -16px;
+  right: -12px;
+}
+
+.floating-glass-badge.badge-bottom-left {
+  bottom: -16px;
+  left: -12px;
+  animation-delay: 2s;
+}
+
+@keyframes floatBadge {
+  0% { transform: translateY(0px); }
+  100% { transform: translateY(-8px); }
+}
+
+.fallback-nexus-ui {
+  padding: 24px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.fallback-search-bar {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  padding: 12px 18px;
+  border-radius: 10px;
+  color: #ffffff;
+  font-size: 0.95rem;
+}
+
+.fallback-node-badge {
+  background: rgba(14, 165, 233, 0.15);
+  border: 1px solid rgba(14, 165, 233, 0.4);
+  padding: 14px 18px;
+  border-radius: 12px;
+  color: #ffffff;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* 📱 IPHONE 16 PRO NEON GLASS FRAME */
+.mobile-frame-card {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 16px 20px !important;
+  gap: 16px !important;
+}
+
+.mobile-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  text-align: left;
+}
+
+.device-iphone-frame {
+  width: 140px !important;
+  max-width: 140px !important;
+  flex-shrink: 0;
+  margin: 0 !important;
+  background: #070e1c;
+  border: 2px solid rgba(56, 189, 248, 0.45);
+  border-radius: 20px;
+  overflow: hidden;
+  position: relative;
+  box-shadow: 0 12px 25px rgba(0, 0, 0, 0.8), 0 0 20px rgba(56, 189, 248, 0.25);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.device-iphone-frame:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.9), 0 0 30px rgba(56, 189, 248, 0.4);
+}
+
+.iphone-dynamic-island {
+  width: 44px;
+  height: 10px;
+  background: #000000;
+  border-radius: 8px;
+  margin: 6px auto 2px auto;
+  position: relative;
+  z-index: 10;
+}
+
+.iphone-screen {
+  width: 100%;
+  min-height: 140px;
+  background: rgba(10, 22, 40, 0.9);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.screenshot-iphone-img {
+  width: 100%;
+  height: auto;
+  max-height: 170px;
+  object-fit: contain;
+  display: block;
+}
+
+.fallback-mobile-ui {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.badge-float-pill {
+  display: inline-block;
+  align-self: flex-start;
+  background: rgba(168, 85, 247, 0.2);
+  border: 1px solid rgba(168, 85, 247, 0.5);
+  color: #c084fc;
+  font-family: 'Orbitron', monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+}
+
+.badge-float-pill.green-pill {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: rgba(34, 197, 94, 0.5);
+  color: #4ade80;
+}
+
+.feature-screenshot-img {
+  width: 100%;
+  height: 110px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  margin-bottom: 12px;
+}
+
+/* 🌌 AMBIENT HERO BACKDROP IMAGE */
+.ambient-backdrop-image {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ambient-backdrop-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.18;
+  filter: blur(4px) saturate(1.4);
+  transform: scale(1.05);
+  transition: transform 10s ease;
+}
+
+.slide.active .ambient-backdrop-image img {
+  transform: scale(1);
+}
+
+.ambient-overlay {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(5, 11, 20, 0.4) 0%, rgba(5, 11, 20, 0.95) 80%);
+}
+
+.device-iphone-frame.violet-glow {
+  border-color: rgba(168, 85, 247, 0.5);
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.8), 0 0 35px rgba(168, 85, 247, 0.35);
+}
+
+.device-iphone-frame.cyan-glow {
+  border-color: rgba(56, 189, 248, 0.5);
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.8), 0 0 35px rgba(56, 189, 248, 0.35);
+}
+
+.mobile-frame-footer {
+  padding: 10px 14px;
+  background: rgba(15, 23, 42, 0.95);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: center;
+}
+
+.screenshot-iphone-img {
+  width: 100%;
+  height: auto;
+  max-height: 380px;
+  object-fit: contain;
+  display: block;
 }
 
 /* RESPONSIVE DESIGN */

@@ -410,6 +410,10 @@ def ingest_persons_and_relations(
             continue
         
         first_name, middle_name, last_name = name_parts
+        first_name = first_name[:100] if first_name else ""
+        middle_name = middle_name[:100] if middle_name else None
+        last_name = last_name[:100] if last_name else ""
+        safe_masked_id = masked_id[:100] if masked_id else None
         
         # SEARCH FOR EXISTING PERSON (Disjunctive: Name + [ID OR Address])
         # Find candidates with same name
@@ -421,7 +425,7 @@ def ingest_persons_and_relations(
         existing_person = None
         for cand in candidates:
             # 1. Match by Masked ID (Strongest)
-            if masked_id and cand.masked_id == masked_id:
+            if safe_masked_id and cand.masked_id == safe_masked_id:
                 existing_person = cand
                 break
             
@@ -432,7 +436,7 @@ def ingest_persons_and_relations(
             
             # 3. Fallback: If both existing and new have NO ID and NO Address, 
             # we assume it's the same person (Standard deduplication)
-            if not masked_id and not cand.masked_id and not address and not cand.address:
+            if not safe_masked_id and not cand.masked_id and not address and not cand.address:
                 existing_person = cand
                 break
 
@@ -442,20 +446,20 @@ def ingest_persons_and_relations(
                 first_name=first_name,
                 middle_name=middle_name,
                 last_name=last_name,
-                masked_id=masked_id,
-                nationality_id=masked_id,
+                masked_id=safe_masked_id,
+                nationality_id=safe_masked_id,
                 address=address
             )
             db.add(person_obj)
             db.flush()
-            logger.info(f"Created person: {full_name} (ID: {masked_id}, Address: {address})")
+            logger.info(f"Created person: {full_name} (ID: {safe_masked_id}, Address: {address})")
         else:
             person_obj = existing_person
             # Update fields if they were missing
             updated = False
-            if not person_obj.masked_id and masked_id:
-                person_obj.masked_id = masked_id
-                person_obj.nationality_id = masked_id
+            if not person_obj.masked_id and safe_masked_id:
+                person_obj.masked_id = safe_masked_id
+                person_obj.nationality_id = safe_masked_id
                 updated = True
             if not person_obj.address and address:
                 person_obj.address = address
